@@ -1,0 +1,39 @@
+{
+  "realm": "loc-coc",
+  "enabled": true,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 90000,
+  "ssoSessionMaxLifespan": 90000,
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "Authenticated LocCoc user"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "loccoc-mobile",
+      "name": "LocCoc Mobile",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["${MOBILE_REDIRECT_URI}"],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "access.token.lifespan": "900",
+        "client.session.idle.timeout": "86400",
+        "client.session.max.lifespan": "86400"
+      }
+    }
+  ]
+}
