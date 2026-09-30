@@ -1,42 +1,35 @@
 # LocCoc
 
+This repository is a small starting point for a NestJS user service and a Flutter app. Authentication and application APIs have not been implemented yet.
+
 ## Local infrastructure
 
-This Compose stack is for development: PostgreSQL, Keycloak, a single-node
-Kafka broker in KRaft mode, and Kafbat UI. Keycloak owns the `keycloak`
-database, and User Service owns the `user` database. Each has a separate
-PostgreSQL role in the same PostgreSQL instance.
-
-1. Run `Copy-Item .env.example .env` in PowerShell, then replace the sample
-   passwords and set `MOBILE_REDIRECT_URI` to the team's exact HTTPS mobile
-   callback. Compose will not start Keycloak while this value is blank.
-2. Run `docker compose up -d`.
-3. Check `docker compose logs keycloak` for the initial realm import.
-4. Open `http://localhost:8180` and sign in using the admin credentials in
-   `.env`.
-5. Open Kafka UI at `http://localhost:9080` to inspect the `loccoc-local`
-   cluster.
-
-The tracked Keycloak settings are in `docker/keycloak/loc-coc-realm.json`.
-Keycloak imports it on first startup only; an existing realm is skipped.
-See `docker/keycloak/README.md` for token/session behavior and this limitation.
-
-From the host: PostgreSQL `localhost:5433` (database `user`, role
-`user_service`), Kafka `localhost:9092`, Keycloak `http://localhost:8180`,
-Kafka UI `http://localhost:9080`.
-From other Compose containers: `db:5432`, `kafka:19092`, `keycloak:8180`.
-No host port in the 8080-8090 range is published.
-
-To use Kafka CLI, enable the `tools` profile and run commands in its container:
+The Compose stack contains PostgreSQL, Kafka, Kafbat UI and an optional Kafka CLI container. Copy `.env.example` to `.env` and replace the sample PostgreSQL passwords before starting:
 
 ```powershell
-docker compose --profile tools up -d kafka-cli
-docker compose --profile tools exec kafka-cli /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --list
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+docker compose up -d
 ```
 
-The database initialization script runs only with an empty PostgreSQL volume.
-Changing passwords in `.env` later will not update existing database users.
-For Flutter on a real device, set `KEYCLOAK_HOSTNAME` to a URL the device can
-reach and `KEYCLOAK_BIND_ADDRESS=0.0.0.0`; mobile and backend must use that
-same OIDC issuer. This HTTP and PLAINTEXT Kafka setup is for local development,
-not production.
+PostgreSQL is exposed on `127.0.0.1:5433` by default. The initialization script creates the `user` database and `user_service` role on a fresh PostgreSQL volume. Kafka is exposed on `127.0.0.1:9092`, and Kafbat UI on `127.0.0.1:9080`. The CLI container uses the `tools` profile.
+
+The initialization script does not re-run on an existing PostgreSQL volume. This cleanup does not remove existing volumes or databases.
+
+If you already have a local `.env`, remove entries that no longer appear in `.env.example`. The ignored `.env` file is not edited by this cleanup; `.env.example` contains the current template.
+
+## Applications
+
+- [user-service](user-service/README.md) starts on port 8081 and currently exposes no application API.
+- [MobileApp](MobileApp/README.md) shows a basic login form. It does not authenticate users yet.
+
+## TODO: future identity service contract
+
+The identity service will be designed separately. Before connecting it, define:
+
+- JWT signing algorithm and key rotation; public JWKS endpoint and cache policy.
+- Exact `iss` value, accepted `aud` values, token lifetime, and standard claims (`sub`, `exp`, `scope`, `roles`).
+- Login, refresh token rotation, and logout endpoints, including request and response formats for the mobile app.
+- A provider-neutral `AuthenticatedUser` shape (`userId`, `roles`, `scopes`) and JWT verification for services that later expose protected APIs.
+- Role and scope names. No service currently checks any role or scope.
+
+The mobile app currently calls no authentication endpoint. Its login button validates input and displays an unavailable message. There is no development authentication bypass.

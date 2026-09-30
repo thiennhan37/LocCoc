@@ -1,17 +1,19 @@
-# mobile_app
+# LocCoc mobile app
 
-A new Flutter project.
+The app currently displays only a basic login form with an email/phone field and a password field. Input validation runs locally. Pressing **Đăng nhập** does not call a backend, create a session, or issue a token; it displays an unavailable message until the future identity service is ready.
 
-## Getting Started
+## Run and check
 
-This project is a starting point for a Flutter application.
+```powershell
+cd MobileApp
+flutter pub get
+flutter analyze
+flutter test
+flutter run
+```
 
-A few resources to get you started if this is your first Flutter project:
+To build an Android debug APK, run `flutter build apk --debug`. No OIDC issuer, client ID, redirect URI, or mobile authentication environment variable is needed.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## TODO: identity integration
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Agree on the login, refresh and logout API contract before connecting this form. The app currently calls none of those endpoints. Add token storage and authenticated navigation only when the identity service exists; do not treat a successful form validation as authentication.
