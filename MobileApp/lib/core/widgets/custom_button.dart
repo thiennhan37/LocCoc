@@ -23,8 +23,11 @@ class CustomButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveBgColor = backgroundColor ?? (isOutlined ? Colors.transparent : AppColors.primary);
-    final effectiveTextColor = textColor ?? (isOutlined ? AppColors.primary : Colors.white);
+    final effectiveBgColor =
+        backgroundColor ??
+        (isOutlined ? Colors.transparent : AppColors.primary);
+    final effectiveTextColor =
+        textColor ?? (isOutlined ? AppColors.primary : Colors.white);
 
     return SizedBox(
       width: double.infinity,
@@ -33,7 +36,10 @@ class CustomButton extends StatelessWidget {
           ? OutlinedButton(
               onPressed: isLoading ? null : onPressed,
               style: OutlinedButton.styleFrom(
-                side: BorderSide(color: backgroundColor ?? AppColors.primary, width: 1.5),
+                side: BorderSide(
+                  color: backgroundColor ?? AppColors.primary,
+                  width: 1.5,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
@@ -45,7 +51,7 @@ class CustomButton extends StatelessWidget {
               style: ElevatedButton.styleFrom(
                 backgroundColor: effectiveBgColor,
                 elevation: 0,
-                shadowColor: AppColors.primary.withOpacity(0.3),
+                shadowColor: AppColors.primary.withValues(alpha: 0.3),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),

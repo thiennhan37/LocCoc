@@ -6,7 +6,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD in .env}
       POSTGRES_DB: postgres
-      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD in .env}
       USER_DB_PASSWORD: ${USER_DB_PASSWORD:?Set USER_DB_PASSWORD in .env}
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
@@ -18,29 +17,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.7.4
-    command: ["start-dev", "--import-realm"]
-    restart: unless-stopped
-    environment:
-      KC_DB: postgres
-      KC_DB_URL_HOST: db
-      KC_DB_URL_DATABASE: keycloak
-      KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD in .env}
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD in .env}
-      KC_HTTP_PORT: 8180
-      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-http://localhost:8180}
-      MOBILE_REDIRECT_URI: ${MOBILE_REDIRECT_URI:?Set the real HTTPS mobile callback in .env}
-    ports:
-      - "${KEYCLOAK_BIND_ADDRESS:-127.0.0.1}:8180:8180"
-    volumes:
-      - ./docker/keycloak/loc-coc-realm.json:/opt/keycloak/data/import/loc-coc-realm.json:ro
-    depends_on:
-      db:
-        condition: service_healthy
 
   kafka:
     image: apache/kafka:4.3.1

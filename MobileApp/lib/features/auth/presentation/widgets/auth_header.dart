@@ -18,7 +18,7 @@ class AuthHeader extends StatelessWidget {
             borderRadius: BorderRadius.circular(28),
             boxShadow: [
               BoxShadow(
-                color: AppColors.primary.withOpacity(0.15),
+                color: AppColors.primary.withValues(alpha: 0.15),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -41,7 +41,7 @@ class AuthHeader extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        
+
         // App Title
         const Text(
           AppStrings.appName,
