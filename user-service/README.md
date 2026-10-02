@@ -7,10 +7,12 @@ This NestJS service is an empty application shell. It starts on port 8081 and ex
 ```powershell
 cd user-service
 pnpm install
-pnpm run start:dev
+npm start
 ```
 
-Set `PORT` in the process environment if a different port is needed. This service does not read the root `.env` file.
+`npm start` chạy chế độ thường; dùng `npm run start:dev` để watch file.
+
+Set `USER_PORT` in the root `.env` if a different port is needed. The service uses the shared environment schema and validates database, Redis, CORS and JWT settings at startup.
 
 ## Verify
 
