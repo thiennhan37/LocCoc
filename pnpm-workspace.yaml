@@ -1,0 +1,5 @@
+packages:
+  - api-gateway
+  - auth-service
+  - user-service
+  - libs/common
