@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { ResendOtpDto, VerifyOtpDto } from './dto/otp.dto.js';
-import { User, UserRole, UserStatus } from './entities/user.entity.js';
+import { Account, AccountRole, AccountStatus } from './entities/account.entity.js';
 import { OtpService } from './services/otp.service.js';
 import { PasswordService } from './services/password.service.js';
 
@@ -15,7 +15,7 @@ export class AuthService {
   private readonly loginFailures = new Map<string, { count: number; lockedUntil: number }>();
 
   constructor(
-    @InjectRepository(User) private readonly users: Repository<User>,
+    @InjectRepository(Account) private readonly users: Repository<Account>,
     private readonly passwords: PasswordService,
     private readonly otps: OtpService,
   ) {}
@@ -50,9 +50,9 @@ export class AuthService {
     }
     const user = this.users.create({
       email, phone, passwordHash: await this.passwords.hash(dto.password),
-      role: UserRole.USER, status: UserStatus.PENDING_VERIFICATION, emailVerifiedAt: null,
+      role: AccountRole.USER, status: AccountStatus.PENDING_VERIFICATION, emailVerifiedAt: null,
     });
-    let saved: User;
+    let saved: Account;
     try {
       saved = await this.users.save(user);
     } catch (error) {
@@ -80,8 +80,8 @@ export class AuthService {
     if (!verified) return { verified: false, message: 'Invalid or expired OTP' };
     if (dto.email) {
       const user = await this.users.findOne({ where: { email: this.normalizeEmail(dto.email) } });
-      if (user && user.status === UserStatus.PENDING_VERIFICATION) {
-        user.status = UserStatus.ACTIVE;
+      if (user && user.status === AccountStatus.PENDING_VERIFICATION) {
+        user.status = AccountStatus.ACTIVE;
         user.emailVerifiedAt = new Date();
         await this.users.save(user);
       }
@@ -113,12 +113,12 @@ export class AuthService {
     if (lock && lock.lockedUntil > Date.now()) throw new UnauthorizedException('Invalid credentials');
     const user = await this.users.findOne({ where: { email } });
     const validPassword = await this.passwords.verify(user?.passwordHash, dto.password);
-    if (!user || !validPassword || user.status !== UserStatus.ACTIVE) {
+    if (!user || !validPassword || user.status !== AccountStatus.ACTIVE) {
       this.recordLoginFailure(key);
       throw new UnauthorizedException('Invalid credentials');
     }
     this.loginFailures.delete(key);
-    return { authenticated: true, user: this.publicUser(user) };
+    return { authenticated: true, user: this.publicAccount(user) };
   }
 
   private recordLoginFailure(key: string): void {
@@ -129,7 +129,7 @@ export class AuthService {
     this.loginFailures.set(key, { count, lockedUntil: lockMs ? Date.now() + lockMs : 0 });
   }
 
-  private publicUser(user: User): Record<string, unknown> {
+  private publicAccount(user: Account): Record<string, unknown> {
     return { id: user.id, email: user.email, phone: user.phone, role: user.role, status: user.status, emailVerifiedAt: user.emailVerifiedAt };
   }
 }

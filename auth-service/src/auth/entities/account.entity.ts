@@ -8,23 +8,24 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-export enum UserRole {
+export enum AccountRole {
   USER = 'user',
   MODERATOR = 'moderator',
   ADMIN = 'admin',
 }
 
-export enum UserStatus {
+export enum AccountStatus {
   PENDING_VERIFICATION = 'pending_verification',
   ACTIVE = 'active',
   SUSPENDED = 'suspended',
 }
 
+// Existing auth migration owns this table; the database is now named accounts.
 @Entity({ name: 'users' })
 @Index('IDX_users_email_login', ['email'])
 @Index('IDX_users_phone_login', ['phone'])
 @Index('IDX_users_status', ['status'])
-export class User {
+export class Account {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -37,11 +38,11 @@ export class User {
   @Column({ name: 'password_hash', type: 'varchar', length: 255 })
   passwordHash!: string;
 
-  @Column({ type: 'enum', enum: UserRole, default: UserRole.USER })
-  role!: UserRole;
+  @Column({ type: 'enum', enum: AccountRole, enumName: 'user_role_enum', default: AccountRole.USER })
+  role!: AccountRole;
 
-  @Column({ type: 'enum', enum: UserStatus, default: UserStatus.PENDING_VERIFICATION })
-  status!: UserStatus;
+  @Column({ type: 'enum', enum: AccountStatus, enumName: 'user_status_enum', default: AccountStatus.PENDING_VERIFICATION })
+  status!: AccountStatus;
 
   @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
   emailVerifiedAt!: Date | null;

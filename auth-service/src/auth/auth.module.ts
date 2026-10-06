@@ -6,7 +6,7 @@ import { REDIS_CLIENT, RedisModule } from '../database/redis.module.js';
 import { AuthRedisThrottlerStorage } from '../database/auth-throttler.storage.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
-import { User } from './entities/user.entity.js';
+import { Account } from './entities/account.entity.js';
 import { ConsoleOtpSender, OTP_SENDER, OTP_STORE, OtpService, RedisHashStore } from './services/otp.service.js';
 import { PasswordService } from './services/password.service.js';
 
@@ -20,7 +20,7 @@ import { PasswordService } from './services/password.service.js';
         storage,
       }),
     }),
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([Account]),
     RedisModule,
   ],
   controllers: [AuthController],

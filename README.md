@@ -63,7 +63,7 @@ pnpm --filter api-gateway test:e2e
 
 The e2e contract covers unknown-field rejection (400), route throttling (429), and sanitized 500 responses with `requestId`. Redis must be running for the gateway test.
 
-PostgreSQL is exposed on `127.0.0.1:5433` by default. The initialization script creates the `user` and `auth` databases with their service roles on a fresh PostgreSQL volume. Redis is exposed on `127.0.0.1:6379`; Kafka is exposed on `127.0.0.1:9092`, and Kafbat UI on `127.0.0.1:9080`. The CLI container uses the `tools` profile.
+PostgreSQL is exposed on `127.0.0.1:5433` by default. The initialization script creates the `users` and `accounts` databases with their service roles on a fresh PostgreSQL volume. Redis is exposed on `127.0.0.1:6379`; Kafka is exposed on `127.0.0.1:9092`, and Kafbat UI on `127.0.0.1:9080`. The CLI container uses the `tools` profile.
 
 The initialization script does not re-run on an existing PostgreSQL volume. This cleanup does not remove existing volumes or databases.
 

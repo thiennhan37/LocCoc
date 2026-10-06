@@ -1,6 +1,8 @@
 # user-service
 
-This NestJS service is an empty application shell. It starts on port 8081 and exposes no application API or authentication endpoint. Routes such as `/` and `/oauth/callback` return 404.
+This NestJS service is an empty application shell. It starts on port 8081 and exposes no application API or authentication endpoint.
+
+The service owns the users PostgreSQL database. Its TypeORM connection is configured with synchronize and migrations disabled; no business tables are created yet. Routes such as `/` and `/oauth/callback` return 404.
 
 ## Run
 

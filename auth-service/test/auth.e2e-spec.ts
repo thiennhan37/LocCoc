@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthController } from '../src/auth/auth.controller.js';
 import { AuthService } from '../src/auth/auth.service.js';
 import { RegisterDto } from '../src/auth/dto/register.dto.js';
-import { User, UserRole, UserStatus } from '../src/auth/entities/user.entity.js';
+import { Account, AccountRole, AccountStatus } from '../src/auth/entities/account.entity.js';
 import {
   InMemoryOtpStore,
   OTP_SENDER,
@@ -20,14 +20,14 @@ import {
 import { PasswordService } from '../src/auth/services/password.service.js';
 
 type TestRepository = {
-  findOne: (options: { where: Partial<User> }) => Promise<User | null>;
-  create: (data: Partial<User>) => User;
-  save: (user: User) => Promise<User>;
+  findOne: (options: { where: Partial<Account> }) => Promise<Account | null>;
+  create: (data: Partial<Account>) => Account;
+  save: (user: Account) => Promise<Account>;
 };
 
 describe('Auth HTTP API (e2e)', () => {
   let app: INestApplication;
-  let users: User[];
+  let users: Account[];
   let sent: Array<{ destination: string; code: string; channel: 'email' | 'phone' }>;
   let repository: TestRepository;
 
@@ -43,8 +43,8 @@ describe('Auth HTTP API (e2e)', () => {
         email: data.email!,
         phone: data.phone ?? null,
         passwordHash: data.passwordHash!,
-        role: data.role ?? UserRole.USER,
-        status: data.status ?? UserStatus.PENDING_VERIFICATION,
+        role: data.role ?? AccountRole.USER,
+        status: data.status ?? AccountStatus.PENDING_VERIFICATION,
         emailVerifiedAt: data.emailVerifiedAt ?? null,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -69,7 +69,7 @@ describe('Auth HTTP API (e2e)', () => {
         PasswordService,
         OtpService,
         { provide: ConfigService, useValue: { get: () => undefined } },
-        { provide: getRepositoryToken(User), useValue: repository },
+        { provide: getRepositoryToken(Account), useValue: repository },
         { provide: OTP_STORE, useValue: new InMemoryOtpStore() },
         { provide: OTP_SENDER, useValue: sender },
       ],
@@ -97,14 +97,14 @@ describe('Auth HTTP API (e2e)', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ destination: 'person@example.com', channel: 'email' });
     expect(sent[0].code).toMatch(/^\d{6}$/);
-    expect(users[0].status).toBe(UserStatus.PENDING_VERIFICATION);
+    expect(users[0].status).toBe(AccountStatus.PENDING_VERIFICATION);
 
     const verified = await request(app.getHttpServer()).post('/auth/verify-otp').send({
       email: 'person@example.com', otp: sent[0].code,
     });
     expect(verified.status).toBe(200);
     expect(verified.body.verified).toBe(true);
-    expect(users[0].status).toBe(UserStatus.ACTIVE);
+    expect(users[0].status).toBe(AccountStatus.ACTIVE);
   });
 
   it('rejects passwords that do not satisfy the policy', async () => {
