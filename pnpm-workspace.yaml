@@ -3,3 +3,5 @@ packages:
   - auth-service
   - user-service
   - libs/common
+allowBuilds:
+  argon2: true

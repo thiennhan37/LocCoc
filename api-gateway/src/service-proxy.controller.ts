@@ -36,10 +36,14 @@ export class ServiceProxyController {
     // eliminate HOP_BY_HOP_HEADERS and copy headers from request to headers
     const headers = new Headers();
     for (const [name, value] of Object.entries(request.headers)) {
-      if (HOP_BY_HOP_HEADERS.has(name.toLowerCase()) || Array.isArray(value) || value === undefined) continue;
+      if (HOP_BY_HOP_HEADERS.has(name.toLowerCase()) || ['x-forwarded-for', 'x-real-ip'].includes(name.toLowerCase()) || Array.isArray(value) || value === undefined) continue;
       headers.set(name, value);
     }
     headers.set('x-request-id', request.requestId);
+    // Replace client-supplied forwarding headers with the gateway-derived IP.
+    const clientIp = request.ip ?? request.socket.remoteAddress ?? 'unknown';
+    headers.set('x-forwarded-for', clientIp);
+    headers.set('x-real-ip', clientIp);
 
     const hasBody = !['GET', 'HEAD'].includes(request.method);
     const body = hasBody && request.body !== undefined ? JSON.stringify(request.body) : undefined;

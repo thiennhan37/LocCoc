@@ -31,8 +31,29 @@ export class RedisThrottlerStorage implements ThrottlerStorage, OnModuleInit, On
     });
   }
 
-  async onModuleInit(): Promise<void> { await this.redis.connect(); }
-  async onApplicationShutdown(): Promise<void> { this.redis.disconnect(); }
+  async onModuleInit(): Promise<void> {
+    if (this.redis.status === 'ready') return;
+    if (this.redis.status === 'wait') {
+      await this.redis.connect();
+      return;
+    }
+    if (this.redis.status === 'connecting' || this.redis.status === 'connect') {
+      await new Promise<void>((resolve, reject) => {
+        const onReady = () => { cleanup(); resolve(); };
+        const onError = (error: Error) => { cleanup(); reject(error); };
+        const cleanup = () => {
+          this.redis.off('ready', onReady);
+          this.redis.off('error', onError);
+        };
+        this.redis.once('ready', onReady);
+        this.redis.once('error', onError);
+      });
+    }
+  }
+
+  async onApplicationShutdown(): Promise<void> {
+    if (this.redis.status !== 'end') this.redis.disconnect();
+  }
 
   async increment(key: string, ttl: number, limit: number, blockDuration: number, throttlerName: string) {
     const baseKey = `throttle:${throttlerName}:${key}`;
@@ -47,3 +68,4 @@ export class RedisThrottlerStorage implements ThrottlerStorage, OnModuleInit, On
     };
   }
 }
+

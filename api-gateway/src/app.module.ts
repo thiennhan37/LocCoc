@@ -11,7 +11,7 @@ import { RedisThrottlerStorage } from './redis-throttler.storage.js';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: '../.env', validate: validateEnvironment }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env', '../.env'], validate: validateEnvironment }),
     RedisModule,
     ThrottlerModule.forRootAsync({
       imports: [RedisModule],
@@ -26,3 +26,4 @@ import { RedisThrottlerStorage } from './redis-throttler.storage.js';
   providers: [{ provide: APP_GUARD, useClass: IpThrottlerGuard }],
 })
 export class AppModule {}
+
