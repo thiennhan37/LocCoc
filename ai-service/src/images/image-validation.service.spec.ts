@@ -45,6 +45,18 @@ describe('ImageValidationService', () => {
     ).rejects.toMatchObject({ code: 'INVALID_AI_OUTPUT' });
   });
 
+  it('rejects a signature-valid truncated handwritten provider image as invalid AI output', async () => {
+    const bytes = await fixture('jpeg');
+    const truncatedBytes = bytes.subarray(0, bytes.length - 1);
+
+    await expect(
+      imageValidation.validateOutput('handwritten_diary', {
+        bytes: truncatedBytes,
+        mimeType: 'image/jpeg',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_AI_OUTPUT' });
+  });
+
   it('rejects provider output larger than 20 MiB before inspecting image content', async () => {
     await expect(
       imageValidation.validateOutput('handwritten_diary', {
@@ -67,6 +79,15 @@ describe('ImageValidationService', () => {
 
     await expect(
       imageValidation.validateOutput('subject_sticker', { bytes, mimeType: 'image/png' }),
+    ).rejects.toMatchObject({ code: 'INVALID_AI_OUTPUT' });
+  });
+
+  it('normalizes a signature-valid truncated sticker PNG decode failure as invalid AI output', async () => {
+    const bytes = await fixture('png', 0);
+    const truncatedBytes = bytes.subarray(0, bytes.length - 20);
+
+    await expect(
+      imageValidation.validateOutput('subject_sticker', { bytes: truncatedBytes, mimeType: 'image/png' }),
     ).rejects.toMatchObject({ code: 'INVALID_AI_OUTPUT' });
   });
 

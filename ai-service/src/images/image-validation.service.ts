@@ -33,7 +33,7 @@ export class ImageValidationService {
       throw invalidAiOutput();
     }
 
-    const metadata = await assertDecodable(image.bytes, 'INVALID_AI_OUTPUT', 'AI did not return a valid image');
+    const metadata = await assertOutputDecodable(image.bytes);
     if (filterId === 'subject_sticker') {
       if (detectedMime !== 'image/png' || !metadata.hasAlpha || !(await hasTransparentPixel(image.bytes))) {
         throw invalidAiOutput();
@@ -64,16 +64,30 @@ async function assertDecodable(
 }
 
 async function hasTransparentPixel(bytes: Buffer): Promise<boolean> {
-  const { data, info } = await sharp(bytes, { failOn: 'error' }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const alphaChannel = info.channels - 1;
+  try {
+    const { data, info } = await sharp(bytes, { failOn: 'error' }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const alphaChannel = info.channels - 1;
 
-  for (let index = alphaChannel; index < data.length; index += info.channels) {
-    if (data[index] < 255) return true;
+    for (let index = alphaChannel; index < data.length; index += info.channels) {
+      if (data[index] < 255) return true;
+    }
+
+    return false;
+  } catch (cause) {
+    throw invalidAiOutput(cause);
   }
-
-  return false;
 }
 
-function invalidAiOutput(): ImageEnhancementError {
-  return new ImageEnhancementError('INVALID_AI_OUTPUT', 'AI did not return a valid image');
+async function assertOutputDecodable(bytes: Buffer) {
+  try {
+    const metadata = await sharp(bytes, { failOn: 'error' }).metadata();
+    await sharp(bytes, { failOn: 'error' }).raw().toBuffer();
+    return metadata;
+  } catch (cause) {
+    throw invalidAiOutput(cause);
+  }
+}
+
+function invalidAiOutput(cause?: unknown): ImageEnhancementError {
+  return new ImageEnhancementError('INVALID_AI_OUTPUT', 'AI did not return a valid image', cause);
 }
