@@ -4,3 +4,7 @@ packages:
   - user-service
   - ai-service
   - libs/common
+
+allowBuilds:
+  '@google/genai': false
+  protobufjs: false
