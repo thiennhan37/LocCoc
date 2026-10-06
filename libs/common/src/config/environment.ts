@@ -18,6 +18,24 @@ const schema = Joi.object({
   USER_DB_USER: Joi.string().required(),
   USER_DB_PASSWORD: Joi.string().required(),
   REDIS_URL: Joi.string().uri({ scheme: ['redis', 'rediss'] }).required(),
+  // Password hashing (OWASP Argon2id baseline: 19 MiB, t=2, p=1).
+  ARGON2_MEMORY_COST: Joi.number().integer().min(8192).default(19456),
+  ARGON2_TIME_COST: Joi.number().integer().min(1).default(2),
+  ARGON2_PARALLELISM: Joi.number().integer().min(1).default(1),
+  ARGON2_HASH_LENGTH: Joi.number().integer().min(16).max(128).default(32),
+  ARGON2_SALT_LENGTH: Joi.number().integer().min(8).max(64).default(16),
+  // Backward-compatible service-prefixed aliases consumed by auth-service.
+  AUTH_ARGON2_MEMORY_COST: Joi.number().integer().min(8192).default(19456),
+  AUTH_ARGON2_TIME_COST: Joi.number().integer().min(1).default(2),
+  AUTH_ARGON2_PARALLELISM: Joi.number().integer().min(1).default(1),
+  AUTH_ARGON2_HASH_LENGTH: Joi.number().integer().min(16).max(128).default(32),
+  COMMON_PASSWORDS: Joi.string().allow('').default(''),
+  COMMON_PASSWORDS_PATH: Joi.string().allow('').default(''),
+  LOGIN_MAX_ATTEMPTS: Joi.number().integer().positive().default(5),
+  LOGIN_LOCK_BASE_SECONDS: Joi.number().integer().positive().default(1),
+  LOGIN_LOCK_MAX_SECONDS: Joi.number().integer().positive().default(900),
+  TYPEORM_LOGGING: Joi.boolean().truthy('true').falsy('false').default(false),
+  TYPEORM_MIGRATIONS_RUN: Joi.boolean().truthy('true').falsy('false').default(false),
   JWT_PRIVATE_KEY_PATH: Joi.string().allow('').default(''),
   JWT_PUBLIC_KEY_PATH: Joi.string().allow('').default(''),
   JWT_PRIVATE_KEY: Joi.string().allow('').default(''),
@@ -73,3 +91,4 @@ function loadKey(env: Record<string, string | number>, name: 'JWT_PRIVATE_KEY' |
   try { return inline || readFileSync(path, 'utf8'); }
   catch { throw new Error(`Invalid environment: cannot read ${name}_PATH`); }
 }
+

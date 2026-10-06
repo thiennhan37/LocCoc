@@ -74,6 +74,24 @@ If you already have a local `.env`, remove entries that no longer appear in `.en
 - [user-service](user-service/README.md) starts on port 8081 and currently exposes no application API.
 - [MobileApp](MobileApp/README.md) shows a basic login form. It does not authenticate users yet.
 
+## Basic auth flow
+
+`auth-service` now implements email/password registration with email OTP verification:
+
+- `POST /auth/register` creates a pending account and sends a six-digit OTP.
+- `POST /auth/verify-otp` activates the account after a valid OTP.
+- `POST /auth/resend-otp` applies per-destination and per-IP resend limits.
+- `POST /auth/login` accepts only active accounts and returns a generic error for invalid credentials.
+
+Passwords use Argon2id (19 MiB, two iterations, one lane by default). OTP state is stored as a Redis hash with a five-minute TTL. The OTP security policy is versioned in [auth-service/src/auth/config/otp-policy.ts](auth-service/src/auth/config/otp-policy.ts); change its version when changing OTP behaviour so releases remain auditable. Set `TYPEORM_MIGRATIONS_RUN=true` for a deployment that should run the checked-in users migration, and provide a 10k–100k breached-password list through `COMMON_PASSWORDS_PATH` (or `COMMON_PASSWORDS`) for the full password denylist.
+
+Run the auth tests with:
+
+```powershell
+pnpm --filter auth-service test
+pnpm --filter auth-service test:e2e
+```
+
 ## Next identity work
 
 Before implementing login and token flows, define:
@@ -85,3 +103,4 @@ Before implementing login and token flows, define:
 - Role and scope names. No service currently checks any role or scope.
 
 The mobile app currently calls no authentication endpoint. Its login button validates input and displays an unavailable message. There is no development authentication bypass.
+

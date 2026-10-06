@@ -8,10 +8,13 @@
     "start:auth": "npm --prefix auth-service run start",
     "start:user": "npm --prefix user-service run start",
     "start:dev": "npm --prefix api-gateway run start:dev",
+    "dev": "npm run start:dev",
     "build": "pnpm --filter @loccoc/common build && pnpm --filter './{api-gateway,auth-service,user-service}' build",
     "test:e2e": "pnpm --filter api-gateway test:e2e",
-    "dev:gateway": "pnpm --filter @loccoc/common build && pnpm --filter api-gateway start:dev",
+    "dev:gateway": "pnpm --filter api-gateway start:dev",
     "dev:auth": "pnpm --filter @loccoc/common build && pnpm --filter auth-service start:dev",
     "dev:user": "pnpm --filter @loccoc/common build && pnpm --filter user-service start:dev"
   }
 }
+
+
