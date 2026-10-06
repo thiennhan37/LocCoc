@@ -24,6 +24,21 @@ export class ServiceProxyController {
     return this.forward('users', request, response);
   }
 
+  @All('admin/*path')
+  forwardToAdmin(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forward('admin', request, response);
+  }
+
+  @All('payments/*path')
+  forwardToPayments(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forward('payments', request, response);
+  }
+
+  @All('subscriptions/*path')
+  forwardToSubscriptions(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forward('subscriptions', request, response);
+  }
+
   private async forward(service: ServiceName, request: RequestWithId, response: Response): Promise<void> {
     // Create targetURL for request
     const route = SERVICE_ROUTES[service];

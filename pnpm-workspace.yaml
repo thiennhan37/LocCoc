@@ -2,6 +2,8 @@ packages:
   - api-gateway
   - auth-service
   - user-service
+  - admin-dashboard
   - libs/common
 allowBuilds:
   argon2: true
+  unrs-resolver: true

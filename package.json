@@ -1,19 +1,28 @@
 {
   "name": "loccoc-iam",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@12.4.1",
   "scripts": {
     "start": "npm --prefix api-gateway run start",
     "start:gateway": "npm --prefix api-gateway run start",
     "start:auth": "npm --prefix auth-service run start",
     "start:user": "npm --prefix user-service run start",
-    "start:dev": "npm --prefix api-gateway run start:dev",
-    "dev": "npm run start:dev",
+    "start:admin": "mvn -f admin-service/pom.xml spring-boot:run",
+    "start:payment": "mvn -f payment-service/pom.xml spring-boot:run",
     "build": "pnpm --filter @loccoc/common build && pnpm --filter './{api-gateway,auth-service,user-service}' build",
+    "build:admin": "mvn -f admin-service/pom.xml clean package -DskipTests",
+    "build:payment": "mvn -f payment-service/pom.xml clean package -DskipTests",
     "test:e2e": "pnpm --filter api-gateway test:e2e",
-    "dev:gateway": "pnpm --filter api-gateway start:dev",
+    "dev": "npm --prefix admin-dashboard run dev -- --port 3005",
+    "dev:dashboard": "npm --prefix admin-dashboard run dev -- --port 3005",
+    "start:dashboard": "npm --prefix admin-dashboard run start",
+    "dev:gateway": "pnpm --filter @loccoc/common build && pnpm --filter api-gateway start:dev",
     "dev:auth": "pnpm --filter @loccoc/common build && pnpm --filter auth-service start:dev",
-    "dev:user": "pnpm --filter @loccoc/common build && pnpm --filter user-service start:dev"
+    "dev:user": "pnpm --filter @loccoc/common build && pnpm --filter user-service start:dev",
+    "dev:admin": "mvn -f admin-service/pom.xml spring-boot:run",
+    "dev:payment": "mvn -f payment-service/pom.xml spring-boot:run",
+    "webhook:register": "node scripts/register-webhook.js"
   }
 }
 
