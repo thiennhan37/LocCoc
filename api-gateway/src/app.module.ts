@@ -8,6 +8,7 @@ import { ServiceProxyController } from './service-proxy.controller.js';
 import { IpThrottlerGuard } from './ip-throttler.guard.js';
 import { RedisModule } from './redis.module.js';
 import { RedisThrottlerStorage } from './redis-throttler.storage.js';
+import { AiRateLimitGuard } from './ai-rate-limit.guard.js';
 
 @Module({
   imports: [
@@ -23,6 +24,9 @@ import { RedisThrottlerStorage } from './redis-throttler.storage.js';
     }),
   ],
   controllers: [HealthController, ServiceProxyController],
-  providers: [{ provide: APP_GUARD, useClass: IpThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: IpThrottlerGuard },
+    { provide: APP_GUARD, useClass: AiRateLimitGuard },
+  ],
 })
 export class AppModule {}
