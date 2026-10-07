@@ -9,6 +9,7 @@ const schema = Joi.object({
   USER_PORT: Joi.number().port().default(8081),
   AUTH_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8000'),
   USER_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8081'),
+  AI_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8082'),
   DB_HOST: Joi.string().hostname().required(),
   DB_PORT: Joi.number().port().default(5433),
   AUTH_DB_NAME: Joi.string().required(),
@@ -27,6 +28,8 @@ const schema = Joi.object({
   CORS_ORIGINS: Joi.string().required(),
   RATE_LIMIT_TTL_MS: Joi.number().integer().positive().default(60000),
   RATE_LIMIT_MAX: Joi.number().integer().positive().default(100),
+  AI_RATE_LIMIT_MAX: Joi.number().integer().positive().default(5),
+  AI_RATE_LIMIT_WINDOW_MS: Joi.number().integer().positive().default(60000),
 }).unknown(true);
 
 export function validateEnvironment(input: Record<string, unknown>): Record<string, unknown> {
