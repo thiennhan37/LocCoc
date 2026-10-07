@@ -20,7 +20,7 @@ describe('GeminiImageAdapter', () => {
       bytes: Buffer.from('image'), mimeType: 'image/png',
     });
     expect(create).toHaveBeenCalledExactlyOnceWith({
-      model: 'configured-model', store: false, response_modalities: ['image'],
+      model: 'configured-model', store: false, stream: false, response_modalities: ['image'],
       input: [
         { type: 'text', text: prompts.get('handwritten_diary').prompt },
         { type: 'image', data: 'c291cmNlLWltYWdlLXNlY3JldA==', mime_type: 'image/png' },
@@ -48,7 +48,7 @@ describe('GeminiImageAdapter', () => {
       .rejects.toMatchObject({ code: 'INVALID_AI_OUTPUT' });
   });
 
-  it('rejects decoded output above 20 MiB before allocating decoded bytes', async () => {
+  it('rejects decoded output above 20 MiB', async () => {
     const { adapter } = fixture({ steps: [{ type: 'model_output', content: [{ ...output, data: 'A'.repeat(27_962_032) }] }] });
     await expect(adapter.enhance(source, prompts.get('handwritten_diary'), new AbortController().signal))
       .rejects.toMatchObject({ code: 'PROVIDER_OUTPUT_TOO_LARGE' });
@@ -66,8 +66,17 @@ describe('GeminiImageAdapter', () => {
   it('does not call the SDK after caller cancellation', async () => {
     const { create, adapter } = fixture();
     const controller = new AbortController();
-    controller.abort();
+    controller.abort('custom reason');
     await expect(adapter.enhance(source, prompts.get('handwritten_diary'), controller.signal)).rejects.toMatchObject({ code: 'CANCELLED' });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('does not call the SDK after TIMEOUT cancellation', async () => {
+    const { create, adapter } = fixture();
+    const controller = new AbortController();
+    const { ImageEnhancementError } = await import('./image-enhancement.error.js');
+    controller.abort(new ImageEnhancementError('TIMEOUT', 'Timeout'));
+    await expect(adapter.enhance(source, prompts.get('handwritten_diary'), controller.signal)).rejects.toMatchObject({ code: 'TIMEOUT' });
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -79,5 +88,31 @@ describe('GeminiImageAdapter', () => {
       return { steps: [{ type: 'model_output', content: [output] }] };
     });
     await expect(adapter.enhance(source, prompts.get('handwritten_diary'), controller.signal)).rejects.toMatchObject({ code: 'CANCELLED' });
+  });
+
+  it('does not deliver an SDK result received after TIMEOUT cancellation', async () => {
+    const { create, adapter } = fixture();
+    const controller = new AbortController();
+    const { ImageEnhancementError } = await import('./image-enhancement.error.js');
+    create.mockImplementation(async () => {
+      controller.abort(new ImageEnhancementError('TIMEOUT', 'Timeout'));
+      return { steps: [{ type: 'model_output', content: [output] }] };
+    });
+    await expect(adapter.enhance(source, prompts.get('handwritten_diary'), controller.signal)).rejects.toMatchObject({ code: 'TIMEOUT' });
+  });
+
+  it('normalizes arbitrary SDK AbortError reasons to safe CANCELLED error', async () => {
+    const { create, adapter } = fixture();
+    const controller = new AbortController();
+    create.mockImplementation(async () => {
+      controller.abort(new Error('secret raw reason'));
+      const abortError = new Error('The operation was aborted');
+      abortError.name = 'AbortError';
+      throw abortError;
+    });
+    const error = await adapter.enhance(source, prompts.get('handwritten_diary'), controller.signal).catch(e => e);
+    expect(error.code).toBe('CANCELLED');
+    expect(error.safeMessage).toBe('Cancelled');
+    expect(error.safeMessage).not.toMatch(/secret raw reason/);
   });
 });

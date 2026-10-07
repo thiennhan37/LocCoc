@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Interactions } from '@google/genai';
 import { FilterPrompt, GeneratedImage, ValidatedImage } from './image.types.js';
 import { ImageProvider } from './image-provider.js';
 import { ImageEnhancementError } from './image-enhancement.error.js';
@@ -14,9 +14,10 @@ export class GeminiImageAdapter implements ImageProvider {
   }
 
   async enhance(image: ValidatedImage, prompt: FilterPrompt, signal: AbortSignal): Promise<GeneratedImage> {
-    const request: any = {
+    const request: Interactions.CreateModelInteractionParamsNonStreaming = {
       model: this.config.model,
       store: false,
+      stream: false,
       response_modalities: ['image'],
       input: [
         { type: 'text', text: prompt.prompt },
@@ -29,27 +30,32 @@ export class GeminiImageAdapter implements ImageProvider {
     }
 
     if (signal.aborted) {
-      throw new ImageEnhancementError('CANCELLED', 'Cancelled');
+      throw signal.reason instanceof ImageEnhancementError ? signal.reason : new ImageEnhancementError('CANCELLED', 'Cancelled');
     }
 
     try {
       const response = await this.client.interactions.create(request, { maxRetries: 0, fetchOptions: { signal } });
 
       if (signal.aborted) {
-        throw new ImageEnhancementError('CANCELLED', 'Cancelled');
+        throw signal.reason instanceof ImageEnhancementError ? signal.reason : new ImageEnhancementError('CANCELLED', 'Cancelled');
       }
 
-      if (!response || response.status === 'failed' || !response.steps || response.steps.length === 0) {
+      const responseObj = response as Record<string, unknown>;
+
+      if (!responseObj || responseObj.status === 'failed' || !responseObj.steps || !Array.isArray(responseObj.steps) || responseObj.steps.length === 0) {
         throw new ImageEnhancementError('INVALID_AI_OUTPUT', 'Invalid AI output');
       }
 
-      const modelOutputs = response.steps.filter((s) => s.type === 'model_output') as any[];
-      if (modelOutputs.length !== 1 || !modelOutputs[0].content || modelOutputs[0].content.length !== 1) {
+      const modelOutputs = (responseObj.steps as unknown[]).filter((s): s is Record<string, unknown> => 
+        typeof s === 'object' && s !== null && (s as Record<string, unknown>).type === 'model_output'
+      );
+      
+      if (modelOutputs.length !== 1 || !modelOutputs[0].content || !Array.isArray(modelOutputs[0].content) || modelOutputs[0].content.length !== 1) {
         throw new ImageEnhancementError('INVALID_AI_OUTPUT', 'Invalid AI output');
       }
 
-      const content = modelOutputs[0].content[0];
-      if (content.type !== 'image' || !content.data || content.uri) {
+      const content = modelOutputs[0].content[0] as Record<string, unknown>;
+      if (content.type !== 'image' || typeof content.data !== 'string' || typeof content.mime_type !== 'string' || content.uri) {
         throw new ImageEnhancementError('INVALID_AI_OUTPUT', 'Invalid AI output');
       }
 
@@ -70,27 +76,19 @@ export class GeminiImageAdapter implements ImageProvider {
 
       return {
         bytes: decodedBytes,
-        mimeType: content.mime_type || 'image/png',
+        mimeType: content.mime_type,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error instanceof ImageEnhancementError) {
         throw error;
       }
-      if (error.name === 'AbortError') {
-        // Find 3: preserve abort reason. The abort error comes from our deadline or from caller.
-        // If it's a deadline, signal.reason will be TIMEOUT. If caller, it's whatever caller aborted with.
-        // Wait, the signal passed is `abortController.signal` from orchestration.
-        // Orchestration sets signal.reason to the TIMEOUT error if it's a timeout.
-        // So we can just check if signal.reason is an ImageEnhancementError, or if error is AbortError, throw signal.reason if it's an ImageEnhancementError.
-        // Or actually, the orchestration service can just map it, but we need to ensure the adapter doesn't blindly convert it to CANCELLED.
-        // The finding said: "The adapter must not blindly convert a deadline AbortError to CANCELLED."
-        // Let's just throw the signal.reason if it's truthy, otherwise rethrow error. Or throw a generic cancellation.
-        if (signal.reason instanceof Error || signal.reason?.code) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        if (signal.reason instanceof ImageEnhancementError) {
            throw signal.reason;
         }
         throw new ImageEnhancementError('CANCELLED', 'Cancelled');
       }
-      throw new ImageEnhancementError('PROVIDER_FAILURE', 'Provider failed to process the request');
+      throw new ImageEnhancementError('PROVIDER_FAILURE', 'Provider failed to process the request', error);
     }
   }
 }

@@ -70,9 +70,9 @@ describe('ImageEnhancementService', () => {
     configService.get.mockReturnValue(10);
     service = new ImageEnhancementService(validationService as any, promptRegistry as any, provider as any, logger as any, configService as any);
     
-    provider.enhance.mockImplementation(async (img, prompt, signal) => {
+    // REQUIREMENT: Provider ignores AbortSignal and resolves late
+    provider.enhance.mockImplementation(async () => {
       await new Promise(resolve => setTimeout(resolve, 50));
-      if (signal.aborted) throw new ImageEnhancementError('TIMEOUT', 'Timeout');
       return { bytes: Buffer.from('generated'), mimeType: 'image/png' };
     });
 
@@ -80,12 +80,44 @@ describe('ImageEnhancementService', () => {
     expect(logger.record).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'TIMEOUT', status: 504 }));
   });
 
-  it('caller abort stops result delivery', async () => {
+  it('rejects with TIMEOUT if input validation hangs', async () => {
+    configService.get.mockReturnValue(10);
+    service = new ImageEnhancementService(validationService as any, promptRegistry as any, provider as any, logger as any, configService as any);
+    
+    validationService.validateInput.mockImplementation(() => new Promise(() => {}));
+
+    await expect(service.enhance(upload, 'handwritten_diary', context)).rejects.toMatchObject({ code: 'TIMEOUT' });
+    expect(logger.record).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'TIMEOUT', status: 504 }));
+  });
+
+  it('rejects with TIMEOUT if output validation hangs', async () => {
+    configService.get.mockReturnValue(10);
+    service = new ImageEnhancementService(validationService as any, promptRegistry as any, provider as any, logger as any, configService as any);
+    
+    validationService.validateOutput.mockImplementation(() => new Promise(() => {}));
+
+    await expect(service.enhance(upload, 'handwritten_diary', context)).rejects.toMatchObject({ code: 'TIMEOUT' });
+    expect(logger.record).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'TIMEOUT', status: 504 }));
+  });
+
+  it('rejects with CANCELLED if caller aborts during never-resolving validation', async () => {
     const controller = new AbortController();
-    provider.enhance.mockImplementation(async (img, prompt, signal) => {
-      controller.abort();
-      if (signal.aborted) throw new ImageEnhancementError('CANCELLED', 'Cancelled');
-      return { bytes: Buffer.from('generated'), mimeType: 'image/png' };
+    validationService.validateInput.mockImplementation(() => {
+      setTimeout(() => controller.abort('user abort'), 10);
+      return new Promise(() => {});
+    });
+
+    await expect(service.enhance(upload, 'handwritten_diary', { ...context, callerSignal: controller.signal }))
+      .rejects.toMatchObject({ code: 'CANCELLED' });
+    expect(logger.record).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'CANCELLED', status: 499 }));
+  });
+
+  it('caller abort stops result delivery and normalizes reason', async () => {
+    const controller = new AbortController();
+    provider.enhance.mockImplementation(async () => {
+      // Abort with a custom string reason
+      controller.abort('navigation');
+      return new Promise(() => {});
     });
 
     const removeListenerSpy = vi.spyOn(controller.signal, 'removeEventListener');
@@ -94,6 +126,16 @@ describe('ImageEnhancementService', () => {
       .rejects.toMatchObject({ code: 'CANCELLED' });
     expect(logger.record).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'CANCELLED', status: 499 }));
     expect(removeListenerSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+  });
+
+  it('pre-aborted caller signal stops delivery immediately', async () => {
+    const controller = new AbortController();
+    controller.abort('custom reason');
+    
+    await expect(service.enhance(upload, 'handwritten_diary', { ...context, callerSignal: controller.signal }))
+      .rejects.toMatchObject({ code: 'CANCELLED' });
+    expect(validationService.validateInput).not.toHaveBeenCalled();
+    expect(logger.record).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'CANCELLED', status: 499 }));
   });
 
   it('provider errors remain sanitized', async () => {

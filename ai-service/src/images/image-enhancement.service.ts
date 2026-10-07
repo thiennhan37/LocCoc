@@ -46,21 +46,23 @@ export class ImageEnhancementService {
     }
 
     try {
-      if (abortController.signal.aborted) {
-        throw abortController.signal.reason;
-      }
+      const runPipeline = async () => {
+        if (abortController.signal.aborted) throw abortController.signal.reason;
 
-      const validated = await this.validationService.validateInput(upload).catch((err: any) => {
-        outcome = 'VALIDATION_REJECTED';
-        status = 400; // Validation input uses 400 or 413/415 from the error
-        throw err;
-      });
+        const validated = await this.validationService.validateInput(upload).catch((err: unknown) => {
+          if (err instanceof ImageEnhancementError) throw err;
+          throw new ImageEnhancementError('INVALID_REQUEST', 'Validation failed', err);
+        });
 
-      const prompt = this.promptRegistry.get(filterId as ImageFilterId);
+        const prompt = this.promptRegistry.get(filterId as ImageFilterId);
 
-      const providerPromise = this.provider.enhance(validated, prompt, abortController.signal);
-      // Suppress unhandled rejections if provider resolves/rejects late
-      providerPromise.catch(() => {});
+        const providerPromise = this.provider.enhance(validated, prompt, abortController.signal);
+        providerPromise.catch(() => {});
+
+        const generated = await providerPromise;
+        const validatedOutput = await this.validationService.validateOutput(filterId as ImageFilterId, generated);
+        return validatedOutput;
+      };
 
       let abortListener: (() => void) | undefined;
       const abortPromise = new Promise<never>((_, reject) => {
@@ -69,20 +71,31 @@ export class ImageEnhancementService {
         abortController.signal.addEventListener('abort', abortListener);
       });
 
-      const generated = await Promise.race([providerPromise, abortPromise]).finally(() => {
+      const pipelinePromise = runPipeline();
+      pipelinePromise.catch(() => {});
+
+      const finalOutput = await Promise.race([pipelinePromise, abortPromise]).finally(() => {
         if (abortListener) abortController.signal.removeEventListener('abort', abortListener);
       });
-      
-      const validatedOutput = await this.validationService.validateOutput(filterId as ImageFilterId, generated);
 
-      mimeType = validatedOutput.mimeType;
-      byteCount = validatedOutput.bytes.length;
+      mimeType = finalOutput.mimeType;
+      byteCount = finalOutput.bytes.length;
 
-      return validatedOutput;
-    } catch (error: any) {
-      // Find 5: Exact status mapping
-      if (error instanceof ImageEnhancementError) {
-        switch (error.code) {
+      return finalOutput;
+    } catch (error: unknown) {
+      let normalizedError = error;
+
+      const isCallerAbort = context.callerSignal?.aborted && (error === context.callerSignal.reason || (error instanceof Error && error.name === 'AbortError'));
+      const isTimeoutAbort = abortController.signal.aborted && (error === timeoutError || (error instanceof Error && error.name === 'AbortError'));
+
+      if (isCallerAbort) {
+        normalizedError = new ImageEnhancementError('CANCELLED', 'Cancelled');
+      } else if (isTimeoutAbort) {
+        normalizedError = new ImageEnhancementError('TIMEOUT', 'Timeout');
+      }
+
+      if (normalizedError instanceof ImageEnhancementError) {
+        switch (normalizedError.code) {
           case 'INVALID_REQUEST':
             outcome = 'VALIDATION_REJECTED';
             status = 400;
@@ -113,24 +126,12 @@ export class ImageEnhancementService {
             status = 499;
             break;
         }
-        throw error;
-      }
-
-      if (error.name === 'AbortError') {
-        if (context.callerSignal?.aborted && abortController.signal.reason === context.callerSignal.reason) {
-          outcome = 'CANCELLED';
-          status = 499;
-          throw new ImageEnhancementError('CANCELLED', 'Cancelled');
-        } else {
-          outcome = 'TIMEOUT';
-          status = 504;
-          throw new ImageEnhancementError('TIMEOUT', 'Timeout');
-        }
+        throw normalizedError;
       }
 
       outcome = 'PROVIDER_REJECTED';
       status = 502;
-      throw new ImageEnhancementError('PROVIDER_FAILURE', 'Provider failed to process the request');
+      throw new ImageEnhancementError('PROVIDER_FAILURE', 'Provider failed to process the request', error);
     } finally {
       clearTimeout(timeoutId);
       if (context.callerSignal) {
