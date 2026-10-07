@@ -10,22 +10,13 @@ export class ApiExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
     const request = host.switchToHttp().getRequest<RequestWithId>();
-    let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
-    if (exception && typeof (exception as any).getStatus === 'function') {
-      statusCode = (exception as any).getStatus();
-    } else if (exception instanceof HttpException) {
-      statusCode = exception.getStatus();
-    }
+    const statusCode = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     if (statusCode >= 500) this.logger.error({ requestId: request.requestId, statusCode, path: request.path });
 
     let message: string | string[] = 'Request failed';
     if (statusCode === 500) message = 'Internal server error';
     else if (statusCode === 429) message = 'Too many requests';
-    else if (exception && typeof (exception as any).getResponse === 'function') {
-      const payload = (exception as any).getResponse();
-      message = typeof payload === 'object' && payload && 'message' in payload
-        ? (payload.message as string | string[]) : (exception as any).message;
-    } else if (exception instanceof HttpException) {
+    else if (exception instanceof HttpException) {
       const payload = exception.getResponse();
       message = typeof payload === 'object' && payload && 'message' in payload
         ? (payload.message as string | string[]) : exception.message;

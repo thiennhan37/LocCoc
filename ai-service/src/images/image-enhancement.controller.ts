@@ -18,15 +18,16 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImageEnhancementService } from './image-enhancement.service.js';
 import { EnhanceImageDto } from './enhance-image.dto.js';
-import { ImageEnhancementError, ImageEnhancementErrorCode } from './image-enhancement.error.js';
+import { ImageEnhancementError } from './image-enhancement.error.js';
+import type { ImageEnhancementErrorCode } from './image-enhancement.error.js';
 import type { Response } from 'express';
-import 'multer';
+import type multer from 'multer';
 import type { RequestWithId } from '@loccoc/common';
-import { Observable } from 'rxjs';
+import type { Observable } from 'rxjs';
 
 @Injectable()
 export class CacheControlInterceptor implements NestInterceptor {
-  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const res = context.switchToHttp().getResponse<Response>();
     res.setHeader('Cache-Control', 'no-store');
     return next.handle();
@@ -59,13 +60,14 @@ export class ImageEnhancementController {
 
     const abortController = new AbortController();
 
-    const onClose = () => {
+    const onClientDisconnect = () => {
       if (!res.writableEnded) {
-        abortController.abort('client disconnected');
+        abortController.abort(new ImageEnhancementError('CANCELLED', 'Cancelled'));
       }
     };
 
-    req.on('close', onClose);
+    req.on('aborted', onClientDisconnect);
+    res.on('close', onClientDisconnect);
 
     try {
       const result = await this.enhancementService.enhance(
@@ -100,7 +102,8 @@ export class ImageEnhancementController {
       }
       throw error;
     } finally {
-      req.removeListener('close', onClose);
+      req.removeListener('aborted', onClientDisconnect);
+      res.removeListener('close', onClientDisconnect);
     }
   }
 }

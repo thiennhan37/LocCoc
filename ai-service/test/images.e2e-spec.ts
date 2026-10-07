@@ -5,10 +5,18 @@ import { AppModule } from '../src/app.module.js';
 import { IMAGE_PROVIDER, ImageProvider } from '../src/images/image-provider.js';
 import { ApiExceptionFilter, requestIdMiddleware } from '@loccoc/common';
 import { ImageEnhancementError } from '../src/images/image-enhancement.error.js';
-import type { ValidatedImage, GeneratedImage, FilterPrompt } from '../src/images/image.types.js';
 
 const VALID_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const VALID_PNG_BUFFER = Buffer.from(VALID_PNG_BASE64, 'base64');
+
+function expectSafeError(res: request.Response, status: number): void {
+  expect(res.status).toBe(status);
+  expect(Object.keys(res.body).sort()).toEqual(['error', 'message', 'requestId', 'statusCode']);
+  expect(res.body.requestId).toEqual(expect.any(String));
+  expect(res.header['x-request-id']).toBe(res.body.requestId);
+  expect(res.header['cache-control']).toBe('no-store');
+  expect(JSON.stringify(res.body)).not.toMatch(/test-key|test-model|iVBOR|raw provider|stack/i);
+}
 
 describe('ImageEnhancementController (e2e)', () => {
   let app: INestApplication;
@@ -32,7 +40,7 @@ describe('ImageEnhancementController (e2e)', () => {
     app.use(requestIdMiddleware);
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
     app.useGlobalFilters(new ApiExceptionFilter());
-    
+
     await app.init();
   });
 
@@ -59,10 +67,8 @@ describe('ImageEnhancementController (e2e)', () => {
       .post('/ai/images/enhance')
       .field('filterId', 'handwritten_diary');
 
-    expect(res.status).toBe(400);
-    expect(res.body.requestId).toBeDefined();
+    expectSafeError(res, 400);
     expect(res.body.message).toContain('image');
-    expect(res.header['cache-control']).toBe('no-store');
   });
 
   it('rejects missing filter', async () => {
@@ -70,9 +76,8 @@ describe('ImageEnhancementController (e2e)', () => {
       .post('/ai/images/enhance')
       .attach('image', VALID_PNG_BUFFER, { filename: 'test.png', contentType: 'image/png' });
 
-    expect(res.status).toBe(400);
+    expectSafeError(res, 400);
     expect(res.body.message).toEqual(expect.arrayContaining([expect.stringContaining('filterId')]));
-    expect(res.header['cache-control']).toBe('no-store');
   });
 
   it('rejects unknown filter', async () => {
@@ -81,7 +86,7 @@ describe('ImageEnhancementController (e2e)', () => {
       .attach('image', VALID_PNG_BUFFER, 'test.png')
       .field('filterId', 'invalid_filter');
 
-    expect(res.status).toBe(400);
+    expectSafeError(res, 400);
     expect(res.body.message).toEqual(expect.arrayContaining([expect.stringContaining('filterId')]));
   });
 
@@ -92,10 +97,30 @@ describe('ImageEnhancementController (e2e)', () => {
       .field('filterId', 'handwritten_diary')
       .field('prompt', 'do something else');
 
-    expect(res.status).toBe(400);
+    expectSafeError(res, 400);
     expect(res.body.message).toEqual(expect.arrayContaining([expect.stringContaining('prompt')]));
   });
-  
+
+  it('rejects duplicate filter fields', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/ai/images/enhance')
+      .attach('image', VALID_PNG_BUFFER, 'test.png')
+      .field('filterId', 'handwritten_diary')
+      .field('filterId', 'subject_sticker');
+
+    expectSafeError(res, 400);
+  });
+
+  it('rejects duplicate image files', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/ai/images/enhance')
+      .attach('image', VALID_PNG_BUFFER, 'first.png')
+      .attach('image', VALID_PNG_BUFFER, 'second.png')
+      .field('filterId', 'handwritten_diary');
+
+    expectSafeError(res, 400);
+  });
+
   it('rejects extra file fields', async () => {
     const res = await request(app.getHttpServer())
       .post('/ai/images/enhance')
@@ -103,7 +128,7 @@ describe('ImageEnhancementController (e2e)', () => {
       .attach('extraFile', Buffer.from('test'), 'test.txt')
       .field('filterId', 'handwritten_diary');
 
-    expect(res.status).toBe(400);
+    expectSafeError(res, 400);
   });
 
   it('rejects 10 MiB overflow', async () => {
@@ -114,7 +139,7 @@ describe('ImageEnhancementController (e2e)', () => {
       .attach('image', largeBuffer, 'test.png')
       .field('filterId', 'handwritten_diary');
 
-    expect(res.status).toBe(413);
+    expectSafeError(res, 413);
     expect(res.body.message).toBeDefined();
     expect(res.body.error).toBe('PAYLOAD_TOO_LARGE');
   });
@@ -126,12 +151,12 @@ describe('ImageEnhancementController (e2e)', () => {
       .attach('image', fakePng, { filename: 'test.png', contentType: 'image/png' })
       .field('filterId', 'handwritten_diary');
 
-    expect(res.status).toBe(415);
+    expectSafeError(res, 415);
     expect(res.body.message).toBe('Only JPEG, PNG, and WebP images are supported');
   });
 
   it('rejects timeout', async () => {
-    // We can simulate timeout by throwing the appropriate ImageEnhancementError from the provider, 
+    // The service tests own deadline behavior; this pins the HTTP mapping.
     // since the service already tested that it produces a 504 when the deadline expires.
     providerMock.mockRejectedValue(new ImageEnhancementError('TIMEOUT', 'Timeout'));
     const res = await request(app.getHttpServer())
@@ -139,7 +164,7 @@ describe('ImageEnhancementController (e2e)', () => {
       .attach('image', VALID_PNG_BUFFER, 'test.png')
       .field('filterId', 'handwritten_diary');
 
-    expect(res.status).toBe(504);
+    expectSafeError(res, 504);
     expect(res.body.message).toBe('Timeout');
   });
 
@@ -150,7 +175,7 @@ describe('ImageEnhancementController (e2e)', () => {
       .attach('image', VALID_PNG_BUFFER, 'test.png')
       .field('filterId', 'handwritten_diary');
 
-    expect(res.status).toBe(502);
+    expectSafeError(res, 502);
     expect(res.body.message).toBe('Provider failed to process the request');
   });
 
@@ -161,7 +186,7 @@ describe('ImageEnhancementController (e2e)', () => {
       .attach('image', VALID_PNG_BUFFER, 'test.png')
       .field('filterId', 'subject_sticker');
 
-    expect(res.status).toBe(422);
+    expectSafeError(res, 422);
     expect(res.body.message).toBe('AI did not return a valid image');
   });
 });
