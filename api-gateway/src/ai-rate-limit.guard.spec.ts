@@ -9,9 +9,12 @@ describe('AiRateLimitGuard', () => {
   const handler = () => undefined;
   class TestController {}
 
-  function context(path: string): ExecutionContext {
+  function context(path: string): {
+    executionContext: ExecutionContext;
+    response: { setHeader: ReturnType<typeof vi.fn> };
+  } {
     const response = { setHeader: vi.fn() };
-    return {
+    const executionContext = {
       getClass: () => TestController,
       getHandler: () => handler,
       switchToHttp: () => ({
@@ -20,6 +23,7 @@ describe('AiRateLimitGuard', () => {
         getNext: () => undefined,
       }),
     } as unknown as ExecutionContext;
+    return { executionContext, response };
   }
 
   it('uses the client IP and configured five-per-minute limit, rejecting the sixth request', async () => {
@@ -45,11 +49,13 @@ describe('AiRateLimitGuard', () => {
     await guard.onModuleInit();
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await expect(guard.canActivate(context('/ai/enhance'))).resolves.toBe(true);
+      await expect(guard.canActivate(context('/ai/enhance').executionContext)).resolves.toBe(true);
     }
-    const sixthError = await guard.canActivate(context('/ai/enhance')).catch((error: unknown) => error);
+    const sixth = context('/ai/enhance');
+    const sixthError = await guard.canActivate(sixth.executionContext).catch((error: unknown) => error);
     expect(sixthError).toBeInstanceOf(ThrottlerException);
     expect((sixthError as ThrottlerException).getStatus()).toBe(429);
+    expect(sixth.response.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
 
     expect(storage.increment).toHaveBeenCalledTimes(6);
     expect(storage.increment).toHaveBeenLastCalledWith(ip, 60_000, 5, 60_000, 'ai');
@@ -68,7 +74,9 @@ describe('AiRateLimitGuard', () => {
     const guard = new AiRateLimitGuard(config as never, storage as never, new Reflector());
     await guard.onModuleInit();
 
-    await expect(guard.canActivate(context('/auth/login'))).resolves.toBe(true);
+    const nonAi = context('/auth/login');
+    await expect(guard.canActivate(nonAi.executionContext)).resolves.toBe(true);
     expect(storage.increment).not.toHaveBeenCalled();
+    expect(nonAi.response.setHeader).not.toHaveBeenCalled();
   });
 });

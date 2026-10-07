@@ -52,7 +52,13 @@ describe('IAM gateway security contract (e2e)', () => {
   let upstream: Server;
   let upstreamUrl: string;
   let gatewayPort: number;
-  let multipartCapture = deferred<{ body: Buffer; contentType: string; requestId: string }>();
+  let multipartCapture = deferred<{
+    body: Buffer;
+    contentType: string;
+    requestId: string;
+    expectHeader: string | undefined;
+    proxyConnection: string | undefined;
+  }>();
   let jsonCapture = deferred<Buffer>();
   let releaseStream = deferred<void>();
   let upstreamAbort = deferred<void>();
@@ -79,6 +85,8 @@ describe('IAM gateway security contract (e2e)', () => {
             body,
             contentType: String(requestMessage.headers['content-type']),
             requestId: String(requestMessage.headers['x-request-id']),
+            expectHeader: requestMessage.headers.expect,
+            proxyConnection: requestMessage.headers['proxy-connection'],
           });
           responseMessage.writeHead(200, {
             'content-type': 'image/png',
@@ -207,6 +215,7 @@ describe('IAM gateway security contract (e2e)', () => {
       .post('/ai/enhance')
       .set('x-forwarded-for', '198.51.100.20')
       .set('content-type', `multipart/form-data; boundary=${boundary}`)
+      .set('proxy-connection', 'keep-alive')
       .send(body)
       .buffer(true)
       .parse(binaryParser)
@@ -216,11 +225,44 @@ describe('IAM gateway security contract (e2e)', () => {
     expect(captured.body).toEqual(body);
     expect(captured.contentType).toBe(`multipart/form-data; boundary=${boundary}`);
     expect(captured.requestId).toBe(response.headers['x-request-id']);
+    expect(captured.proxyConnection).toBeUndefined();
     expect(response.headers['content-type']).toMatch(/^image\/png/);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.headers['x-upstream-safe']).toBe('kept');
     expect(response.headers).not.toHaveProperty('x-upstream-hop');
     expect(response.body).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, 0x03]));
+  });
+
+  it('accepts 100-continue uploads without forwarding the Expect header upstream', async () => {
+    const body = Buffer.from('raw-image-upload');
+    const completed = deferred<{ statusCode: number; body: Buffer }>();
+    const clientRequest = httpRequest({
+      host: '127.0.0.1',
+      port: gatewayPort,
+      path: '/ai/enhance',
+      method: 'POST',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'content-length': String(body.length),
+        expect: '100-continue',
+        'x-forwarded-for': '198.51.100.25',
+      },
+    }, (responseMessage) => {
+      void readBody(responseMessage).then((responseBody) => completed.resolve({
+        statusCode: responseMessage.statusCode ?? 0,
+        body: responseBody,
+      }), completed.reject);
+    });
+    clientRequest.once('continue', () => clientRequest.end(body));
+    clientRequest.once('error', completed.reject);
+    clientRequest.flushHeaders();
+
+    const response = await withTimeout(completed.promise, '100-continue upload did not complete');
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, 0x03]));
+    const captured = await withTimeout(multipartCapture.promise, 'upstream did not receive 100-continue upload');
+    expect(captured.body).toEqual(body);
+    expect(captured.expectHeader).toBeUndefined();
   });
 
   it('streams the upstream image before the upstream response completes', async () => {
@@ -296,6 +338,7 @@ describe('IAM gateway security contract (e2e)', () => {
       message: 'Upstream service unavailable',
       requestId: expect.any(String),
     });
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(response.body).not.toHaveProperty('stack');
   });
 

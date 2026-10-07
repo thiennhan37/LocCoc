@@ -24,9 +24,15 @@ export class AiRateLimitGuard extends ThrottlerGuard {
   }
 
   protected async shouldSkip(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<{ originalUrl?: string; url?: string }>();
+    const http = context.switchToHttp();
+    const request = http.getRequest<{ originalUrl?: string; url?: string }>();
     const path = String(request.originalUrl ?? request.url ?? '').split('?', 1)[0];
-    return path !== '/ai' && !path.startsWith('/ai/');
+    const skip = path !== '/ai' && !path.startsWith('/ai/');
+    if (!skip) {
+      http.getResponse<{ setHeader(name: string, value: string): void }>()
+        .setHeader('Cache-Control', 'no-store');
+    }
+    return skip;
   }
 
   protected async getTracker(request: Record<string, any>): Promise<string> {

@@ -8,10 +8,10 @@ import { SERVICE_ROUTES, type ServiceName } from './service-routes.js';
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
-  'te', 'trailer', 'transfer-encoding', 'upgrade',
+  'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade',
 ]);
 
-const REQUEST_ONLY_HEADERS = new Set(['host', 'content-length']);
+const REQUEST_ONLY_HEADERS = new Set(['host', 'content-length', 'expect']);
 
 @Controller()
 export class ServiceProxyController {
@@ -139,6 +139,7 @@ export class ServiceProxyController {
       response.destroy(error instanceof Error ? error : undefined);
       return;
     }
+    response.setHeader('Cache-Control', 'no-store');
     response.status(502).json({
       statusCode: 502,
       error: 'Bad Gateway',
