@@ -11,10 +11,10 @@ const schema = Joi.object({
   USER_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8081'),
   DB_HOST: Joi.string().hostname().required(),
   DB_PORT: Joi.number().port().default(5433),
-  AUTH_DB_NAME: Joi.string().required(),
+  AUTH_DB_NAME: Joi.string().default('accounts'),
   AUTH_DB_USER: Joi.string().required(),
   AUTH_DB_PASSWORD: Joi.string().required(),
-  USER_DB_NAME: Joi.string().required(),
+  USER_DB_NAME: Joi.string().default('users'),
   USER_DB_USER: Joi.string().required(),
   USER_DB_PASSWORD: Joi.string().required(),
   REDIS_URL: Joi.string().uri({ scheme: ['redis', 'rediss'] }).required(),
@@ -41,7 +41,10 @@ const schema = Joi.object({
   JWT_PRIVATE_KEY: Joi.string().allow('').default(''),
   JWT_PUBLIC_KEY: Joi.string().allow('').default(''),
   JWT_ACCESS_TTL_SECONDS: Joi.number().integer().positive().default(900),
-  JWT_REFRESH_TTL_SECONDS: Joi.number().integer().positive().default(604800),
+  JWT_REFRESH_TTL_SECONDS: Joi.number().integer().positive().default(2592000),
+  JWT_ISSUER: Joi.string().default('loccoc-auth'),
+  JWT_AUDIENCE: Joi.string().default('loccoc-api'),
+  JWT_KID: Joi.string().pattern(/^[A-Za-z0-9._-]+$/).default('loccoc-2026-01'),
   CORS_ORIGINS: Joi.string().required(),
   RATE_LIMIT_TTL_MS: Joi.number().integer().positive().default(60000),
   RATE_LIMIT_MAX: Joi.number().integer().positive().default(100),
@@ -60,33 +63,35 @@ export function validateEnvironment(input: Record<string, unknown>): Record<stri
     throw new Error('Invalid environment: CORS_ORIGINS must contain explicit HTTP(S) origins');
   }
 
-  const privatePem = loadKey(env, 'JWT_PRIVATE_KEY');
-  const publicPem = loadKey(env, 'JWT_PUBLIC_KEY');
-  // Validate JWT key pair
+  const privatePem = loadKey(env, 'JWT_PRIVATE_KEY', false);
+  const publicPem = loadKey(env, 'JWT_PUBLIC_KEY', true);
+  // Validate the public verification key for every service. Auth-service additionally
+  // requires the private signing key at TokenService construction time.
   try {
-    const privateKey = createPrivateKey(privatePem);
     const publicKey = createPublicKey(publicPem);
-    if (!['rsa', 'ec'].includes(privateKey.asymmetricKeyType ?? '') ||
-        !privateKey.asymmetricKeyType || privateKey.asymmetricKeyType !== publicKey.asymmetricKeyType) {
-      throw new Error('key types differ');
+    if (publicKey.asymmetricKeyType !== 'rsa') throw new Error('RS256 requires an RSA public key');
+    if (privatePem) {
+      const privateKey = createPrivateKey(privatePem);
+      if (privateKey.asymmetricKeyType !== 'rsa') throw new Error('RS256 requires an RSA private key');
+      const derived = createPublicKey(privateKey).export({ type: 'spki', format: 'pem' });
+      const supplied = publicKey.export({ type: 'spki', format: 'pem' });
+      if (derived !== supplied) throw new Error('public key does not match private key');
     }
-    const derived = createPublicKey(privateKey).export({ type: 'spki', format: 'pem' });
-    const supplied = publicKey.export({ type: 'spki', format: 'pem' });
-    if (derived !== supplied) throw new Error('public key does not match private key');
   } catch {
-    throw new Error('Invalid environment: JWT key pair is invalid or mismatched');
+    throw new Error('Invalid environment: JWT public key is invalid or does not match the private key');
   }
   env.JWT_PRIVATE_KEY = privatePem;
   env.JWT_PUBLIC_KEY = publicPem;
   return env;
 }
 
-function loadKey(env: Record<string, string | number>, name: 'JWT_PRIVATE_KEY' | 'JWT_PUBLIC_KEY'): string {
+function loadKey(env: Record<string, string | number>, name: 'JWT_PRIVATE_KEY' | 'JWT_PUBLIC_KEY', required: boolean): string {
   const inline = String(env[name] ?? '').replace(/\\n/g, '\n');
   const path = String(env[`${name}_PATH`] ?? '');
-  // Set exactly one of JWT_PRIVATE_KEY and JWT_PRIVATE_KEY_PATH, same for public key
-  if (Boolean(inline) === Boolean(path)) {
-    throw new Error(`Invalid environment: set exactly one of ${name} and ${name}_PATH`);
+  if (inline && path) throw new Error(`Invalid environment: set exactly one of ${name} and ${name}_PATH`);
+  if (!inline && !path) {
+    if (required) throw new Error(`Invalid environment: set ${name} or ${name}_PATH`);
+    return '';
   }
   try { return inline || readFileSync(path, 'utf8'); }
   catch { throw new Error(`Invalid environment: cannot read ${name}_PATH`); }

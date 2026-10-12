@@ -8,23 +8,23 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-export enum UserRole {
+export enum AccountRole {
   USER = 'user',
   MODERATOR = 'moderator',
   ADMIN = 'admin',
 }
 
-export enum UserStatus {
+export enum AccountStatus {
   PENDING_VERIFICATION = 'pending_verification',
   ACTIVE = 'active',
   SUSPENDED = 'suspended',
 }
 
-@Entity({ name: 'users' })
-@Index('IDX_users_email_login', ['email'])
-@Index('IDX_users_phone_login', ['phone'])
-@Index('IDX_users_status', ['status'])
-export class User {
+@Entity({ name: 'accounts' })
+@Index('IDX_accounts_email_login', ['email'])
+@Index('IDX_accounts_phone_login', ['phone'])
+@Index('IDX_accounts_status', ['status'])
+export class Account {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -37,11 +37,11 @@ export class User {
   @Column({ name: 'password_hash', type: 'varchar', length: 255 })
   passwordHash!: string;
 
-  @Column({ type: 'enum', enum: UserRole, default: UserRole.USER })
-  role!: UserRole;
+  @Column({ type: 'enum', enum: AccountRole, enumName: 'account_role_enum', default: AccountRole.USER })
+  role!: AccountRole;
 
-  @Column({ type: 'enum', enum: UserStatus, default: UserStatus.PENDING_VERIFICATION })
-  status!: UserStatus;
+  @Column({ type: 'enum', enum: AccountStatus, enumName: 'account_status_enum', default: AccountStatus.PENDING_VERIFICATION })
+  status!: AccountStatus;
 
   @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
   emailVerifiedAt!: Date | null;

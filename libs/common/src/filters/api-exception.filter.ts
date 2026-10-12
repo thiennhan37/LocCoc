@@ -15,12 +15,11 @@ export class ApiExceptionFilter implements ExceptionFilter {
 
     let message: string | string[] = 'Request failed';
     if (statusCode === 500) message = 'Internal server error';
-    else if (statusCode === 429) message = 'Too many requests';
     else if (exception instanceof HttpException) {
       const payload = exception.getResponse();
       message = typeof payload === 'object' && payload && 'message' in payload
         ? (payload.message as string | string[]) : exception.message;
-    }
+    } else if (statusCode === 429) message = 'Too many requests';
     response.status(statusCode).json({
       statusCode,
       error: HttpStatus[statusCode] ?? 'Error',

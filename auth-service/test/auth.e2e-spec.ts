@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthController } from '../src/auth/auth.controller.js';
 import { AuthService } from '../src/auth/auth.service.js';
 import { RegisterDto } from '../src/auth/dto/register.dto.js';
-import { User, UserRole, UserStatus } from '../src/auth/entities/user.entity.js';
+import { Account, AccountRole, AccountStatus } from '../src/auth/entities/account.entity.js';
 import {
   InMemoryOtpStore,
   OTP_SENDER,
@@ -17,17 +17,22 @@ import {
   OtpSender,
   OtpService,
 } from '../src/auth/services/otp.service.js';
+import {
+  InMemoryLockoutStore,
+  LOCKOUT_STORE,
+  LoginLockoutService,
+} from '../src/auth/services/login-lockout.service.js';
 import { PasswordService } from '../src/auth/services/password.service.js';
 
 type TestRepository = {
-  findOne: (options: { where: Partial<User> }) => Promise<User | null>;
-  create: (data: Partial<User>) => User;
-  save: (user: User) => Promise<User>;
+  findOne: (options: { where: Partial<Account> }) => Promise<Account | null>;
+  create: (data: Partial<Account>) => Account;
+  save: (user: Account) => Promise<Account>;
 };
 
 describe('Auth HTTP API (e2e)', () => {
   let app: INestApplication;
-  let users: User[];
+  let users: Account[];
   let sent: Array<{ destination: string; code: string; channel: 'email' | 'phone' }>;
   let repository: TestRepository;
 
@@ -43,8 +48,8 @@ describe('Auth HTTP API (e2e)', () => {
         email: data.email!,
         phone: data.phone ?? null,
         passwordHash: data.passwordHash!,
-        role: data.role ?? UserRole.USER,
-        status: data.status ?? UserStatus.PENDING_VERIFICATION,
+        role: data.role ?? AccountRole.USER,
+        status: data.status ?? AccountStatus.PENDING_VERIFICATION,
         emailVerifiedAt: data.emailVerifiedAt ?? null,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -68,9 +73,11 @@ describe('Auth HTTP API (e2e)', () => {
         AuthService,
         PasswordService,
         OtpService,
+        LoginLockoutService,
         { provide: ConfigService, useValue: { get: () => undefined } },
-        { provide: getRepositoryToken(User), useValue: repository },
+        { provide: getRepositoryToken(Account), useValue: repository },
         { provide: OTP_STORE, useValue: new InMemoryOtpStore() },
+        { provide: LOCKOUT_STORE, useValue: new InMemoryLockoutStore() },
         { provide: OTP_SENDER, useValue: sender },
       ],
     }).compile();
@@ -97,14 +104,14 @@ describe('Auth HTTP API (e2e)', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ destination: 'person@example.com', channel: 'email' });
     expect(sent[0].code).toMatch(/^\d{6}$/);
-    expect(users[0].status).toBe(UserStatus.PENDING_VERIFICATION);
+    expect(users[0].status).toBe(AccountStatus.PENDING_VERIFICATION);
 
     const verified = await request(app.getHttpServer()).post('/auth/verify-otp').send({
       email: 'person@example.com', otp: sent[0].code,
     });
     expect(verified.status).toBe(200);
     expect(verified.body.verified).toBe(true);
-    expect(users[0].status).toBe(UserStatus.ACTIVE);
+    expect(users[0].status).toBe(AccountStatus.ACTIVE);
   });
 
   it('rejects passwords that do not satisfy the policy', async () => {
@@ -172,6 +179,25 @@ describe('Auth HTTP API (e2e)', () => {
     expect(wrong.status).toBe(401);
     expect(unknown.status).toBe(401);
     expect(wrong.body).toEqual(unknown.body);
+  });
+
+  it('locks login after reaching maximum failed attempts (5)', async () => {
+    await register('locked@example.com');
+    await request(app.getHttpServer()).post('/auth/verify-otp').send({
+      email: 'locked@example.com', otp: sent[0].code,
+    });
+    for (let i = 0; i < 5; i++) {
+      const res = await request(app.getHttpServer()).post('/auth/login').send({
+        email: 'locked@example.com', password: 'wrong-password',
+      });
+      expect(res.status).toBe(401);
+    }
+    // Attempt 6 with the correct password should be rejected with 429 because account is locked
+    const lockedResponse = await request(app.getHttpServer()).post('/auth/login').send({
+      email: 'locked@example.com', password: 'correct horse battery staple 2026',
+    });
+    expect(lockedResponse.status).toBe(429);
+    expect(lockedResponse.body.message).toMatch(/too many failed login attempts/i);
   });
 });
 

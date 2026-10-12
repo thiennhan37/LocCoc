@@ -101,3 +101,4 @@ logs/
 
 # 9. AI Agent Local Files (if not committed)
 .agents/
+node_modules

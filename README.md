@@ -53,7 +53,7 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out secrets/jwt-pr
 openssl pkey -in secrets/jwt-private.pem -pubout -out secrets/jwt-public.pem
 ```
 
-For EC keys, use `openssl ecparam -name prime256v1 -genkey -noout -out secrets/jwt-private.pem` followed by the same `openssl pkey ... -pubout` command. Set `JWT_PRIVATE_KEY_PATH` and `JWT_PUBLIC_KEY_PATH` (or the inline PEM variables with `\\n`) in `.env`; startup validates that the pair matches and is RSA or EC.
+This implementation uses an RSA key pair and fixed RS256. Set `JWT_PRIVATE_KEY_PATH` and `JWT_PUBLIC_KEY_PATH` (or the inline PEM variables with `\\n`) in `.env`; `auth-service` requires the private key to sign, while other services need only the public key to verify.
 
 ## Verification
 
@@ -63,7 +63,7 @@ pnpm --filter api-gateway test:e2e
 
 The e2e contract covers unknown-field rejection (400), route throttling (429), and sanitized 500 responses with `requestId`. Redis must be running for the gateway test.
 
-PostgreSQL is exposed on `127.0.0.1:5433` by default. The initialization script creates the `user` and `auth` databases with their service roles on a fresh PostgreSQL volume. Redis is exposed on `127.0.0.1:6379`; Kafka is exposed on `127.0.0.1:9092`, and Kafbat UI on `127.0.0.1:9080`. The CLI container uses the `tools` profile.
+PostgreSQL is exposed on `127.0.0.1:5433` by default. The initialization script creates the `users` and `accounts` databases with their service roles on a fresh PostgreSQL volume. Redis is exposed on `127.0.0.1:6379`; Kafka is exposed on `127.0.0.1:9092`, and Kafbat UI on `127.0.0.1:9080`. The CLI container uses the `tools` profile.
 
 The initialization script does not re-run on an existing PostgreSQL volume. This cleanup does not remove existing volumes or databases.
 
@@ -104,3 +104,13 @@ Before implementing login and token flows, define:
 
 The mobile app currently calls no authentication endpoint. Its login button validates input and displays an unavailable message. There is no development authentication bypass.
 
+
+## Token authentication
+
+`auth-service` issues a 15-minute RS256 access token and a 30-day opaque refresh token. Refresh tokens are generated from the CSPRNG, stored only as SHA-256 hashes in the `accounts` database, and rotated inside a transaction on every refresh. Each device login has its own server-side session, so `/auth/logout` revokes one device while `/auth/logout-all` revokes every device. Changing a password revokes all existing sessions and creates a new session for the current device.
+
+Access tokens are returned in the JSON response. Mobile clients must store the access and refresh tokens in iOS Keychain or Android Keystore; do not write tokens to logs or ordinary app storage. Other services need only `JWT_PUBLIC_KEY`, `JWT_ISSUER`, `JWT_AUDIENCE`, and the fixed `RS256` algorithm to verify access tokens.
+
+Refresh-token history is stored in `refresh_tokens`: one row per issuance, containing only a SHA-256 hash, the session ID, expiry, and used/revoked timestamps. Replaying a used token revokes that session and all of its refresh-token history; the revocation commits before the API returns 401. Other device sessions remain active. Concurrent refresh requests with the same token count as replay: only one succeeds, and the resulting session is then revoked. The client must serialize refresh requests and sign in again after a failed refresh; do not retry a consumed token.
+
+Run migration `CreateRefreshTokens1710000001100` on the accounts database. It backfills the current hash of existing sessions. Tokens issued before this migration that were already rotated cannot be reconstructed. Used history is retained until session expiry so ancestor replay can be detected. This change revokes refresh access; JWT access tokens still remain valid until expiry unless the API guard also checks session revocation.
