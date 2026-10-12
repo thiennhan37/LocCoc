@@ -1,9 +1,18 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, type TypeOrmModuleOptions } from '@nestjs/typeorm';
+import { CreateUsersTable1710000000000 } from './migrations/1710000000000-CreateUsersTable.js';
+
+function asBoolean(value: boolean | string | undefined, defaultValue = false): boolean {
+  if (value === undefined || value === null) return defaultValue;
+  return value === true || value === 'true';
+}
+
+export const USER_MIGRATIONS = [
+  CreateUsersTable1710000000000,
+];
 
 export function createUserDatabaseOptions(config: ConfigService): TypeOrmModuleOptions {
-  const logging = config.get<boolean | string>('TYPEORM_LOGGING', false);
   return {
     type: 'postgres',
     host: config.get<string>('DB_HOST', '127.0.0.1'),
@@ -13,10 +22,10 @@ export function createUserDatabaseOptions(config: ConfigService): TypeOrmModuleO
     database: config.get<string>('USER_DB_NAME', 'users'),
     autoLoadEntities: true,
     synchronize: false,
-    migrations: [],
-    migrationsRun: false,
+    migrations: USER_MIGRATIONS,
+    migrationsRun: asBoolean(config.get<boolean | string>('TYPEORM_MIGRATIONS_RUN'), true),
     logging: config.get<string>('NODE_ENV', 'development') === 'development'
-      && (logging === true || logging === 'true'),
+      && asBoolean(config.get<boolean | string>('TYPEORM_LOGGING', false)),
     retryAttempts: 3,
     retryDelay: 1000,
   };

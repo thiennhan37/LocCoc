@@ -17,6 +17,11 @@ import {
   OtpSender,
   OtpService,
 } from '../src/auth/services/otp.service.js';
+import {
+  InMemoryLockoutStore,
+  LOCKOUT_STORE,
+  LoginLockoutService,
+} from '../src/auth/services/login-lockout.service.js';
 import { PasswordService } from '../src/auth/services/password.service.js';
 
 type TestRepository = {
@@ -68,9 +73,11 @@ describe('Auth HTTP API (e2e)', () => {
         AuthService,
         PasswordService,
         OtpService,
+        LoginLockoutService,
         { provide: ConfigService, useValue: { get: () => undefined } },
         { provide: getRepositoryToken(Account), useValue: repository },
         { provide: OTP_STORE, useValue: new InMemoryOtpStore() },
+        { provide: LOCKOUT_STORE, useValue: new InMemoryLockoutStore() },
         { provide: OTP_SENDER, useValue: sender },
       ],
     }).compile();
@@ -172,6 +179,25 @@ describe('Auth HTTP API (e2e)', () => {
     expect(wrong.status).toBe(401);
     expect(unknown.status).toBe(401);
     expect(wrong.body).toEqual(unknown.body);
+  });
+
+  it('locks login after reaching maximum failed attempts (5)', async () => {
+    await register('locked@example.com');
+    await request(app.getHttpServer()).post('/auth/verify-otp').send({
+      email: 'locked@example.com', otp: sent[0].code,
+    });
+    for (let i = 0; i < 5; i++) {
+      const res = await request(app.getHttpServer()).post('/auth/login').send({
+        email: 'locked@example.com', password: 'wrong-password',
+      });
+      expect(res.status).toBe(401);
+    }
+    // Attempt 6 with the correct password should be rejected with 429 because account is locked
+    const lockedResponse = await request(app.getHttpServer()).post('/auth/login').send({
+      email: 'locked@example.com', password: 'correct horse battery staple 2026',
+    });
+    expect(lockedResponse.status).toBe(429);
+    expect(lockedResponse.body.message).toMatch(/too many failed login attempts/i);
   });
 });
 

@@ -20,11 +20,10 @@ export enum AccountStatus {
   SUSPENDED = 'suspended',
 }
 
-// Existing auth migration owns this table; the database is now named accounts.
-@Entity({ name: 'users' })
-@Index('IDX_users_email_login', ['email'])
-@Index('IDX_users_phone_login', ['phone'])
-@Index('IDX_users_status', ['status'])
+@Entity({ name: 'accounts' })
+@Index('IDX_accounts_email_login', ['email'])
+@Index('IDX_accounts_phone_login', ['phone'])
+@Index('IDX_accounts_status', ['status'])
 export class Account {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -38,10 +37,10 @@ export class Account {
   @Column({ name: 'password_hash', type: 'varchar', length: 255 })
   passwordHash!: string;
 
-  @Column({ type: 'enum', enum: AccountRole, enumName: 'user_role_enum', default: AccountRole.USER })
+  @Column({ type: 'enum', enum: AccountRole, enumName: 'account_role_enum', default: AccountRole.USER })
   role!: AccountRole;
 
-  @Column({ type: 'enum', enum: AccountStatus, enumName: 'user_status_enum', default: AccountStatus.PENDING_VERIFICATION })
+  @Column({ type: 'enum', enum: AccountStatus, enumName: 'account_status_enum', default: AccountStatus.PENDING_VERIFICATION })
   status!: AccountStatus;
 
   @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })

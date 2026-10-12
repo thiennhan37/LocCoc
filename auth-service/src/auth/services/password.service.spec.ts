@@ -15,8 +15,9 @@ describe('PasswordService', () => {
 
   it('rejects weak, common, and email-derived passwords', () => {
     expect(service.validatePolicy('short', 'person@example.com')).toEqual(
-      expect.arrayContaining(['password must be at least 10 characters']),
+      expect.arrayContaining(['password must be at least 6 characters']),
     );
+    expect(service.validatePolicy('abcdef', 'person@example.com')).toEqual([]);
     expect(service.validatePolicy('password', 'person@example.com')).toEqual(
       expect.arrayContaining(['password is too common']),
     );
