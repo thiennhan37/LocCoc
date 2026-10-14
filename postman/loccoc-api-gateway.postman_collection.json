@@ -35,6 +35,16 @@
       "key": "userId",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "tierId",
+      "value": "2",
+      "type": "string"
+    },
+    {
+      "key": "reportId",
+      "value": "1",
+      "type": "string"
     }
   ],
   "item": [
@@ -256,7 +266,543 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "Payment Service",
+      "description": "Các endpoint thanh toán PayOS VietQR, đối soát Webhook và gói thuê bao Subscription.",
+      "item": [
+        {
+          "name": "Create Checkout Link (VietQR PayOS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-user-id",
+                "value": "{{userId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tierId\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/payments/create-checkout",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "payments",
+                "create-checkout"
+              ]
+            },
+            "description": "Tạo link thanh toán VietQR PayOS cho gói dịch vụ (ví dụ Tier 2: LocCoc Gold)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Active Subscription",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-user-id",
+                "value": "{{userId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/subscriptions/me",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "subscriptions",
+                "me"
+              ]
+            },
+            "description": "Xem thông tin gói VIP đang kích hoạt của User."
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Subscription History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-user-id",
+                "value": "{{userId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/subscriptions/history",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "subscriptions",
+                "history"
+              ]
+            },
+            "description": "Lịch sử tất cả các lần gia hạn/nâng cấp gói thuê bao của User."
+          },
+          "response": []
+        },
+        {
+          "name": "PayOS Webhook Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/payments/webhook/health",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "payments",
+                "webhook",
+                "health"
+              ]
+            },
+            "description": "Kiểm tra endpoint nhận Webhook từ PayOS còn hoạt động không."
+          },
+          "response": []
+        },
+        {
+          "name": "Handle PayOS Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"00\",\n  \"desc\": \"success\",\n  \"data\": {\n    \"orderCode\": 123456,\n    \"amount\": 99000,\n    \"description\": \"LocCoc VIP Upgrade\",\n    \"accountNumber\": \"123456789\",\n    \"reference\": \"FT261001234\",\n    \"transactionDateTime\": \"2026-10-08 23:00:00\",\n    \"currency\": \"VND\",\n    \"paymentLinkId\": \"plink_123\"\n  },\n  \"signature\": \"mock_signature_hmac_sha256\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/payments/webhook/payos",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "payments",
+                "webhook",
+                "payos"
+              ]
+            },
+            "description": "Endpoint tiếp nhận webhook từ PayOS (xác thực HMAC SHA256, nâng cấp gói và bắn tin nhắn Kafka)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin Service",
+      "description": "Các endpoint dành riêng cho Admin quản lý gói Tier, người dùng, báo cáo và audit logs.",
+      "item": [
+        {
+          "name": "Get Dashboard Overview",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-user-id",
+                "value": "1"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/admin/reports/overview",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reports",
+                "overview"
+              ]
+            },
+            "description": "Lấy tổng quan chỉ số doanh thu MRR, tổng người dùng và tăng trưởng."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tiers Distribution",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-user-id",
+                "value": "1"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/admin/reports/tiers-distribution",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reports",
+                "tiers-distribution"
+              ]
+            },
+            "description": "Lấy biểu đồ phân bổ tỷ lệ người dùng giữa các gói Tier."
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Tiers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-user-id",
+                "value": "1"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/admin/tiers",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "admin",
+                "tiers"
+              ]
+            },
+            "description": "Lấy danh sách tất cả các gói Tier."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tier by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-user-id",
+                "value": "1"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/admin/tiers/{{tierId}}",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "admin",
+                "tiers",
+                "{{tierId}}"
+              ]
+            },
+            "description": "Lấy chi tiết 1 gói Tier theo ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Tier",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-user-id",
+                "value": "1"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"LocCoc Diamond VIP\",\n  \"code\": \"DIAMOND\",\n  \"price\": 199000,\n  \"durationDays\": 30,\n  \"maxFriends\": 100,\n  \"maxWidgets\": 20,\n  \"hdVideoAllowed\": true,\n  \"exclusiveIconsAllowed\": true,\n  \"status\": \"ACTIVE\",\n  \"description\": \"Gói cao cấp không giới hạn bạn bè và widget\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/admin/tiers",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "admin",
+                "tiers"
+              ]
+            },
+            "description": "Tạo mới một gói Tier dịch vụ."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Tier",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-user-id",
+                "value": "1"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"LocCoc Gold Plus\",\n  \"price\": 59000,\n  \"maxFriends\": 30,\n  \"maxWidgets\": 5,\n  \"hdVideoAllowed\": true,\n  \"exclusiveIconsAllowed\": true,\n  \"status\": \"ACTIVE\",\n  \"description\": \"Cập nhật giới hạn bạn bè và giá ưu đãi\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/admin/tiers/{{tierId}}",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "admin",
+                "tiers",
+                "{{tierId}}"
+              ]
+            },
+            "description": "Cập nhật cấu hình của một gói Tier."
+          },
+          "response": []
+        },
+        {
+          "name": "Get User Subscriptions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-user-id",
+                "value": "1"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/admin/users/{{userId}}/subscriptions",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "{{userId}}",
+                "subscriptions"
+              ]
+            },
+            "description": "Xem danh sách các gói thuê bao của một user cụ thể."
+          },
+          "response": []
+        },
+        {
+          "name": "Override User Tier",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-user-id",
+                "value": "1"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tierId\": 3,\n  \"durationDays\": 30,\n  \"reason\": \"Tặng quà tri ân khách hàng thân thiết\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/admin/users/{{userId}}/override-tier",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "{{userId}}",
+                "override-tier"
+              ]
+            },
+            "description": "Admin trực tiếp cấp hoặc sửa đổi gói VIP cho User (ghi Audit Log và phát Kafka event)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get System Reports",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-user-id",
+                "value": "1"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/admin/reports?status=PENDING&page=0&size=20",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reports"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "PENDING"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Lấy danh sách các báo cáo vi phạm nội dung / tài khoản."
+          },
+          "response": []
+        },
+        {
+          "name": "Resolve System Report",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-user-id",
+                "value": "1"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"RESOLVED\",\n  \"resolutionNotes\": \"Đã xử lý nội dung vi phạm tiêu chuẩn cộng đồng\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/admin/reports/{{reportId}}/resolve",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reports",
+                "{{reportId}}",
+                "resolve"
+              ]
+            },
+            "description": "Admin xử lý và giải quyết báo cáo vi phạm."
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Audit Logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-user-id",
+                "value": "1"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/admin/audit-logs?page=0&size=20",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "admin",
+                "audit-logs"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Xem toàn bộ nhật ký thao tác và audit logs của các Admin."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Audit Logs by User",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-user-id",
+                "value": "1"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayUrl}}/admin/audit-logs/user/{{userId}}?page=0&size=20",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "admin",
+                "audit-logs",
+                "user",
+                "{{userId}}"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Xem lịch sử thay đổi của Admin lên một User cụ thể."
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }
-
