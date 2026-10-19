@@ -31,6 +31,11 @@ export function createUserDatabaseOptions(config: ConfigService): TypeOrmModuleO
   };
 }
 
+/** Explicit bootstrap command, independent of the normal startup flag. */
+export function createUserMigrationOptions(config: ConfigService): TypeOrmModuleOptions {
+  return { ...createUserDatabaseOptions(config), migrationsRun: true, synchronize: false, logging: false };
+}
+
 /** Business-data connection. Domain tables will be added in later changes. */
 @Module({
   imports: [

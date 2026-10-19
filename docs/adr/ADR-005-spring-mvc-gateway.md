@@ -1,0 +1,2 @@
+# ADR-005: Spring MVC gateway alternative
+Use MVC controllers and JDK HTTP client to meet the requested layered architecture. Remove JPA and Spring Cloud Gateway: no business database or competing routing engine. Redis stores atomic expiring quotas shared across instances. Downstream services retain authentication and authorization. No automatic retry of payments or redirect following. Bound bodies and timeouts. Stop Nest gateway before running this alternative on its port.

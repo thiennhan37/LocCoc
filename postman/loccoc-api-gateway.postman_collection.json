@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "a4c8e3b2-5d9f-4f3f-8b0a-1e7c6f2d9a10",
     "name": "LocCoc IAM - API Gateway",
-    "description": "Postman collection for testing LocCoc APIs through api-gateway. Auth endpoints are grouped under Auth Service and are sent to the gateway URL.",
+    "description": "Postman collection for testing LocCoc APIs through api-gateway. Auth endpoints are grouped under Auth Service and are sent to the gateway URL.\n\nFirst run: start PostgreSQL/Redis, run npm run db:migrate:auth and npm run db:migrate:user from repository root, then start auth and one gateway. Run Register before Verify OTP. Replace the placeholder otp with the current development code from the auth console. If a database error occurred after verifying a code, obtain a fresh OTP before retrying.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -259,4 +259,3 @@
     }
   ]
 }
-

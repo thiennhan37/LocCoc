@@ -35,6 +35,11 @@ export function createAuthDatabaseOptions(config: ConfigService): TypeOrmModuleO
   };
 }
 
+/** Explicit bootstrap command, independent of the normal startup flag. */
+export function createAuthMigrationOptions(config: ConfigService): TypeOrmModuleOptions {
+  return { ...createAuthDatabaseOptions(config), migrationsRun: true, synchronize: false, logging: false };
+}
+
 /** Auth-service owns the accounts database. */
 @Module({
   imports: [
