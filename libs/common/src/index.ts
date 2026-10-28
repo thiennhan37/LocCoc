@@ -1,4 +1,4 @@
-export { validateEnvironment } from './config/environment.js';
+export { validateGatewayEnvironment, validateAuthEnvironment, validateUserEnvironment } from './config/environment.js';
 export { RateLimit } from './decorators/rate-limit.decorator.js';
 export { CurrentUser } from './decorators/current-user.decorator.js';
 export { Public, Roles } from './decorators/auth.decorator.js';
@@ -11,3 +11,7 @@ export type { RequestWithId } from './interfaces/request-with-id.js';
 export type { AuthenticatedUser, JwtPayload } from './interfaces/authenticated-user.js';
 export { RedactingLogger, redact } from './logger/redacting-logger.js';
 export { requestIdMiddleware } from './middleware/request-id.middleware.js';
+export { OwnershipGuard, assertOwner } from './guards/ownership.guard.js';
+export { CheckOwnership, OWNERSHIP_KEY } from './decorators/ownership.decorator.js';
+export type { OwnershipOptions } from './decorators/ownership.decorator.js';
+export { REDIS_CLIENT } from './security/redis-tokens.js';

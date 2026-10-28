@@ -1,0 +1,2 @@
+flutter run --dart-define=API_BASE_URL=http://[IP]:8080
+

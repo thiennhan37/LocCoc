@@ -2,12 +2,17 @@ import {
   ConflictException,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
+  Logger,
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import type { Redis } from 'ioredis';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { REDIS_CLIENT } from '../database/redis.tokens.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RefreshDto } from './dto/refresh.dto.js';
@@ -34,12 +39,16 @@ export interface AuthenticatedContext {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(Account) private readonly accounts: Repository<Account>,
     @Optional() @InjectRepository(Session) private readonly sessions: Repository<Session> | undefined,
     @Optional() @InjectRepository(RefreshToken) private readonly refreshTokens: Repository<RefreshToken> | undefined,
     private readonly passwords: PasswordService,
     private readonly otps: OtpService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly config: ConfigService,
     @Optional() private readonly tokens?: TokenService,
     @Optional() private readonly dataSource?: DataSource,
     @Optional() private readonly lockout?: LoginLockoutService,
@@ -200,6 +209,7 @@ export class AuthService {
       await manager.getRepository(RefreshToken).update(
         { sessionId: current.sessionId, userId: current.userId, revokedAt: IsNull() }, { revokedAt: now },
       );
+      await this.publishSessionRevocation(current.sessionId);
       return { revoked: result.affected === 1 };
     });
   }
@@ -207,9 +217,16 @@ export class AuthService {
   async logoutAll(userId: string): Promise<{ revokedSessions: number }> {
     this.requireTokenInfrastructure();
     return this.dataSource!.transaction(async (manager) => {
+      const sessionsRepo = manager.getRepository(Session);
       const now = new Date();
-      const result = await manager.getRepository(Session).update({ userId, revokedAt: IsNull() }, { revokedAt: now });
+      // Fetch active session IDs before revoking, so we can publish each to Redis
+      const activeSessions = await sessionsRepo.find({
+        where: { userId, revokedAt: IsNull() },
+        select: ['id'],
+      });
+      const result = await sessionsRepo.update({ userId, revokedAt: IsNull() }, { revokedAt: now });
       await manager.getRepository(RefreshToken).update({ userId, revokedAt: IsNull() }, { revokedAt: now });
+      await Promise.all(activeSessions.map((s) => this.publishSessionRevocation(s.id)));
       return { revokedSessions: result.affected ?? 0 };
     });
   }
@@ -218,8 +235,8 @@ export class AuthService {
     this.requireTokenInfrastructure();
     return this.dataSource!.transaction(async (manager) => {
       const accountsRepo = manager.getRepository(Account);
-      const sessions = manager.getRepository(Session);
-      const refreshTokens = manager.getRepository(RefreshToken);
+      const sessionsRepo = manager.getRepository(Session);
+      const refreshTokensRepo = manager.getRepository(RefreshToken);
       const account = await accountsRepo.findOne({ where: { id: current.userId }, lock: { mode: 'pessimistic_write' } });
       if (!account || !(await this.passwords.verify(account.passwordHash, dto.currentPassword))) {
         throw new UnauthorizedException('Invalid current password');
@@ -230,11 +247,25 @@ export class AuthService {
       account.passwordHash = newHash;
       await accountsRepo.save(account);
       const now = new Date();
-      await sessions.update({ userId: current.userId, revokedAt: IsNull() }, { revokedAt: now });
-      await refreshTokens.update({ userId: current.userId, revokedAt: IsNull() }, { revokedAt: now });
+      // Fetch active session IDs before revoking for Redis publication
+      const activeSessions = await sessionsRepo.find({
+        where: { userId: current.userId, revokedAt: IsNull() },
+        select: ['id'],
+      });
+      await sessionsRepo.update({ userId: current.userId, revokedAt: IsNull() }, { revokedAt: now });
+      await refreshTokensRepo.update({ userId: current.userId, revokedAt: IsNull() }, { revokedAt: now });
+      await Promise.all(activeSessions.map((s) => this.publishSessionRevocation(s.id)));
       const issued = await this.createSession(manager, account, context);
       return { message: 'Password changed', ...issued };
     });
+  }
+
+  /** Internal entry point after provider verification and transactional account
+   * resolution. Reuses the exact password-login session/token implementation. */
+  async createSocialSession(manager: EntityManager, account: Account, context: AuthRequestContext): Promise<Record<string, unknown>> {
+    this.requireTokenInfrastructure();
+    const pair = await this.createSession(manager, account, context);
+    return { authenticated: true, user: this.publicAccount(account), ...pair };
   }
 
   private async issueSession(account: Account, context: AuthRequestContext): Promise<TokenPair | undefined> {
@@ -273,6 +304,7 @@ export class AuthService {
   private async revokeSession(manager: EntityManager, sessionId: string, now: Date): Promise<void> {
     await manager.getRepository(Session).update({ id: sessionId, revokedAt: IsNull() }, { revokedAt: now });
     await manager.getRepository(RefreshToken).update({ sessionId, revokedAt: IsNull() }, { revokedAt: now });
+    await this.publishSessionRevocation(sessionId);
   }
 
   private requireTokenInfrastructure(): void {
@@ -281,5 +313,27 @@ export class AuthService {
 
   private publicAccount(user: Account): Record<string, unknown> {
     return { id: user.id, email: user.email, phone: user.phone, role: user.role, status: user.status, emailVerifiedAt: user.emailVerifiedAt };
+  }
+
+  /**
+   * Publish a session revocation to Redis so downstream services (user-service, etc.)
+   * can reject tokens from revoked sessions without inter-service calls.
+   *
+   * Key:   auth:revoked:sid:<sessionId>
+   * Value: "1"
+   * TTL:   JWT_ACCESS_TTL_SECONDS (default 900s = 15min)
+   *
+   * After the access token expires naturally, the key is no longer needed because
+   * the token itself will fail expiry validation in JwtVerifier.
+   */
+  private async publishSessionRevocation(sessionId: string): Promise<void> {
+    try {
+      const ttl = this.config.get<number>('JWT_ACCESS_TTL_SECONDS', 900);
+      await this.redis.set(`auth:revoked:sid:${sessionId}`, '1', 'EX', ttl);
+    } catch (error) {
+      // Log but don't fail the logout flow — eventual consistency is acceptable.
+      // The token will expire naturally within JWT_ACCESS_TTL_SECONDS anyway.
+      this.logger.warn(`Failed to publish session revocation for ${sessionId}: ${error}`);
+    }
   }
 }

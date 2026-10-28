@@ -23,6 +23,7 @@ import {
   LoginLockoutService,
 } from '../src/auth/services/login-lockout.service.js';
 import { PasswordService } from '../src/auth/services/password.service.js';
+import { REDIS_CLIENT } from '../src/database/redis.tokens.js';
 
 type TestRepository = {
   findOne: (options: { where: Partial<Account> }) => Promise<Account | null>;
@@ -79,6 +80,7 @@ describe('Auth HTTP API (e2e)', () => {
         { provide: OTP_STORE, useValue: new InMemoryOtpStore() },
         { provide: LOCKOUT_STORE, useValue: new InMemoryLockoutStore() },
         { provide: OTP_SENDER, useValue: sender },
+        { provide: REDIS_CLIENT, useValue: { get: async () => null, set: async () => 'OK' } },
       ],
     }).compile();
     app = module.createNestApplication();

@@ -4,6 +4,7 @@ import { TypeOrmModule, type TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { CreateAccounts1710000000000 } from './migrations/1710000000000-CreateAccounts.js';
 import { CreateSessions1710000001000 } from './migrations/1710000001000-CreateSessions.js';
 import { CreateRefreshTokens1710000001100 } from './migrations/1710000001100-CreateRefreshTokens.js';
+import { CreateIdentities1710000001200 } from './migrations/1710000001200-CreateIdentities.js';
 
 function asBoolean(value: boolean | string | undefined, defaultValue = false): boolean {
   if (value === undefined || value === null) return defaultValue;
@@ -14,6 +15,7 @@ export const AUTH_MIGRATIONS = [
   CreateAccounts1710000000000,
   CreateSessions1710000001000,
   CreateRefreshTokens1710000001100,
+  CreateIdentities1710000001200,
 ];
 
 export function createAuthDatabaseOptions(config: ConfigService): TypeOrmModuleOptions {

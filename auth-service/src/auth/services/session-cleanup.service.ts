@@ -12,6 +12,7 @@ export class SessionCleanupService {
     @InjectRepository(RefreshToken) private readonly refreshTokens: Repository<RefreshToken>,
   ) {}
 
+  // Run every hour at the start of the hour (minute 0).
   @Cron('0 * * * *')
   async removeExpiredSessions(): Promise<void> {
     const now = new Date();
