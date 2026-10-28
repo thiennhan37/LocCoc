@@ -1,14 +1,17 @@
 import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import Joi from 'joi';
 
-const schema = Joi.object({
+const fields = {
   NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
   GATEWAY_PORT: Joi.number().port().default(8080),
   AUTH_PORT: Joi.number().port().default(8000),
   USER_PORT: Joi.number().port().default(8081),
   AUTH_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8000'),
   USER_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8081'),
+  ADMIN_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8086'),
+  PAYMENT_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8085'),
   DB_HOST: Joi.string().hostname().required(),
   DB_PORT: Joi.number().port().default(5433),
   AUTH_DB_NAME: Joi.string().default('accounts'),
@@ -45,28 +48,69 @@ const schema = Joi.object({
   JWT_ISSUER: Joi.string().default('loccoc-auth'),
   JWT_AUDIENCE: Joi.string().default('loccoc-api'),
   JWT_KID: Joi.string().pattern(/^[A-Za-z0-9._-]+$/).default('loccoc-2026-01'),
+  GOOGLE_CLIENT_IDS: Joi.string().allow('').pattern(/^[A-Za-z0-9._-]+(?:\s*,\s*[A-Za-z0-9._-]+)*$/).default(''),
+  APPLE_CLIENT_IDS: Joi.string().allow('').pattern(/^[A-Za-z0-9._-]+(?:\s*,\s*[A-Za-z0-9._-]+)*$/).default(''),
   CORS_ORIGINS: Joi.string().required(),
   RATE_LIMIT_TTL_MS: Joi.number().integer().positive().default(60000),
   RATE_LIMIT_MAX: Joi.number().integer().positive().default(100),
-}).unknown(true);
+};
 
-export function validateEnvironment(input: Record<string, unknown>): Record<string, unknown> {
-  // Validate environment variables
-  // abortEarly: false => validate all environment variables, return all errors
+const gatewayKeys = [
+  'NODE_ENV', 'GATEWAY_PORT', 'AUTH_SERVICE_URL', 'USER_SERVICE_URL',
+  'ADMIN_SERVICE_URL', 'PAYMENT_SERVICE_URL',
+  'REDIS_URL', 'CORS_ORIGINS', 'RATE_LIMIT_TTL_MS', 'RATE_LIMIT_MAX',
+] as const;
+
+const authKeys = [
+  'NODE_ENV', 'AUTH_PORT', 'DB_HOST', 'DB_PORT', 'AUTH_DB_NAME', 'AUTH_DB_USER', 'AUTH_DB_PASSWORD',
+  'REDIS_URL', 'ARGON2_MEMORY_COST', 'ARGON2_TIME_COST', 'ARGON2_PARALLELISM',
+  'ARGON2_HASH_LENGTH', 'ARGON2_SALT_LENGTH', 'AUTH_ARGON2_MEMORY_COST',
+  'AUTH_ARGON2_TIME_COST', 'AUTH_ARGON2_PARALLELISM', 'AUTH_ARGON2_HASH_LENGTH',
+  'COMMON_PASSWORDS', 'COMMON_PASSWORDS_PATH', 'LOGIN_MAX_ATTEMPTS',
+  'LOGIN_LOCK_BASE_SECONDS', 'LOGIN_LOCK_MAX_SECONDS', 'TYPEORM_LOGGING',
+  'TYPEORM_MIGRATIONS_RUN', 'JWT_PRIVATE_KEY_PATH', 'JWT_PUBLIC_KEY_PATH',
+  'JWT_PRIVATE_KEY', 'JWT_PUBLIC_KEY', 'JWT_ACCESS_TTL_SECONDS',
+  'JWT_REFRESH_TTL_SECONDS', 'JWT_ISSUER', 'JWT_AUDIENCE', 'JWT_KID',
+  'GOOGLE_CLIENT_IDS', 'APPLE_CLIENT_IDS',
+] as const;
+
+const userKeys = [
+  'NODE_ENV', 'USER_PORT', 'DB_HOST', 'DB_PORT', 'USER_DB_NAME', 'USER_DB_USER',
+  'USER_DB_PASSWORD', 'REDIS_URL', 'TYPEORM_LOGGING', 'TYPEORM_MIGRATIONS_RUN',
+  'JWT_PUBLIC_KEY_PATH', 'JWT_PUBLIC_KEY', 'JWT_ISSUER', 'JWT_AUDIENCE', 'JWT_KID',
+] as const;
+
+type EnvironmentKey = keyof typeof fields;
+type KeyRequirement = 'none' | 'public' | 'pair';
+
+export function validateGatewayEnvironment(input: Record<string, unknown>): Record<string, unknown> {
+  return validateFor(input, gatewayKeys, 'none');
+}
+
+export function validateAuthEnvironment(input: Record<string, unknown>, serviceDirectory = process.cwd()): Record<string, unknown> {
+  return validateFor(input, authKeys, 'pair', serviceDirectory);
+}
+
+export function validateUserEnvironment(input: Record<string, unknown>, serviceDirectory = process.cwd()): Record<string, unknown> {
+  return validateFor(input, userKeys, 'public', serviceDirectory);
+}
+
+function validateFor(input: Record<string, unknown>, keys: readonly EnvironmentKey[], keyRequirement: KeyRequirement, serviceDirectory = process.cwd()): Record<string, unknown> {
+  const schema = Joi.object(Object.fromEntries(keys.map((key) => [key, fields[key]]))).unknown(true);
   const { error, value } = schema.validate(input, { abortEarly: false });
   if (error) throw new Error(`Invalid environment: ${error.details.map((item) => item.path.join('.')).join(', ')}`);
 
   const env = value as Record<string, string | number>;
-  // CORS_ORIGINS: must contain explicit HTTP(S) origins, not contain '*' or empty string
-  const origins = String(env.CORS_ORIGINS).split(',').map((origin) => origin.trim());
-  if (origins.some((origin) => !origin || origin === '*' || !/^https?:\/\/[^/]+$/.test(origin))) {
-    throw new Error('Invalid environment: CORS_ORIGINS must contain explicit HTTP(S) origins');
+  if (keys === gatewayKeys) {
+    const origins = String(env.CORS_ORIGINS).split(',').map((origin) => origin.trim());
+    if (origins.some((origin) => !origin || origin === '*' || !/^https?:\/\/[^/]+$/.test(origin))) {
+      throw new Error('Invalid environment: CORS_ORIGINS must contain explicit HTTP(S) origins');
+    }
   }
 
-  const privatePem = loadKey(env, 'JWT_PRIVATE_KEY', false);
-  const publicPem = loadKey(env, 'JWT_PUBLIC_KEY', true);
-  // Validate the public verification key for every service. Auth-service additionally
-  // requires the private signing key at TokenService construction time.
+  if (keyRequirement === 'none') return env;
+  const privatePem = keyRequirement === 'pair' ? loadKey(env, 'JWT_PRIVATE_KEY', true, serviceDirectory) : '';
+  const publicPem = loadKey(env, 'JWT_PUBLIC_KEY', true, serviceDirectory);
   try {
     const publicKey = createPublicKey(publicPem);
     if (publicKey.asymmetricKeyType !== 'rsa') throw new Error('RS256 requires an RSA public key');
@@ -80,12 +124,12 @@ export function validateEnvironment(input: Record<string, unknown>): Record<stri
   } catch {
     throw new Error('Invalid environment: JWT public key is invalid or does not match the private key');
   }
-  env.JWT_PRIVATE_KEY = privatePem;
+  if (keyRequirement === 'pair') env.JWT_PRIVATE_KEY = privatePem;
   env.JWT_PUBLIC_KEY = publicPem;
   return env;
 }
 
-function loadKey(env: Record<string, string | number>, name: 'JWT_PRIVATE_KEY' | 'JWT_PUBLIC_KEY', required: boolean): string {
+function loadKey(env: Record<string, string | number>, name: 'JWT_PRIVATE_KEY' | 'JWT_PUBLIC_KEY', required: boolean, serviceDirectory: string): string {
   const inline = String(env[name] ?? '').replace(/\\n/g, '\n');
   const path = String(env[`${name}_PATH`] ?? '');
   if (inline && path) throw new Error(`Invalid environment: set exactly one of ${name} and ${name}_PATH`);
@@ -93,7 +137,7 @@ function loadKey(env: Record<string, string | number>, name: 'JWT_PRIVATE_KEY' |
     if (required) throw new Error(`Invalid environment: set ${name} or ${name}_PATH`);
     return '';
   }
-  try { return inline || readFileSync(path, 'utf8'); }
+  try { return inline || readFileSync(resolve(serviceDirectory, path), 'utf8'); }
   catch { throw new Error(`Invalid environment: cannot read ${name}_PATH`); }
 }
 

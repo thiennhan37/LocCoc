@@ -16,6 +16,11 @@ import { LOCKOUT_STORE, LoginLockoutService, RedisLockoutStore } from './service
 import { PasswordService } from './services/password.service.js';
 import { SessionCleanupService } from './services/session-cleanup.service.js';
 import { TokenService } from './services/token.service.js';
+import { Identity } from './entities/identity.entity.js';
+import { IdentitiesRepository } from './identities.repository.js';
+import { SocialAuthController } from './social-auth.controller.js';
+import { SocialAuthService } from './services/social-auth.service.js';
+import { createSocialJwks, SOCIAL_JWKS, SocialTokenVerifier } from './services/social-token-verifier.service.js';
 
 @Module({
   imports: [
@@ -28,10 +33,10 @@ import { TokenService } from './services/token.service.js';
         storage,
       }),
     }),
-    TypeOrmModule.forFeature([Account, Session, RefreshToken]),
+    TypeOrmModule.forFeature([Account, Session, RefreshToken, Identity]),
     RedisModule,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, SocialAuthController],
   providers: [
     PasswordService,
     OtpService,
@@ -39,6 +44,10 @@ import { TokenService } from './services/token.service.js';
     TokenService,
     SessionCleanupService,
     AuthService,
+    IdentitiesRepository,
+    SocialTokenVerifier,
+    SocialAuthService,
+    { provide: SOCIAL_JWKS, useFactory: createSocialJwks },
     JwtVerifier,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

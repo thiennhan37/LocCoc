@@ -1,6 +1,6 @@
 import type { LoggerService } from '@nestjs/common';
 
-const sensitive = /^(password|token|accesstoken|refreshtoken|otp|authorization)$/i;
+const sensitive = /^(password|token|idtoken|nonce|accesstoken|refreshtoken|otp|authorization)$/i;
 
 export function redact(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redact);

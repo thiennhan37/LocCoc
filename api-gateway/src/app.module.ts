@@ -2,7 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { validateEnvironment } from '@loccoc/common';
+import { fileURLToPath } from 'node:url';
+import { validateGatewayEnvironment } from '@loccoc/common';
 import { HealthController } from './health.controller.js';
 import { ServiceProxyController } from './service-proxy.controller.js';
 import { IpThrottlerGuard } from './ip-throttler.guard.js';
@@ -11,7 +12,7 @@ import { RedisThrottlerStorage } from './redis-throttler.storage.js';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env', '../.env'], validate: validateEnvironment }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: fileURLToPath(new URL('../.env', import.meta.url)), validate: validateGatewayEnvironment }),
     RedisModule,
     ThrottlerModule.forRootAsync({
       imports: [RedisModule],

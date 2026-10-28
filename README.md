@@ -30,6 +30,10 @@ pnpm dev:gateway
 
 Sau khi dependencies đã được cài, có thể chạy gateway bằng `npm start` trong thư mục `api-gateway`, hoặc chạy từ root bằng `npm start`. Các service còn lại dùng `npm start` trong thư mục tương ứng; từ root có thể dùng `npm run start:auth` và `npm run start:user`.
 
+Gateway, auth-service, and user-service each load only their own `.env` file, regardless of the command's working directory. Copy the matching `.env.example` within each service and set its values before starting it. The root `.env` supplies Docker Compose variables; it is not a fallback for these three services. Each service validates only the variables it uses.
+
+Admin-service and payment-service retain their existing `.env` loading, including the root file when started from the repository root or their service directory. Keep their MySQL, PayOS and other settings there. Gateway defaults to Admin at `http://127.0.0.1:8086` and Payment at `http://127.0.0.1:8085`, so existing gateway `.env` files need no additions for those local ports. For other hosts or ports, set `ADMIN_SERVICE_URL` and `PAYMENT_SERVICE_URL` in `api-gateway/.env` or the gateway process environment; values present only in the root `.env` are not read by Gateway.
+
 The gateway listens on `http://localhost:8080`; auth-service defaults to `http://localhost:8000`; user-service defaults to `http://localhost:8081`. `GET /health` on the gateway returns only `{ "status": "ok" }`.
 
 ## Gateway routing
@@ -40,6 +44,9 @@ Routing is defined in [api-gateway/src/service-routes.ts](api-gateway/src/servic
 | --- | --- | --- |
 | `/auth/*` | auth-service | `AUTH_SERVICE_URL` |
 | `/users/*` | user-service | `USER_SERVICE_URL` |
+| `/admin/*` | admin-service | `ADMIN_SERVICE_URL` |
+| `/payments/*` | payment-service | `PAYMENT_SERVICE_URL` |
+| `/subscriptions/*` | payment-service | `PAYMENT_SERVICE_URL` |
 
 For example, `POST /auth/login` is forwarded to `POST http://127.0.0.1:8000/auth/login`, while `GET /users/me` is forwarded to user-service. The gateway forwards the method, query string, body, authorization header and `x-request-id`; upstream failures return a sanitized `502` response.
 
@@ -53,7 +60,7 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out secrets/jwt-pr
 openssl pkey -in secrets/jwt-private.pem -pubout -out secrets/jwt-public.pem
 ```
 
-This implementation uses an RSA key pair and fixed RS256. Set `JWT_PRIVATE_KEY_PATH` and `JWT_PUBLIC_KEY_PATH` (or the inline PEM variables with `\\n`) in `.env`; `auth-service` requires the private key to sign, while other services need only the public key to verify.
+This implementation uses an RSA key pair and fixed RS256. Set `JWT_PRIVATE_KEY_PATH` and `JWT_PUBLIC_KEY_PATH` in `auth-service/.env`; set only `JWT_PUBLIC_KEY_PATH` in `user-service/.env`. Gateway does not read JWT keys. Relative key paths resolve from each service directory, so `../secrets/` points at the repository's `secrets/` directory.
 
 ## Verification
 
@@ -114,3 +121,37 @@ Access tokens are returned in the JSON response. Mobile clients must store the a
 Refresh-token history is stored in `refresh_tokens`: one row per issuance, containing only a SHA-256 hash, the session ID, expiry, and used/revoked timestamps. Replaying a used token revokes that session and all of its refresh-token history; the revocation commits before the API returns 401. Other device sessions remain active. Concurrent refresh requests with the same token count as replay: only one succeeds, and the resulting session is then revoked. The client must serialize refresh requests and sign in again after a failed refresh; do not retry a consumed token.
 
 Run migration `CreateRefreshTokens1710000001100` on the accounts database. It backfills the current hash of existing sessions. Tokens issued before this migration that were already rotated cannot be reconstructed. Used history is retained until session expiry so ancestor replay can be detected. This change revokes refresh access; JWT access tokens still remain valid until expiry unless the API guard also checks session revocation.
+
+## Authorization & Anti-IDOR/BOLA Matrix
+
+Hệ thống phân quyền (RBAC) và phòng chống tấn công IDOR / BOLA (Broken Object Level Authorization) cho các data services:
+
+### 1. Ma trận phân quyền (Role Matrix)
+
+| Endpoint | Method | `user` | `moderator` | `admin` | Cơ chế kiểm tra |
+|---|---|:---:|:---:|:---:|---|
+| `/users` | `GET` | ❌ 403 | ✅ Cho phép | ✅ Cho phép | `@Roles('moderator', 'admin')` |
+| `/users/me` | `GET` | ✅ Chỉ chính mình | ✅ Chỉ chính mình | ✅ Chỉ chính mình | `@CurrentUser()` từ JWT |
+| `/users/me` | `PATCH` | ✅ Chỉ chính mình | ✅ Chỉ chính mình | ✅ Chỉ chính mình | DTO whitelist + `@CurrentUser()` |
+| `/users/me` | `DELETE` | ✅ Chỉ chính mình | ✅ Chỉ chính mình | ✅ Chỉ chính mình | `@CurrentUser()` từ JWT |
+| `/users/:id` | `GET` | ❌ 404 nếu không phải của mình | ✅ Cho phép | ✅ Cho phép | `OwnershipGuard` (`assertOwner`) |
+| `/users/:id` | `PATCH` | ❌ 403 | ❌ 403 | ✅ Cho phép | `@Roles('admin')` |
+| `/users/:id` | `DELETE` | ❌ 403 | ❌ 403 | ✅ Cho phép | `@Roles('admin')` |
+
+### 2. Nguyên tắc phòng vệ chống IDOR / BOLA
+
+1. **Self-verify JWT**: Mọi service tự verify chữ ký RS256 của token bằng Public Key qua `JwtAuthGuard` dùng chung, không tin cậy header do Gateway hay service khác tự đính kèm.
+2. **Never trust client-supplied identity**: Tuyệt đối không lấy `userId` hay `ownerId` từ Request Body, Query String hoặc Path Params để xác định chủ sở hữu. Luôn trích xuất từ JWT Payload đã verify (`req.user.userId`).
+3. **Existence Obfuscation (404 instead of 403)**: Khi người dùng thông thường cố tình thay đổi URL Path ID sang tài nguyên của người khác, trả về **`404 Not Found`** thay vì `403 Forbidden` để triệt tiêu nguy cơ Resource Enumeration.
+4. **Mass Assignment Protection**: ValidationPipe kích hoạt `{ whitelist: true, forbidNonWhitelisted: true }`. Mọi nỗ lực gửi thêm các trường đặc quyền như `role`, `status`, `userId`, `ownerId` đều lập tức bị từ chối với mã lỗi `400 Bad Request`.
+5. **Session Revocation via Redis**: Khi user đăng xuất hoặc đổi mật khẩu, `auth-service` ghi key `auth:revoked:sid:<sessionId>` (TTL = thời gian sống token) vào Redis. `JwtAuthGuard` tại `user-service` sẽ từ chối token này ngay lập tức với mã lỗi `401 Unauthorized`.
+
+## Mobile social sign-in
+
+`POST /auth/social/google` and `POST /auth/social/apple` accept a provider `idToken` and optional `nonce`. The Apple endpoint also accepts optional first-login `name`, used only as untrusted display metadata. Both routes are reachable through the existing gateway `/auth/*` proxy and allow five requests per minute per IP per provider.
+
+Auth-service verifies RS256 signatures against fixed provider JWKS endpoints, issuer, configured client IDs, expiry and nonce when present. Only signed provider claims determine identity and email. A verified email can link an active local account; an unverified/missing email or pending local account returns `403 SOCIAL_VERIFICATION_REQUIRED` without linking. Known identities use provider + subject even if Apple omits email on a later sign-in. Apple relay addresses and the first display-name snapshot are preserved.
+
+Set `GOOGLE_CLIENT_IDS` / `APPLE_CLIENT_IDS` in your deployment environment (comma-separated exact client IDs, including `azp` IDs if supplied by your mobile SDK). Empty values disable that provider. Apply `CreateIdentities1710000001200` using `TYPEORM_MIGRATIONS_RUN=true` for auth-service. Social-only accounts have no password; sessions, local JWTs, refresh rotation and logout reuse the password-login implementation. Each verified provider ID token is single-use until its expiry; obtain a fresh token after a failed or ambiguous request.
+
+See [social login contract](docs/specs/auth/social-login.md) and [ADR-005](docs/adr/ADR-005-social-login.md) for request formats, security decisions and test commands.

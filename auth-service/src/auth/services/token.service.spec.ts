@@ -9,6 +9,8 @@ import { randomUUID } from 'node:crypto';
 import { PasswordService } from './password.service.js';
 import { TokenService } from './token.service.js';
 import { JwtVerifier } from '@loccoc/common';
+import type { Account } from '../entities/account.entity.js';
+import type { EntityManager } from 'typeorm';
 
 const generatedKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const privateKey = generatedKeys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
@@ -58,6 +60,7 @@ function createHarness() {
       return value;
     },
     findOne: async ({ where }: any) => sessions.find((candidate) => matches(candidate, where)) ?? null,
+    find: async ({ where }: any = {}) => sessions.filter((candidate) => !where || matches(candidate, where)),
     update: async (criteria: RecordData, values: RecordData) => {
       let affected = 0;
       for (const session of sessions) if (matches(session, criteria)) { Object.assign(session, values); affected += 1; }
@@ -99,13 +102,15 @@ function createHarness() {
       return result;
     },
   };
-  const auth = new AuthService(accountRepo as any, sessionRepo as any, refreshRepo as any, new PasswordService(), {} as any, tokenService, dataSource as any);
+  const mockRedis = { set: async () => 'OK', get: async () => null } as any;
+  const mockConfig = { get: (key: string, def?: unknown) => def } as any;
+  const auth = new AuthService(accountRepo as any, sessionRepo as any, refreshRepo as any, new PasswordService(), {} as any, mockRedis, mockConfig, tokenService, dataSource as any);
   const addSession = (id: string, refreshToken: string) => {
     const expiresAt = new Date(Date.now() + 60_000);
     sessions.push({ id, userId: account.id, refreshTokenHash: tokenService.hashRefreshToken(refreshToken), expiresAt, revokedAt: null, lastUsedAt: new Date(), deviceInfo: null, ip: null });
     refreshRecords.push({ id: `rt-${id}`, sessionId: id, userId: account.id, tokenHash: tokenService.hashRefreshToken(refreshToken), expiresAt, usedAt: null, revokedAt: null, reuseDetectedAt: null });
   };
-  return { auth, tokenService, account, sessions, refreshRecords, addSession, refreshRepo };
+  return { auth, tokenService, account, sessions, refreshRecords, addSession, refreshRepo, manager, dataSource };
 }
 function signToken(payload: Record<string, unknown>, header: Record<string, unknown>, key: string): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -118,6 +123,33 @@ function signToken(payload: Record<string, unknown>, header: Record<string, unkn
 
 describe('TokenService and session rotation', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('issues social sessions through TokenService and supports normal refresh, replay detection and logout', async () => {
+    const { auth, tokenService, account, sessions, refreshRecords, manager, dataSource } = createHarness();
+    account.passwordHash = null;
+    const result = await dataSource.transaction(() => auth.createSocialSession(
+      manager as unknown as EntityManager, account as Account,
+      { ip: '127.0.0.1', userAgent: 'Mobile SDK', platform: 'ios' },
+    ));
+    expect(result).toMatchObject({ authenticated: true, tokenType: 'Bearer', expiresIn: 900, refreshExpiresIn: 2_592_000 });
+    expect(result.user).not.toHaveProperty('passwordHash');
+    const accessToken = result.accessToken as string;
+    const refreshToken = result.refreshToken as string;
+    expect(new JwtVerifier().verify(accessToken, {
+      publicKey, issuer: 'loccoc-auth', audience: 'loccoc-api', kid: 'test-key',
+    })).toMatchObject({ sub: account.id, role: 'user', sid: sessions[0].id });
+    expect(sessions[0]).toMatchObject({ ip: '127.0.0.1', deviceInfo: { platform: 'ios', userAgent: 'Mobile SDK' } });
+    expect(refreshRecords[0].tokenHash).toBe(tokenService.hashRefreshToken(refreshToken));
+    expect(JSON.stringify(refreshRecords)).not.toContain(refreshToken);
+    const next = await auth.refresh({ refreshToken });
+    expect(next.refreshToken).not.toBe(refreshToken);
+    await expect(auth.refresh({ refreshToken })).rejects.toThrow('Invalid refresh token');
+    await expect(auth.refresh({ refreshToken: next.refreshToken })).rejects.toThrow('Invalid refresh token');
+    const second = await dataSource.transaction(() => auth.createSocialSession(manager as unknown as EntityManager, account as Account, {}));
+    await auth.logout({ userId: account.id, sessionId: sessions[1].id });
+    await expect(auth.refresh({ refreshToken: second.refreshToken as string })).rejects.toThrow('Invalid refresh token');
+    await expect(auth.login({ email: account.email, password: 'no-social-password' })).rejects.toThrow('Invalid credentials');
+  });
 
   it('issues a verifiable RS256 access token with kid and an opaque refresh token', () => {
     const service = new TokenService(config());
