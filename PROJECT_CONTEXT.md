@@ -1,5 +1,12 @@
 # LocCoc Project Context & Knowledge Base (Admin & Payment Module)
 
+> Notification design update (2026-10-30): user accepted PostgreSQL, cursor inbox,
+> separate seen/read state, 90-day inbox retention, 24-hour push delivery window,
+> actor snapshots, and future transactional outbox/Kafka/FCM implementation.
+> No notification implementation is authorized in the current step: design and
+> learning notes only. See [quest.txt, section 6](quest.txt) for accepted decisions,
+> open badge UX/account-deletion questions, and required Kafka/outbox/push exercises.
+
 > **Tài liệu lưu trữ toàn bộ ngữ cảnh phát triển (Context Snapshot)** dùng để nạp vào các phiên làm việc (Conversation) mới của AI Assistant hoặc bàn giao giữa các developer.
 
 ---
@@ -266,3 +273,125 @@ npm run webhook:register https://<your-tunnel-url>/payments/webhook/payos
   gateway tests passed, covering business routing with defaults/overrides,
   invalid URLs, unavailable Payment returning 502, and existing social routing.
   Upstreams were mocked; live Java services were not started for these tests.
+
+## 20. User profiles, friendship and authoritative account access (2026-10-28)
+
+- UserService renames full_name to display_name without data loss and adds a
+  lowercase unique username (ASCII a-z, 0-9, underscore; 2–30 chars). NULL means
+  onboarding is incomplete. Conditional assignment and a database trigger enforce
+  one-time selection, including concurrent claims; deleted names stay reserved.
+- Separate friend_requests, friendships and directional user_blocks tables enforce
+  self/pair constraints and unique PENDING requests across both directions.
+  SERIALIZABLE transactions with bounded retries cover send, accept/reject/cancel,
+  unfriend, block/unblock. Blocking removes friendship and cancels pending requests;
+  unblocking restores nothing. Terminal requests use resolved_at. Pair advisory
+  locks, additional audit fields and spam/cooldown/idempotency policy remain in quest.txt.
+- AuthService owns account state and exposes machine-authenticated internal access,
+  snapshot and deletion endpoints. Gateway checks account/session state before
+  protected requests; UserService repeats it to prevent direct-call bypasses and
+  verifies targets on graph writes. Existing role/ownership checks remain. Internal
+  credentials and client-supplied identity headers are stripped before proxying.
+  Suspended accounts cannot start new operations with still-valid access tokens;
+  already-admitted work may complete. Authority unavailability fails closed with 503.
+- AuthService has PATCH /auth/accounts/:id/status for current active admins. Account
+  deletion now goes through AuthService. Database triggers write versioned account
+  snapshots to an outbox in the same transaction; publisher sends account.events
+  through Kafka; UserService ignores duplicate/stale snapshots. Migration backfills
+  existing accounts. Search projection has eventual visibility; write checks use
+  current authority. No sensitive account fields are exposed in social search.
+- Flutter requires username onboarding after real login and opens friend management
+  from “Mời bạn”. Search has a 350 ms debounce, stale-response protection, pagination,
+  incoming/outgoing requests, Friends/Request Sent, block/unblock and unfriend.
+  User API requests share refresh-token rotation with logout state.
+- Config: provision INTERNAL_SERVICE_TOKEN (same random 32+ chars in each Node
+  service's own environment); KAFKA_BROKERS and ACCOUNT_EVENTS_TOPIC in Auth/User;
+  AUTH_SERVICE_URL in Gateway/User. Apply new Auth/User migrations before use
+  (TYPEORM_MIGRATIONS_RUN=true). Auth/User default to loopback binding; explicit
+  container bindings need private ingress. Actual .env/secrets and project databases
+  were not modified. See docs/adr/ADR-006-user-social-and-account-access.md and
+  docs/specs/user/social.md for API and deployment details.
+- Verification: all three service/common builds passed; 178 backend tests passed,
+  including 22 PostgreSQL/HTTP/Kafka integration tests on disposable infrastructure.
+  Covered username races, unauthorized transitions, rollback, simultaneous opposite
+  requests, accept/cancel, accept/block, send/accept, safe search, authoritative
+  suspension despite stale projections, deletion, Kafka delivery and stale replay.
+  Flutter analysis passed, 39 tests passed, and Android debug APK built successfully.
+  No live provider login or migration against the project's databases was performed.
+
+### Follow-up — 2026-10-30: UserService development startup
+
+- Aligned UserService tooling with Auth/Gateway: Nest CLI 11.0.24 and schematics
+  11.1.0. The previous CLI 12.0.8 dependency graph failed loading the exported
+  @angular-devkit/core/node entry point. The CLI 11 toolchain runs on the existing
+  Node 24.13.0 installation. Added prestart:dev to build libs/common first.
+- Verified npm run dev: watch compilation reports zero errors, Nest starts, and
+  the account-events consumer joins Kafka. Stopped the verification server afterward.
+- During the preceding compiled-server startup check, automatic migrations applied
+  UserSocial1793145600000 to the project's users database. Confirmed display_name,
+  username, and the migration history entry. This supersedes the earlier note that
+  no project database migrations had been run; Auth migration status was not checked.
+
+### 2026-10-30: Username profile links
+
+- Added authenticated GET /users/profiles/by-username/:username with exact,
+  case-normalized lookup, safe profile fields, relationship state/request ID, and
+  SELF. Blocks/unavailable profiles remain generic 404; reads never create requests.
+- Flutter accepts cold/warm /@username routes, preserves the destination through
+  login and username onboarding, and renders relationship-specific actions. Added
+  copy-profile-link on the personal tab and profile navigation from friend lists.
+- Chosen host: loccoc.bus-ticket.xyz, Cloudflare Pages. Android manifest and iOS
+  associated-domains settings use this host. deploy/profile-links contains a static
+  browser fallback and a generator using actual signing fingerprints/Apple Team ID.
+  Prepared .codex-output/profile-links-site.zip for the current Android DEBUG APK.
+  DNS/Pages were not deployed; iOS association/signing still needs the Apple Team ID.
+- Verification: User build/lint passed; 41 User e2e tests passed on isolated
+  PostgreSQL (the optional Kafka integration test skipped); Flutter analyze clean,
+  all 47 Flutter tests passed, including 8 new link tests, and debug APK rebuilt.
+  OS domain verification awaits real HTTPS hosting; iOS build was not run on Windows.
+  See docs/specs/user/profile-links.md for deployment and identifier requirements.
+
+### 2026-10-30: Phone validation response
+
+- AuthService accepts phones in international +country-code format, with formatting
+  punctuation stripped; Vietnamese 0375456123 is submitted as +84375456123.
+- Invalid phone shape now returns 400 / INVALID_PHONE_NUMBER instead of 409, with
+  an actionable format example. Registration and OTP flows share this validation.
+- Added HTTP regression tests for invalid local-format input having no account/OTP
+  side effects and normalized international phones retaining duplicate protection.
+  See docs/specs/auth/phone-format.md. No migration is required.
+
+### 2026-10-30: Development OTP troubleshooting
+
+- OTP_SENDER still binds ConsoleOtpSender: development codes appear only in the
+  AuthService terminal, not in real inboxes. Registering an existing email returns
+  the generic accepted response without issuing a new code; use POST /auth/resend-otp
+  (60-second cooldown, five sends/hour). Added regression assertions for this path.
+- Account event publisher explicitly selects Partitioners.DefaultPartitioner,
+  preserving KafkaJS 2 behavior while removing the partitioner selection warning.
+  KafkaJS 2.2.4 requestQueue scheduleCheckPendingRequests can pass a negative delay
+  to setTimeout when throttledUntil is zero; Node clamps it to 1ms and warns. This
+  dependency warning is unrelated to OTP issuance and was not suppressed globally.
+
+### 2026-10-30: Root username URLs and live Pages verification
+
+- Switched profile sharing, Dart cold/warm routes and Android intent matching to
+  https://loccoc.bus-ticket.xyz/username. /@username is no longer accepted. The
+  visible @username labels in the UI remain profile handles. iOS association
+  generation now matches single-segment paths excluding root and nested paths.
+- User configured loccoc.bus-ticket.xyz -> loc-coc.pages.dev. Live HTTPS checks
+  confirmed assetlinks.json returns 200 JSON and matches com.example.mobile_app and
+  the debug signing fingerprint; /nhan_nguyen returns 200 HTML. No DNS edits made.
+- Eight profile link tests passed and the Android debug APK was rebuilt. Real-device
+  domain verification/deep-link launch remains to be performed after installing it.
+
+
+### 2026-10-30: Flutter self-serve account deletion
+
+- Added `UserApiClient.deleteAccount()` sending `DELETE /users/me` with bearer token and automatic token refresh upon encountering 401.
+- Added `GoogleAuthService.clearSession()` exposing local session teardown and adapter sign-out.
+- Implemented **Xóa tài khoản** button on Profile tab in `HomeScreen` with confirmation dialog warning users that the account will be permanently disabled and unrecoverable.
+- Multiple-click prevention: button disables while deletion is in flight (`_isDeletingAccount` flag) with inline loading indicator.
+- Success flow: clears `ProfileLinkSession`, clears `GoogleAuthService` session, resets navigator stack to `AuthScreen` via `pushAndRemoveUntil`, and shows success snackbar.
+- Failure flow: session is preserved, user stays on `HomeScreen`, button resets from loading state, and actionable error message is shown via `userError`.
+- Architecture compliance: soft delete is preserved (`deleted_at = now()` in PostgreSQL `accounts` table, broadcast via Kafka `account.events` outbox to `user-service` projection); no hard deletion performed.
+- Verification: 54 / 54 Flutter tests passing (including 7 new tests in `test/account_deletion_test.dart`), `flutter analyze` clean (0 warnings), `flutter build bundle` clean. Backend test suites (`user-service`: 25 passed, `auth-service`: 75 passed) all green.

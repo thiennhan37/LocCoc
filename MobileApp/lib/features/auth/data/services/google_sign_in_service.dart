@@ -237,6 +237,14 @@ class GoogleAuthService {
     await _clearLocalSession();
   }
 
+  AuthSession? get session => _session;
+
+  void updateSession(AuthSession session) {
+    _session = session;
+  }
+
+  Future<void> clearSession() => _clearLocalSession();
+
   Future<void> _clearLocalSession() async {
     _session = null;
     try {

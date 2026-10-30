@@ -31,6 +31,18 @@ class AppStrings {
   static const logoutFailed =
       'Chưa thể đăng xuất. Vui lòng kiểm tra kết nối và thử lại.';
 
+  // Account Deletion
+  static const deleteAccount = 'Xóa tài khoản';
+  static const deleteAccountTitle = 'Xóa tài khoản';
+  static const deleteAccountConfirm =
+      'Bạn có chắc chắn muốn xóa tài khoản không? Hành động này sẽ vô hiệu hóa tài khoản của bạn vĩnh viễn và không thể hoàn tác hay đăng nhập lại.';
+  static const deleteAccountConfirmButton = 'Xác nhận xóa';
+  static const cancel = 'Hủy';
+  static const deleteAccountSuccess = 'Tài khoản đã được xóa thành công.';
+  static const deleteAccountFailed =
+      'Chưa thể xóa tài khoản. Vui lòng kiểm tra kết nối và thử lại.';
+  static const deletingAccount = 'Đang xóa tài khoản...';
+
   // LocCoc Home & Profile Design
   static const homeTitle = 'Một chút hôm nay.';
   static const homeSubtitle = 'Những điều nhỏ xíu, gửi người thân yêu.';

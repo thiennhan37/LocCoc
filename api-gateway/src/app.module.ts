@@ -3,7 +3,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { fileURLToPath } from 'node:url';
-import { validateGatewayEnvironment } from '@loccoc/common';
+import {
+  validateGatewayEnvironment,
+  AccountAuthorityClient,
+} from '@loccoc/common';
+import { GatewayAccountAccessGuard } from './account-access.guard.js';
 import { HealthController } from './health.controller.js';
 import { ServiceProxyController } from './service-proxy.controller.js';
 import { IpThrottlerGuard } from './ip-throttler.guard.js';
@@ -12,19 +16,31 @@ import { RedisThrottlerStorage } from './redis-throttler.storage.js';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: fileURLToPath(new URL('../.env', import.meta.url)), validate: validateGatewayEnvironment }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: fileURLToPath(new URL('../.env', import.meta.url)),
+      validate: validateGatewayEnvironment,
+    }),
     RedisModule,
     ThrottlerModule.forRootAsync({
       imports: [RedisModule],
       inject: [ConfigService, RedisThrottlerStorage],
       useFactory: (config: ConfigService, storage: RedisThrottlerStorage) => ({
-        throttlers: [{ ttl: config.getOrThrow<number>('RATE_LIMIT_TTL_MS'), limit: config.getOrThrow<number>('RATE_LIMIT_MAX') }],
+        throttlers: [
+          {
+            ttl: config.getOrThrow<number>('RATE_LIMIT_TTL_MS'),
+            limit: config.getOrThrow<number>('RATE_LIMIT_MAX'),
+          },
+        ],
         storage,
       }),
     }),
   ],
   controllers: [HealthController, ServiceProxyController],
-  providers: [{ provide: APP_GUARD, useClass: IpThrottlerGuard }],
+  providers: [
+    AccountAuthorityClient,
+    { provide: APP_GUARD, useClass: IpThrottlerGuard },
+    { provide: APP_GUARD, useClass: GatewayAccountAccessGuard },
+  ],
 })
 export class AppModule {}
-

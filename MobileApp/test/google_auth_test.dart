@@ -626,6 +626,17 @@ void main() {
         );
 
         final fakeHttpClient = FakeHttpClient((request) async {
+          if (request.url.path == '/users/me') {
+            return http.Response(
+              jsonEncode({
+                'id': 'acc-999',
+                'username': 'vietnam_dev',
+                'displayName': 'LocCoc Tester',
+                'avatarUrl': null,
+              }),
+              200,
+            );
+          }
           if (request.url.path == '/auth/logout') {
             expect(
               request.headers['Authorization'],

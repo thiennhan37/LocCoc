@@ -40,9 +40,12 @@ describe('UsersService', () => {
   };
 
   const sampleUser: User = {
+    username: 'test_user',
+    accountStatus: 'active',
+    accountVersion: '1',
     id: regularUser.userId,
     email: 'user@example.com',
-    fullName: 'Test User',
+    displayName: 'Test User',
     avatarUrl: null,
     phone: null,
     createdAt: new Date(),
@@ -71,7 +74,9 @@ describe('UsersService', () => {
 
     it('throws 404 NotFoundException when not found', async () => {
       repo.findById?.mockResolvedValue(null);
-      await expect(service.getMyProfile(regularUser.userId)).rejects.toThrow(NotFoundException);
+      await expect(service.getMyProfile(regularUser.userId)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -84,7 +89,9 @@ describe('UsersService', () => {
 
     it('throws 404 NotFoundException when regular user accesses another user profile', async () => {
       const otherUserId = '44444444-4444-4444-4444-444444444444';
-      await expect(service.getUserById(otherUserId, regularUser)).rejects.toThrow(NotFoundException);
+      await expect(
+        service.getUserById(otherUserId, regularUser),
+      ).rejects.toThrow(NotFoundException);
       expect(repo.findById).not.toHaveBeenCalled();
     });
 
@@ -104,42 +111,64 @@ describe('UsersService', () => {
 
     it('throws 404 if user not found in database for admin', async () => {
       repo.findById?.mockResolvedValue(null);
-      await expect(service.getUserById('non-existent', adminUser)).rejects.toThrow(NotFoundException);
+      await expect(
+        service.getUserById('non-existent', adminUser),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('updateMyProfile', () => {
     it('updates own profile and returns updated user', async () => {
-      const updated = Object.assign(new User(), sampleUser, { fullName: 'New Name' });
+      const updated = Object.assign(new User(), sampleUser, {
+        displayName: 'New Name',
+      });
       repo.updateProfile?.mockResolvedValue(updated);
 
-      const result = await service.updateMyProfile(regularUser.userId, { fullName: 'New Name' });
-      expect(result.fullName).toBe('New Name');
-      expect(repo.updateProfile).toHaveBeenCalledWith(regularUser.userId, { fullName: 'New Name' });
+      const result = await service.updateMyProfile(regularUser.userId, {
+        displayName: 'New Name',
+      });
+      expect(result.displayName).toBe('New Name');
+      expect(repo.updateProfile).toHaveBeenCalledWith(regularUser.userId, {
+        displayName: 'New Name',
+      });
     });
 
     it('throws 404 when user not found', async () => {
       repo.updateProfile?.mockResolvedValue(null);
       await expect(
-        service.updateMyProfile(regularUser.userId, { fullName: 'New Name' }),
+        service.updateMyProfile(regularUser.userId, {
+          displayName: 'New Name',
+        }),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('updateUserById', () => {
     it('updates user by ID and returns user', async () => {
-      const updated = Object.assign(new User(), sampleUser, { fullName: 'Admin Updated' });
+      const updated = Object.assign(new User(), sampleUser, {
+        displayName: 'Admin Updated',
+      });
       repo.updateProfile?.mockResolvedValue(updated);
 
-      const result = await service.updateUserById(sampleUser.id, { fullName: 'Admin Updated' }, adminUser);
-      expect(result.fullName).toBe('Admin Updated');
-      expect(repo.updateProfile).toHaveBeenCalledWith(sampleUser.id, { fullName: 'Admin Updated' });
+      const result = await service.updateUserById(
+        sampleUser.id,
+        { displayName: 'Admin Updated' },
+        adminUser,
+      );
+      expect(result.displayName).toBe('Admin Updated');
+      expect(repo.updateProfile).toHaveBeenCalledWith(sampleUser.id, {
+        displayName: 'Admin Updated',
+      });
     });
 
     it('throws 404 if user does not exist', async () => {
       repo.updateProfile?.mockResolvedValue(null);
       await expect(
-        service.updateUserById('non-existent', { fullName: 'Admin Updated' }, adminUser),
+        service.updateUserById(
+          'non-existent',
+          { displayName: 'Admin Updated' },
+          adminUser,
+        ),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -147,26 +176,34 @@ describe('UsersService', () => {
   describe('deleteMyAccount', () => {
     it('soft deletes own account successfully', async () => {
       repo.softDelete?.mockResolvedValue(true);
-      await expect(service.deleteMyAccount(regularUser.userId)).resolves.toBeUndefined();
+      await expect(
+        service.deleteMyAccount(regularUser.userId),
+      ).resolves.toBeUndefined();
       expect(repo.softDelete).toHaveBeenCalledWith(regularUser.userId);
     });
 
     it('throws 404 if account not found', async () => {
       repo.softDelete?.mockResolvedValue(false);
-      await expect(service.deleteMyAccount(regularUser.userId)).rejects.toThrow(NotFoundException);
+      await expect(service.deleteMyAccount(regularUser.userId)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
   describe('deleteUserById', () => {
     it('soft deletes account by id successfully', async () => {
       repo.softDelete?.mockResolvedValue(true);
-      await expect(service.deleteUserById(sampleUser.id, adminUser)).resolves.toBeUndefined();
+      await expect(
+        service.deleteUserById(sampleUser.id, adminUser),
+      ).resolves.toBeUndefined();
       expect(repo.softDelete).toHaveBeenCalledWith(sampleUser.id);
     });
 
     it('throws 404 if account not found', async () => {
       repo.softDelete?.mockResolvedValue(false);
-      await expect(service.deleteUserById('non-existent', adminUser)).rejects.toThrow(NotFoundException);
+      await expect(
+        service.deleteUserById('non-existent', adminUser),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -174,7 +211,10 @@ describe('UsersService', () => {
     it('returns paginated list of users', async () => {
       repo.findAll?.mockResolvedValue([[sampleUser], 1]);
 
-      const result = await service.listUsers({ page: 1, limit: 10, search: 'test' }, moderatorUser);
+      const result = await service.listUsers(
+        { page: 1, limit: 10, search: 'test' },
+        moderatorUser,
+      );
       expect(result).toEqual({
         data: [sampleUser],
         total: 1,

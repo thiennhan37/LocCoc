@@ -3,7 +3,9 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   Param,
+  ParseUUIDPipe,
   Patch,
   Query,
 } from '@nestjs/common';
@@ -32,14 +34,19 @@ export class UsersController {
   }
 
   @Get('me')
-  getMyProfile(@CurrentUser() user: AuthenticatedUser): Promise<User> {
-    return this.usersService.getMyProfile(user.userId);
+  getMyProfile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers('authorization') token?: string,
+  ): Promise<User> {
+    return token
+      ? this.usersService.getMyProfile(user.userId, token)
+      : this.usersService.getMyProfile(user.userId);
   }
 
   @Get(':id')
   @CheckOwnership({ bypassRoles: ['admin', 'moderator'] })
   getUserById(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<User> {
     return this.usersService.getUserById(id, user);
@@ -56,7 +63,7 @@ export class UsersController {
   @Patch(':id')
   @Roles('admin')
   updateUserById(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateUserDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<User> {
@@ -64,16 +71,24 @@ export class UsersController {
   }
 
   @Delete('me')
-  deleteMyAccount(@CurrentUser() user: AuthenticatedUser): Promise<void> {
-    return this.usersService.deleteMyAccount(user.userId);
+  deleteMyAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers('authorization') token?: string,
+  ): Promise<void> {
+    return token
+      ? this.usersService.deleteMyAccount(user.userId, token)
+      : this.usersService.deleteMyAccount(user.userId);
   }
 
   @Delete(':id')
   @Roles('admin')
   deleteUserById(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Headers('authorization') token?: string,
   ): Promise<void> {
-    return this.usersService.deleteUserById(id, user);
+    return token
+      ? this.usersService.deleteUserById(id, user, token)
+      : this.usersService.deleteUserById(id, user);
   }
 }

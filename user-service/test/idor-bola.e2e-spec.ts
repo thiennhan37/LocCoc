@@ -4,7 +4,12 @@ import request from 'supertest';
 import { createSign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ApiExceptionFilter, REDIS_CLIENT } from '@loccoc/common';
+import {
+  AccountAuthorityClient,
+  ApiExceptionFilter,
+  REDIS_CLIENT,
+} from '@loccoc/common';
+import { UsersService } from '../src/users/users.service.js';
 import { AppModule } from '../src/app.module.js';
 import { UsersRepository } from '../src/users/users.repository.js';
 import { User } from '../src/users/entities/user.entity.js';
@@ -32,7 +37,8 @@ function signTestToken(
     aud: options.aud ?? 'loccoc-api',
   };
 
-  const encode = (val: unknown) => Buffer.from(JSON.stringify(val)).toString('base64url');
+  const encode = (val: unknown) =>
+    Buffer.from(JSON.stringify(val)).toString('base64url');
   const input = `${encode(header)}.${encode(payload)}`;
   const signer = createSign('RSA-SHA256');
   signer.update(input);
@@ -88,7 +94,10 @@ describe('Authorization & Anti-IDOR/BOLA (e2e)', () => {
       const start = (page - 1) * limit;
       return [active.slice(start, start + limit), active.length];
     },
-    updateProfile: async (id: string, data: Partial<User>): Promise<User | null> => {
+    updateProfile: async (
+      id: string,
+      data: Partial<User>,
+    ): Promise<User | null> => {
       const u = mockUsers.get(id);
       if (!u || u.deletedAt) return null;
       Object.assign(u, data, { updatedAt: new Date() });
@@ -109,7 +118,12 @@ describe('Authorization & Anti-IDOR/BOLA (e2e)', () => {
     userAToken = signTestToken(userAId, 'user', userASession, privateKey);
     _userBToken = signTestToken(userBId, 'user', userBSession, privateKey);
     adminToken = signTestToken(adminId, 'admin', 'sess-admin', privateKey);
-    moderatorToken = signTestToken(moderatorId, 'moderator', 'sess-mod', privateKey);
+    moderatorToken = signTestToken(
+      moderatorId,
+      'moderator',
+      'sess-mod',
+      privateKey,
+    );
     revokedToken = signTestToken(userAId, 'user', revokedSession, privateKey);
 
     // Mark revokedSession as revoked in Redis
@@ -122,7 +136,7 @@ describe('Authorization & Anti-IDOR/BOLA (e2e)', () => {
     mockUsers.set(userAId, {
       id: userAId,
       email: 'usera@loccoc.vn',
-      fullName: 'User A',
+      displayName: 'User A',
       avatarUrl: 'https://example.com/a.png',
       phone: '+84900000001',
       createdAt: new Date(),
@@ -132,7 +146,7 @@ describe('Authorization & Anti-IDOR/BOLA (e2e)', () => {
     mockUsers.set(userBId, {
       id: userBId,
       email: 'userb@loccoc.vn',
-      fullName: 'User B',
+      displayName: 'User B',
       avatarUrl: 'https://example.com/b.png',
       phone: '+84900000002',
       createdAt: new Date(),
@@ -145,6 +159,37 @@ describe('Authorization & Anti-IDOR/BOLA (e2e)', () => {
     })
       .overrideProvider(UsersRepository)
       .useValue(mockUsersRepository)
+      // This suite isolates ownership/role checks. Real authority and projection
+      // behavior is covered by social.postgres.e2e-spec.ts.
+      .overrideProvider(UsersService)
+      .useValue(
+        new UsersService(mockUsersRepository as unknown as UsersRepository),
+      )
+      .overrideProvider(AccountAuthorityClient)
+      .useValue({
+        access: async (authorization: string) => {
+          const p = JSON.parse(
+            Buffer.from(authorization.split('.')[1]!, 'base64url').toString(),
+          ) as {
+            sub: string;
+            role: string;
+            sid: string;
+            iss: string;
+            aud: string;
+          };
+          return {
+            user: {
+              userId: p.sub,
+              role: p.role,
+              roles: [p.role],
+              scopes: [],
+              sessionId: p.sid,
+              issuer: p.iss,
+              audience: p.aud,
+            },
+          };
+        },
+      })
       .overrideProvider(REDIS_CLIENT)
       .useValue(mockRedis)
       .compile();
@@ -174,9 +219,7 @@ describe('Authorization & Anti-IDOR/BOLA (e2e)', () => {
   // ==========================================
   describe('1. Authentication enforcement', () => {
     it('returns 401 when no token is provided', async () => {
-      await request(app.getHttpServer())
-        .get('/users/me')
-        .expect(401);
+      await request(app.getHttpServer()).get('/users/me').expect(401);
     });
 
     it('returns 401 when token belongs to a logged out/revoked session', async () => {
@@ -254,7 +297,7 @@ describe('Authorization & Anti-IDOR/BOLA (e2e)', () => {
       await request(app.getHttpServer())
         .patch(`/users/${userBId}`)
         .set('Authorization', `Bearer ${userAToken}`)
-        .send({ fullName: 'Malicious Update' })
+        .send({ displayName: 'Malicious Update' })
         .expect(403);
     });
 
@@ -279,10 +322,10 @@ describe('Authorization & Anti-IDOR/BOLA (e2e)', () => {
       const res = await request(app.getHttpServer())
         .patch(`/users/${userBId}`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ fullName: 'Admin Updated B' })
+        .send({ displayName: 'Admin Updated B' })
         .expect(200);
 
-      expect(res.body.fullName).toBe('Admin Updated B');
+      expect(res.body.displayName).toBe('Admin Updated B');
     });
   });
 
@@ -295,12 +338,14 @@ describe('Authorization & Anti-IDOR/BOLA (e2e)', () => {
         .patch('/users/me')
         .set('Authorization', `Bearer ${userAToken}`)
         .send({
-          fullName: 'Attempted Escalation',
+          displayName: 'Attempted Escalation',
           role: 'admin',
         })
         .expect(400);
 
-      expect(JSON.stringify(res.body)).toContain('property role should not exist');
+      expect(JSON.stringify(res.body)).toContain(
+        'property role should not exist',
+      );
     });
 
     it('returns 400 when client sends status/userId/ownerId in PATCH /users/me body', async () => {
@@ -314,7 +359,9 @@ describe('Authorization & Anti-IDOR/BOLA (e2e)', () => {
         })
         .expect(400);
 
-      expect(JSON.stringify(res.body)).toContain('property status should not exist');
+      expect(JSON.stringify(res.body)).toContain(
+        'property status should not exist',
+      );
     });
 
     it('returns 200 when client updates only whitelisted fields in PATCH /users/me', async () => {
@@ -322,12 +369,12 @@ describe('Authorization & Anti-IDOR/BOLA (e2e)', () => {
         .patch('/users/me')
         .set('Authorization', `Bearer ${userAToken}`)
         .send({
-          fullName: 'Valid Name Update',
+          displayName: 'Valid Name Update',
           phone: '+84988888888',
         })
         .expect(200);
 
-      expect(res.body.fullName).toBe('Valid Name Update');
+      expect(res.body.displayName).toBe('Valid Name Update');
       expect(res.body.phone).toBe('+84988888888');
     });
   });

@@ -35,6 +35,7 @@ android {
     }
 
     defaultConfig {
+        manifestPlaceholders["appLinkHost"] = providers.gradleProperty("appLinkHost").getOrElse("loccoc.bus-ticket.xyz")
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.mobile_app"
         // You can update the following values to match your application needs.

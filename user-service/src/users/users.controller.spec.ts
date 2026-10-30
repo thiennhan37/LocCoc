@@ -19,9 +19,12 @@ describe('UsersController', () => {
   };
 
   const sampleUser: User = {
+    username: 'test_user',
+    accountStatus: 'active',
+    accountVersion: '1',
     id: mockUser.userId,
     email: 'user@example.com',
-    fullName: 'Test User',
+    displayName: 'Test User',
     avatarUrl: null,
     phone: null,
     createdAt: new Date(),
@@ -43,10 +46,18 @@ describe('UsersController', () => {
   });
 
   it('GET /users calls service.listUsers', async () => {
-    service.listUsers?.mockResolvedValue({ data: [sampleUser], total: 1, page: 1, limit: 20 });
+    service.listUsers?.mockResolvedValue({
+      data: [sampleUser],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
     const result = await controller.listUsers({ page: 1, limit: 20 }, mockUser);
     expect(result.data).toHaveLength(1);
-    expect(service.listUsers).toHaveBeenCalledWith({ page: 1, limit: 20 }, mockUser);
+    expect(service.listUsers).toHaveBeenCalledWith(
+      { page: 1, limit: 20 },
+      mockUser,
+    );
   });
 
   it('GET /users/me calls service.getMyProfile with token userId', async () => {
@@ -64,17 +75,33 @@ describe('UsersController', () => {
   });
 
   it('PATCH /users/me calls service.updateMyProfile with token userId and dto', async () => {
-    service.updateMyProfile?.mockResolvedValue(Object.assign(new User(), sampleUser, { fullName: 'Updated' }));
-    const result = await controller.updateMyProfile(mockUser, { fullName: 'Updated' });
-    expect(result.fullName).toBe('Updated');
-    expect(service.updateMyProfile).toHaveBeenCalledWith(mockUser.userId, { fullName: 'Updated' });
+    service.updateMyProfile?.mockResolvedValue(
+      Object.assign(new User(), sampleUser, { displayName: 'Updated' }),
+    );
+    const result = await controller.updateMyProfile(mockUser, {
+      displayName: 'Updated',
+    });
+    expect(result.displayName).toBe('Updated');
+    expect(service.updateMyProfile).toHaveBeenCalledWith(mockUser.userId, {
+      displayName: 'Updated',
+    });
   });
 
   it('PATCH /users/:id calls service.updateUserById', async () => {
-    service.updateUserById?.mockResolvedValue(Object.assign(new User(), sampleUser, { fullName: 'Admin' }));
-    const result = await controller.updateUserById('target-id', { fullName: 'Admin' }, mockUser);
-    expect(result.fullName).toBe('Admin');
-    expect(service.updateUserById).toHaveBeenCalledWith('target-id', { fullName: 'Admin' }, mockUser);
+    service.updateUserById?.mockResolvedValue(
+      Object.assign(new User(), sampleUser, { displayName: 'Admin' }),
+    );
+    const result = await controller.updateUserById(
+      'target-id',
+      { displayName: 'Admin' },
+      mockUser,
+    );
+    expect(result.displayName).toBe('Admin');
+    expect(service.updateUserById).toHaveBeenCalledWith(
+      'target-id',
+      { displayName: 'Admin' },
+      mockUser,
+    );
   });
 
   it('DELETE /users/me calls service.deleteMyAccount with token userId', async () => {

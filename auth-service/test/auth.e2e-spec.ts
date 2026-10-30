@@ -123,12 +123,44 @@ describe('Auth HTTP API (e2e)', () => {
     expect(users).toHaveLength(0);
   });
 
+  it('rejects a local phone with 400 before creating an account or issuing an OTP', async () => {
+    const response = await request(app.getHttpServer()).post('/auth/register').send({
+      email: 'phone@example.com', password: 'correct horse battery staple 2026', phone: '0375456123',
+    });
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ code: 'INVALID_PHONE_NUMBER', message: expect.stringContaining('international format') });
+    expect(users).toHaveLength(0);
+    expect(sent).toHaveLength(0);
+  });
+
+  it('normalizes international phones and detects duplicates after normalization', async () => {
+    const first = await request(app.getHttpServer()).post('/auth/register').send({
+      email: 'first-phone@example.com', password: 'correct horse battery staple 2026', phone: '+84 (375) 456-123',
+    });
+    expect(first.status).toBe(201);
+    expect(users[0].phone).toBe('+84375456123');
+    const second = await request(app.getHttpServer()).post('/auth/register').send({
+      email: 'second-phone@example.com', password: 'correct horse battery staple 2026', phone: '+84375456123',
+    });
+    expect(second.status).toBe(201);
+    expect(second.body).toEqual({ message: expect.stringMatching(/registration accepted/i) });
+    expect(users).toHaveLength(1);
+    expect(sent).toHaveLength(1);
+  });
+
   it('uses the same accepted response for an existing email', async () => {
     const first = await register('duplicate@example.com');
     const second = await register('DUPLICATE@example.com');
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
     expect(second.body).toEqual({ message: expect.stringMatching(/registration accepted/i) });
+    expect(sent).toHaveLength(1);
+    // Registration retries do not send another code; resend is an explicit action.
+    const otps = app.get(OtpService);
+    const issue = vi.spyOn(otps, 'issue').mockResolvedValue({ expiresIn: 300 });
+    await request(app.getHttpServer()).post('/auth/resend-otp')
+      .send({ email: 'duplicate@example.com' }).expect(200);
+    expect(issue).toHaveBeenCalledWith('duplicate@example.com', expect.any(String), 'email');
   });
 
   it('invalidates an OTP after more than five incorrect submissions', async () => {

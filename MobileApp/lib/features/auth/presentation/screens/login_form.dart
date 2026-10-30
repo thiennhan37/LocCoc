@@ -5,6 +5,8 @@ import '../../../../core/constants/app_strings.dart';
 import '../../../../core/widgets/custom_button.dart';
 import '../../../../core/widgets/custom_text_field.dart';
 import '../../../home/presentation/screens/home_screen.dart';
+import '../../../users/presentation/profile_gate.dart';
+import '../../../users/data/user_api_client.dart';
 import '../../data/services/auth_api_client.dart';
 import '../../data/services/google_sign_in_service.dart';
 import '../../domain/models/auth_result.dart';
@@ -65,10 +67,20 @@ class _LoginFormState extends State<LoginForm> {
     } else {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => HomeScreen(
-            session: session,
-            googleAuthService: _googleAuthService,
-          ),
+          builder: (_) => session.accessToken.startsWith('demo-')
+              ? HomeScreen(
+                  session: session,
+                  googleAuthService: _googleAuthService,
+                )
+              : ProfileGate(
+                  session: session,
+                  authService: _googleAuthService,
+                  userApi: UserApiClient(
+                    auth: _apiClient,
+                    session: session,
+                    onSessionChanged: _googleAuthService.updateSession,
+                  ),
+                ),
         ),
       );
     }

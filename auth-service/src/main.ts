@@ -4,8 +4,20 @@ import { ConfigService } from '@nestjs/config';
 import { RedactingLogger } from '@loccoc/common';
 import { AppModule } from './app.module.js';
 
-const app = await NestFactory.create(AppModule, { logger: new RedactingLogger() });
+const app = await NestFactory.create(AppModule, {
+  logger: new RedactingLogger(),
+});
+app.enableShutdownHooks();
 // Auth is reachable only behind the trusted gateway in production.
 app.getHttpAdapter().getInstance().set('trust proxy', 1);
-app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
-await app.listen(app.get(ConfigService).getOrThrow<number>('AUTH_PORT'));
+app.useGlobalPipes(
+  new ValidationPipe({
+    whitelist: true,
+    transform: true,
+    forbidNonWhitelisted: true,
+  }),
+);
+await app.listen(
+  app.get(ConfigService).getOrThrow<number>('AUTH_PORT'),
+  app.get(ConfigService).get<string>('SERVICE_BIND_HOST', '127.0.0.1'),
+);

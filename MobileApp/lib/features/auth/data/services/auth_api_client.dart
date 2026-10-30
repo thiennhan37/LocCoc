@@ -10,8 +10,10 @@ import '../../domain/models/auth_session.dart';
 
 class AuthApiException implements Exception {
   final int statusCode;
+  final String? code;
+  final String? message;
 
-  const AuthApiException(this.statusCode);
+  const AuthApiException(this.statusCode, {this.code, this.message});
 }
 
 class AuthApiClient {
@@ -264,5 +266,39 @@ class AuthApiClient {
 
   void close() {
     _httpClient.close();
+  }
+
+  Future<Map<String, dynamic>> userRequest(
+    String method,
+    String path,
+    String accessToken, {
+    Map<String, dynamic>? body,
+  }) async {
+    final request = http.Request(method, Uri.parse('$_baseUrl/users/$path'));
+    request.headers.addAll({
+      'Authorization': 'Bearer $accessToken',
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    });
+    if (body != null) request.body = jsonEncode(body);
+    final response = await http.Response.fromStream(
+      await _httpClient.send(request).timeout(requestTimeout),
+    ).timeout(requestTimeout);
+    Map<String, dynamic> data = {};
+    if (response.body.isNotEmpty) {
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Invalid user response');
+      }
+      data = decoded;
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AuthApiException(
+        response.statusCode,
+        code: data['code'] as String?,
+        message: data['message'] is String ? data['message'] as String : null,
+      );
+    }
+    return data;
   }
 }

@@ -18,11 +18,17 @@ export class UsersRepository {
     return this.repo.findOne({ where: { email } });
   }
 
-  async findAll(page = 1, limit = 20, search?: string): Promise<[User[], number]> {
+  async findAll(
+    page = 1,
+    limit = 20,
+    search?: string,
+  ): Promise<[User[], number]> {
     const qb = this.repo.createQueryBuilder('user');
     if (search && search.trim()) {
       const term = `%${search.trim()}%`;
-      qb.where('(user.fullName ILIKE :term OR user.email ILIKE :term)', { term });
+      qb.where('(user.displayName ILIKE :term OR user.email ILIKE :term)', {
+        term,
+      });
     }
     qb.skip((page - 1) * limit)
       .take(limit)
@@ -32,14 +38,14 @@ export class UsersRepository {
 
   async updateProfile(
     id: string,
-    data: Partial<Pick<User, 'fullName' | 'avatarUrl' | 'phone'>>,
+    data: Partial<Pick<User, 'displayName' | 'avatarUrl' | 'phone'>>,
   ): Promise<User | null> {
     const user = await this.findById(id);
     if (!user) {
       return null;
     }
-    if (data.fullName !== undefined) {
-      user.fullName = data.fullName;
+    if (data.displayName !== undefined) {
+      user.displayName = data.displayName;
     }
     if (data.avatarUrl !== undefined) {
       user.avatarUrl = data.avatarUrl;

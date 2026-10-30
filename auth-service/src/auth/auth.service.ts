@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   HttpException,
   HttpStatus,
@@ -59,7 +60,12 @@ export class AuthService {
   normalizePhone(phone?: string): string | null {
     if (!phone) return null;
     const normalized = phone.trim().replace(/[\s().-]/g, '');
-    if (!/^\+[1-9]\d{7,14}$/.test(normalized)) throw new ConflictException('Invalid phone number');
+    if (!/^\+[1-9]\d{7,14}$/.test(normalized)) {
+      throw new BadRequestException({
+        code: 'INVALID_PHONE_NUMBER',
+        message: 'Phone must use international format, e.g. +84375456123',
+      });
+    }
     return normalized;
   }
 
