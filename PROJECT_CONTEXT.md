@@ -116,3 +116,19 @@ npm run start:admin
 # 5. Đăng ký Webhook PayOS
 npm run webhook:register https://<your-tunnel-url>/payments/webhook/payos
 ```
+
+## Spring MVC Gateway Alternative
+
+`api-gateway-spring` implements the same five route prefixes as the Nest gateway on port 8080, using Controller -> Service -> Repository, Redis atomic IP quotas, CORS, request IDs and standard gateway errors. No business database, automatic retries or redirects. Configuration and startup: `api-gateway-spring/README.md`. Stop Nest gateway before starting the Spring alternative. Spec: `docs/specs/gateway/spring-mvc-gateway.md`; decision: ADR-005. Verification uses a loopback HTTP upstream and mocked quota repository; real-service/Redis deployment smoke tests remain environment-dependent.
+
+
+## PostgreSQL first-run migrations
+
+Docker creates databases/roles only. The shared environment validator defaults TYPEORM_MIGRATIONS_RUN=false, which overrides the database factory fallback. Use npm run db:migrate:auth and npm run db:migrate:user to apply pending migrations explicitly; synchronize remains false. Postman OTP verification requires Register first and a fresh development OTP. Both gateway implementations route the same service prefixes, with documented differences in quotas, proxy trust, security headers and health probes.
+
+Bootstrap verification (2026-10-19): applied all three auth migrations and the users migration to local Compose PostgreSQL, confirmed the tables and re-ran both migration runners successfully. Live Spring gateway /health returned 200; /auth/verify-otp with a nonexistent diagnostic email and invalid OTP returned 200 with verified=false. Auth unit tests: 28 passed. User migration configuration: 2 passed; existing AppModule test fails resolving JwtAuthGuard Reflector. No secrets or PostgreSQL volumes were changed.
+
+
+## Spring gateway error envelope (WebAppBusTicket pattern)
+
+api-gateway-spring uses ErrorCode + AppException + GlobalExceptionHandler and ApiResponse(code,message,result). Both gateway failures and upstream HTTP 4xx/5xx errors are normalized; messages are catalog-based to avoid exposing SQL/secrets. HTTP status, auth/retry headers and x-request-id remain available. Successful upstream bodies are unchanged, including verified=false on HTTP 200. Direct service responses and Nest gateway are unchanged. This supersedes the earlier transparent-error contract for Spring gateway.

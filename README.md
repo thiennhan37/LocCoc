@@ -69,6 +69,26 @@ The initialization script does not re-run on an existing PostgreSQL volume. This
 
 If you already have a local `.env`, remove entries that no longer appear in `.env.example`. The ignored `.env` file is not edited by this cleanup; `.env.example` contains the current template.
 
+## First run: create PostgreSQL tables before Postman
+
+Docker initialization creates databases and roles, not application tables. With `TYPEORM_MIGRATIONS_RUN=false` (the template default), services do not apply migrations on startup. If auth reports `relation "accounts" does not exist`, run from the repository root after PostgreSQL is healthy:
+
+```powershell
+npm run db:migrate:auth
+npm run db:migrate:user
+```
+
+These commands build the service and apply only pending checked-in migrations using its own database credentials. Auth creates `accounts`, `sessions`, `refresh_tokens`; user creates `users`. They do not enable `synchronize`, edit `.env` or remove volumes. Run them again whenever deploying new migrations. Alternatively, explicitly set `TYPEORM_MIGRATIONS_RUN=true` in the process environment before starting a service; a value supplied in the shell overrides the file. A missing table is an auth/database issue even when the request arrives via a gateway.
+
+For `Postman/loccoc-api-gateway.postman_collection.json`:
+
+1. Start auth and one gateway (NestJS or Spring) and set `gatewayUrl=http://localhost:8080`.
+2. Send **Register** first with your collection email/password/phone variables.
+3. In development, read the newly issued OTP in the auth-service console and update the collection `otp` variable. The default `000000` is a placeholder.
+4. Send **Verify OTP**, then **Login**. After a failed verification caused by a database error, register again with a new email or request a fresh OTP for an existing pending account (respect the resend cooldown). Successful OTP verification consumes its code, so the previous code may no longer work after the table error.
+
+Spring gateway parity: both gateways route the same five service prefixes and provide Redis limits, CORS, request IDs and gateway errors. They are not byte-for-byte equivalents: Spring uses a global per-IP quota, ignores untrusted forwarded client IPs, and has a smaller security-header set than Helmet. Nest's `/health/echo` and `/health/error` test probes are not implemented in Spring; health JSON also differs. See `api-gateway-spring/README.md`.
+
 ## Applications
 
 - [user-service](user-service/README.md) starts on port 8081 and currently exposes no application API.
@@ -83,7 +103,7 @@ If you already have a local `.env`, remove entries that no longer appear in `.en
 - `POST /auth/resend-otp` applies per-destination and per-IP resend limits.
 - `POST /auth/login` accepts only active accounts and returns a generic error for invalid credentials.
 
-Passwords use Argon2id (19 MiB, two iterations, one lane by default). OTP state is stored as a Redis hash with a five-minute TTL. The OTP security policy is versioned in [auth-service/src/auth/config/otp-policy.ts](auth-service/src/auth/config/otp-policy.ts); change its version when changing OTP behaviour so releases remain auditable. Set `TYPEORM_MIGRATIONS_RUN=true` for a deployment that should run the checked-in users migration, and provide a 10k–100k breached-password list through `COMMON_PASSWORDS_PATH` (or `COMMON_PASSWORDS`) for the full password denylist.
+Passwords use Argon2id (19 MiB, two iterations, one lane by default). OTP state is stored as a Redis hash with a five-minute TTL. The OTP security policy is versioned in [auth-service/src/auth/config/otp-policy.ts](auth-service/src/auth/config/otp-policy.ts); change its version when changing OTP behaviour so releases remain auditable. Use the explicit migration commands above (or `TYPEORM_MIGRATIONS_RUN=true` for startup migrations) for both service schemas, and provide a 10k–100k breached-password list through `COMMON_PASSWORDS_PATH` (or `COMMON_PASSWORDS`) for the full password denylist.
 
 Run the auth tests with:
 

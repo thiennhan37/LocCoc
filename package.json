@@ -22,8 +22,8 @@
     "dev:user": "pnpm --filter @loccoc/common build && pnpm --filter user-service start:dev",
     "dev:admin": "mvn -f admin-service/pom.xml spring-boot:run",
     "dev:payment": "mvn -f payment-service/pom.xml spring-boot:run",
-    "webhook:register": "node scripts/register-webhook.js"
+    "webhook:register": "node scripts/register-webhook.js",
+    "db:migrate:auth": "npm --prefix auth-service run db:migrate",
+    "db:migrate:user": "npm --prefix user-service run db:migrate"
   }
 }
-
-

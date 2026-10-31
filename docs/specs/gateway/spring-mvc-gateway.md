@@ -1,0 +1,6 @@
+# Spring MVC gateway
+Controller -> Service -> Repository (Redis quota state), with configuration, DTO, filter and exception packages. Preserve all five existing route prefixes, raw body, query, HTTP status and successful downstream bodies. No retries or redirects. Atomic Redis IP quota, fail closed with 503. Socket IP only; forwarding headers are untrusted. Errors: code/message/result; request ID in response header. Local liveness endpoint. Tests: real HTTP stub upstream and mocked quota repository.
+
+## Error response revision (WebAppBusTicket pattern)
+
+Gateway-owned errors and upstream HTTP 4xx/5xx responses use ErrorCode -> AppException -> GlobalExceptionHandler and ApiResponse(code,message,result). The body no longer exposes statusCode/error/path/timestamp/requestId. Request ID remains in x-request-id. Preserve upstream HTTP status plus Retry-After, WWW-Authenticate, Allow and Set-Cookie; discard stale representation headers when normalizing errors. Error messages come from the gateway catalog, never raw upstream bodies or exception/SQL text. Success responses (including HTTP 200 business flags such as verified=false) remain unchanged. Unknown 4xx/5xx statuses retain their HTTP status with a generic catalog code. This is a client-visible error contract change; Postman/client consumers should read code/message.

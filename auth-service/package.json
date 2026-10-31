@@ -12,7 +12,8 @@
     "start:dev": "nest start",
     "start:prod": "node dist/main.js",
     "test": "vitest run",
-    "test:e2e": "vitest run --config ./vitest.config.e2e.ts"
+    "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
+    "db:migrate": "npm --prefix ../libs/common run build && npm run build && node dist/database/migrate.js"
   },
   "dependencies": {
     "@loccoc/common": "workspace:*",
