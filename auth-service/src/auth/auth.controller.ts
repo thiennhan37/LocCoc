@@ -13,25 +13,25 @@ export class AuthController {
 
   @Post('register')
   @Public()
-  // @RateLimit(5, 60_000)
+  @RateLimit(5, 60_000)
   register(@Body() dto: RegisterDto, @Ip() ip: string) { return this.auth.register(dto, { ip }); }
 
   @Post('verify-otp')
   @Public()
   @HttpCode(HttpStatus.OK)
-  // @RateLimit(10, 60_000)
+  @RateLimit(10, 60_000)
   verifyOtp(@Body() dto: VerifyOtpDto) { return this.auth.verifyOtp(dto); }
 
   @Post('resend-otp')
   @Public()
   @HttpCode(HttpStatus.OK)
-  // @RateLimit(5, 60_000)
+  @RateLimit(5, 60_000)
   resendOtp(@Body() dto: ResendOtpDto, @Ip() ip: string) { return this.auth.resendOtp(dto, { ip }); }
 
   @Post('login')
   @Public()
   @HttpCode(HttpStatus.OK)
-  // @RateLimit(10, 60_000)
+  @RateLimit(10, 60_000)
   login(@Body() dto: LoginDto, @Ip() ip: string, @Headers('user-agent') userAgent?: string, @Headers('x-platform') platform?: string) {
     return this.auth.login(dto, { ip, userAgent, platform });
   }
