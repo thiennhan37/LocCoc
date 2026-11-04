@@ -269,6 +269,35 @@ describe.skipIf(!url)(
       expect(await count('friendships')).toBe(1);
     });
 
+    it('returns exact visible friendship counts through gateway and enforces authentication', async () => {
+      const summary = () =>
+        request(gateway.getHttpServer())
+          .get('/users/me/social-summary')
+          .set('Authorization', bearer(0));
+      await request(gateway.getHttpServer())
+        .get('/users/me/social-summary')
+        .expect(401);
+      expect((await summary().expect(200)).body).toEqual({ friendCount: 0 });
+      const first = await repo.send(ids[0]!, ids[1]!);
+      expect((await summary().expect(200)).body.friendCount).toBe(0);
+      await repo.resolve(ids[1]!, first.id, 'ACCEPTED');
+      const second = await repo.send(ids[0]!, ids[2]!);
+      await repo.resolve(ids[2]!, second.id, 'ACCEPTED');
+      expect((await summary().expect(200)).body).toEqual({ friendCount: 2 });
+      await repo.block(ids[1]!, ids[0]!);
+      expect((await summary().expect(200)).body.friendCount).toBe(1);
+      await db.query(
+        "UPDATE users SET account_status='suspended' WHERE id=$1",
+        [ids[2]],
+      );
+      expect((await summary().expect(200)).body.friendCount).toBe(0);
+      await db.query(
+        "UPDATE users SET account_status='active', deleted_at=now() WHERE id=$1",
+        [ids[2]],
+      );
+      expect((await summary().expect(200)).body.friendCount).toBe(0);
+    });
+
     it('hides username profiles when blocked, deleted, unavailable, or anonymous', async () => {
       const get = (name: string) =>
         request(userApp.getHttpServer())

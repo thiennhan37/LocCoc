@@ -1,3 +1,4 @@
+import { SocialOutbox1793318400000 } from './migrations/1793318400000-SocialOutbox.js';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, type TypeOrmModuleOptions } from '@nestjs/typeorm';
@@ -15,6 +16,7 @@ function asBoolean(
 export const USER_MIGRATIONS = [
   CreateUsersTable1710000000000,
   UserSocial1793145600000,
+  SocialOutbox1793318400000,
 ];
 
 export function createUserDatabaseOptions(

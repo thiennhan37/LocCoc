@@ -4,26 +4,31 @@ import '../../auth/domain/models/auth_session.dart';
 class UserApiClient {
   final AuthApiClient auth;
   final void Function(AuthSession)? onSessionChanged;
+  final Future<AuthSession> Function(AuthSession)? refreshSession;
   AuthSession session;
   Future<AuthSession>? _refreshing;
   UserApiClient({
     required this.auth,
     required this.session,
     this.onSessionChanged,
+    this.refreshSession,
   });
 
   Future<Map<String, dynamic>> request(
     String method,
     String path, {
     Map<String, dynamic>? body,
+    String area = 'users',
   }) async {
     final token = session.accessToken;
     try {
-      return await auth.userRequest(method, path, token, body: body);
+      return await auth.serviceRequest(method, area, path, token, body: body);
     } on AuthApiException catch (e) {
       if (e.statusCode != 401) rethrow;
       if (session.accessToken == token) {
-        final pending = _refreshing ??= auth.refreshSession(session);
+        final pending = _refreshing ??= (refreshSession ?? auth.refreshSession)(
+          session,
+        );
         try {
           session = await pending;
           onSessionChanged?.call(session);
@@ -31,7 +36,13 @@ class UserApiClient {
           if (identical(_refreshing, pending)) _refreshing = null;
         }
       }
-      return auth.userRequest(method, path, session.accessToken, body: body);
+      return auth.serviceRequest(
+        method,
+        area,
+        path,
+        session.accessToken,
+        body: body,
+      );
     }
   }
 

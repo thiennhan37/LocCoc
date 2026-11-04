@@ -383,6 +383,7 @@
 					"@executable_path/Frameworks",
 				);
 				APP_LINK_HOST = loccoc.bus-ticket.xyz;
+				APS_ENVIRONMENT = production;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.mobileApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -564,6 +565,7 @@
 					"@executable_path/Frameworks",
 				);
 				APP_LINK_HOST = loccoc.bus-ticket.xyz;
+				APS_ENVIRONMENT = development;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.mobileApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -588,6 +590,7 @@
 					"@executable_path/Frameworks",
 				);
 				APP_LINK_HOST = loccoc.bus-ticket.xyz;
+				APS_ENVIRONMENT = production;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.mobileApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";

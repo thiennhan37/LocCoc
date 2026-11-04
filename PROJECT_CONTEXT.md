@@ -1,11 +1,30 @@
 # LocCoc Project Context & Knowledge Base (Admin & Payment Module)
 
-> Notification design update (2026-10-30): user accepted PostgreSQL, cursor inbox,
-> separate seen/read state, 90-day inbox retention, 24-hour push delivery window,
-> actor snapshots, and future transactional outbox/Kafka/FCM implementation.
-> No notification implementation is authorized in the current step: design and
-> learning notes only. See [quest.txt, section 6](quest.txt) for accepted decisions,
-> open badge UX/account-deletion questions, and required Kafka/outbox/push exercises.
+### 2026-11-03: Social outbox batching and independent cleanup
+
+- SocialOutboxPublisher now sends up to 20 selected events in one Kafka send,
+  then marks their IDs published with one SQL update. Empty batches do not send.
+- Publishing still holds the existing PostgreSQL transaction/row locks across
+  Kafka I/O; at-least-once delivery, stable event IDs and consumer deduplication
+  are unchanged. Send/DB failures leave the transaction retryable.
+- Cleanup has its own five-minute timer and removes up to 500 published rows
+  older than seven days per run. Cleanup failures are isolated from publishing;
+  overlapping cleanup is guarded and scheduled work is awaited on shutdown.
+- Verification: UserService build/lint passed; 35 unit tests and 5 integration
+  tests passed. PostgreSQL 17 was disposable; Kafka was mocked. No project
+  database, secrets or deployment configuration was changed.
+- Details: docs/specs/user/social-outbox-publisher.md and ADR-007.
+
+> Notification implementation (2026-10-30): added notification-service (8084),
+> signed cursor inbox, monotonic per-user lastSeen, per-item readAt, counts,
+> social transactional outbox/Kafka, durable FCM push jobs and Flutter inbox/push.
+> See [ADR-007](docs/adr/ADR-007-notifications.md),
+> [setup/learning](docs/specs/notification/setup-and-learning.md) and quest.txt §6.8.
+> Verified with disposable PostgreSQL/isolated Kafka topics and mocked FCM; real
+> Firebase/APNs credentials/native signing and project database migrations remain
+> deployment steps. No real .env or project databases were changed. Account-deletion
+> anonymization policy remains open. Inbox TTL 90 days; push delivery window 24h.
+> `npm run dev` in notification-service builds once and starts the server without watch mode.
 
 > **Tài liệu lưu trữ toàn bộ ngữ cảnh phát triển (Context Snapshot)** dùng để nạp vào các phiên làm việc (Conversation) mới của AI Assistant hoặc bàn giao giữa các developer.
 
@@ -384,6 +403,113 @@ npm run webhook:register https://<your-tunnel-url>/payments/webhook/payos
 - Eight profile link tests passed and the Android debug APK was rebuilt. Real-device
   domain verification/deep-link launch remains to be performed after installing it.
 
+
+### 2026-11-02: Settings and login history UI
+
+- Added Profile -> Settings and Privacy -> Login History, showing server-provided
+  device hints, IP, login/last-use/expiry/revocation timestamps, current-session
+  badge and active/revoked/expired states. Includes refresh, pagination, retry and
+  empty state. Inactive entries cannot be revoked again from UI.
+- Added GET /auth/sessions/history with owner/purpose-scoped pagination and safe
+  fields, reusing the existing Gateway auth mapping. New additive LoginHistory
+  migration backfills available sessions and captures session insert/update in
+  the same transaction. History survives expired-session removal; retain 90 days
+  plus any older still-active entries. Hourly cleanup prunes old inactive history.
+- Confirmed remote logout refreshes the row. Self logout invalidates local saved
+  credentials while keeping account identity, disposes push/navigation state and
+  returns to the chooser without offering to retain the revoked session. Final
+  authentication failures take the same route after normal token refresh handling.
+- Verified: AuthService build, 75 unit tests, 43 API/integration tests (18 real
+  PostgreSQL session/history cases), Flutter analyzer clean, 99 Flutter tests and
+  Android debug APK build. Live Gateway verified history and revoked timestamps;
+  all new verification sessions were revoked. Existing app sessions were not
+  targeted. iOS and physical-device UI/push validation remain unperformed.
+- Restarted AuthService, applying the additive migration with existing migration
+  configuration. Logs: logs/auth-login-history.stdout.log and matching stderr.log.
+  No secrets changed. Already-deleted history cannot be backfilled. See ADR-011
+  and docs/specs/auth/login-history.md.
+
+### 2026-11-02: Active session management API
+
+- Added GET /auth/sessions?limit=20&cursor=... and DELETE /auth/sessions/:id
+  through the existing Gateway auth mapping. Lists only owned, nonrevoked,
+  unexpired sessions with bounded device hints, IP, timestamps and isCurrent.
+  No token/hash fields or administrator ownership bypass; responses use no-store.
+- Targeted revocation locks the owned session and revokes all its refresh tokens
+  atomically, matching refresh lock order. Redis invalidation publishes only
+  after commit; database authority and push-session checks deny revoked sessions
+  even if publication fails. Foreign/missing IDs share 404; repeat owned revocation
+  is a no-op. Self-revocation is supported and marks isCurrent:true.
+- No migration or Flutter UI change. Existing absolute expiry and hourly cleanup
+  remain; this is not a long-term login history feature. ADR-010 and
+  docs/specs/auth/session-management.md document the contract.
+- Verified AuthService build, 75 unit tests and 37 API/integration tests (including
+  12 new isolated PostgreSQL/Gateway cases). Live Gateway checks passed for list,
+  foreign ownership, selected/self/repeat revocation and access/refresh rejection.
+- Restarted only AuthService to load routes, leaving existing sessions in place.
+  Runtime logs: logs/auth-session-management.stdout.log and matching stderr.log.
+  All newly created verification sessions were revoked; no user app session was
+  targeted. No secrets/configuration changed.
+
+### 2026-11-02: Social home count and account search
+
+- Added authenticated GET /users/me/social-summary through the existing Gateway
+  users mapping; returns the exact visible accepted friend count. Pending, blocked,
+  suspended/deleted and unnamed accounts are excluded. No new database schema.
+- Profile displays the API count, unknown/error/retry states and refreshes on
+  resume, pull-to-refresh, profile entry and return from social screens. Number
+  opens the real friends list. Both duplicate hard-coded profile friend totals
+  were replaced.
+- Added prominent home account search entry, reusing debounce, pagination,
+  stale-response protection and safe username profiles. Redesigned the foreign
+  profile card and relationship section. Plus now indicates future content
+  creation instead of opening account search.
+- User explicitly deferred all moments/posting work. No content migration or API
+  was added. ADR-009-social-home-and-search.md and specs/user/home-and-search.md
+  describe the final scope.
+- Verification: UserService build and 25 unit tests passed; isolated real PostgreSQL
+  social/Gateway suite 24 passed (one Kafka test skipped); Flutter analyzer clean,
+  full Flutter suite 90 passed. Live Gateway reports one friend for each authorized
+  antony2/antony4 test account; verification sessions logged out.
+- Android debug APK built successfully with the new interfaces. iOS/device UI
+  validation was not run in this Windows session.
+
+### 2026-11-02: Remembered accounts and persistent mobile sessions
+
+- Account identity is now always remembered on mobile. Removed storage choices
+  from password/Google login. Session-retention consent is requested on logout
+  only when the departing account has no valid saved session.
+- Shared Home/onboarding dialog offers save, identity-only logout, or cancel.
+  Retained logout skips the question next time, keeps the server session, strictly
+  detaches push and returns to the chooser without automatic re-entry. Identity-only
+  logout revokes the server session while preserving the account entry.
+- The chooser labels saved-session/identity-only states and separately offers
+  revoking a saved session (keep account) and removing the entire device entry.
+- Origin-scoped flutter_secure_storage vault persists refresh credentials only,
+  never passwords/access tokens. Serialized refresh consumes the durable token
+  before rotation and awaits replacement persistence; interrupted refresh requires
+  login again. Saving at logout atomically persists token plus inactive state.
+- Navigation/profile state and push listeners are detached on account changes;
+  outstanding push registration completes before strict detachment.
+- Android backup is disabled; iOS device-only Keychain has an installation marker
+  to prevent inheriting credentials after reinstall. Biometrics are not included.
+- Decisions/behavior: docs/adr/ADR-008-remembered-accounts.md and
+  docs/specs/auth/remembered-accounts.md. iOS/device push checks remain required.
+- Verification after logout interaction update: analyzer clean, 87/87 Flutter
+  tests passed, Android debug APK built successfully.
+
+### 2026-11-02: Live friendship and notification verification
+
+- Verified authorized antony2/antony4 test accounts through the running Gateway:
+  send/accept in both directions, duplicate and authorization rejection, notification
+  ownership, seen/read counts and idempotent read timestamps.
+- Verified inbox delivery while the recipient's verification session was logged out,
+  then successful retrieval after login. This does not verify device offline push.
+- Four source outbox events were published and four matching inbox notifications
+  persisted. Accounts remain friends; verification sessions were logged out.
+- Actual FCM/device delivery remains unverified: zero registered devices/jobs and
+  missing configured secrets/firebase-admin.json. No secrets/configuration changed.
+- Evidence: docs/specs/notification/live-verification-2026-11-02.md.
 
 ### 2026-10-30: Flutter self-serve account deletion
 

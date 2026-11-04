@@ -180,8 +180,9 @@ database, phân quyền hoặc transaction nguyên tử đã thống nhất ở 
 
 6. NOTIFICATION SERVICE - THIẾT KẾ VÀ NỘI DUNG CẦN HỌC (2026-10-30)
 
-Trạng thái: đang chốt thiết kế. Người dùng đồng ý triển khai outbox/Kafka và push
-trong bước sau, nhưng yêu cầu hiện tại CHƯA CODE. Mục này chưa phải tính năng đã có.
+Trạng thái hiện tại: đã triển khai mã nguồn theo yêu cầu mới, kiểm chứng ở mục 6.8.
+Các quyết định dưới đây được chốt trước khi code; bước cấu hình thật/deploy còn lại
+được liệt kê riêng. Không sửa .env thực tế hoặc áp migration vào database dự án.
 Các quyết định cũ của UserService phía trên giữ nguyên.
 
 6.1. Đã thống nhất
@@ -195,16 +196,18 @@ Các quyết định cũ của UserService phía trên giữ nguyên.
 - Chỉ tạo sự kiện khi nghiệp vụ thành công; chưa gửi thông báo từ chối/hủy.
 - Có hộp thông báo và push khi ứng dụng đóng: hướng triển khai FCM cho Android/
   iOS, iOS tích hợp APNs. Người dùng muốn học rõ toàn bộ luồng.
-- Tách seenAt và readAt, NULL là chưa xem/chưa đọc; suy ra isSeen/isRead khi trả API.
-  Bấm thông báo trong hộp hoặc push: đặt cả hai thời điểm nếu chưa có, giữ thời
-  điểm đầu tiên khi retry. Trạng thái thuộc tài khoản, dùng chung giữa thiết bị.
+- ĐÃ ĐỔI THEO QUYẾT ĐỊNH MỚI: không lưu seenAt trên từng notification. Lưu mốc
+  mở hộp ở notification_inbox_state, một hàng cho mỗi người nhận, thuộc database
+  NotificationService. readAt vẫn nằm trên từng notification, giữ lần đọc đầu.
+  Trạng thái dùng chung giữa thiết bị. Chi tiết mốc và số đếm ở mục 6.2.
 - Icon chuông dùng unseenCount; từng dòng biểu thị unread. GET không tự cập nhật.
-- Theo đề xuất đang áp dụng: chỉ đánh dấu seen các ID đã hiển thị; không ngầm
-  đánh dấu toàn bộ lịch sử khi mới tải trang đầu. Câu hỏi UX bổ sung ở mục 6.2.
+- Người dùng đã chọn: mở hộp thì coi mọi thông báo có đến mốc mở là đã xem;
+  chuông về 0 nếu không có thông báo mới đến sau mốc, dù chỉ tải trang đầu 20 dòng.
+  Không đánh dấu các dòng là đã đọc chỉ vì mở hộp.
 - GET /notifications/counts trả unseenCount và unreadCount từ database; không
   lấy độ dài trang hiện tại hoặc tự trừ ở client làm số đếm chính thức.
-- PATCH /notifications/seen cập nhật theo danh sách ID có giới hạn; chỉ cập nhật
-  bản ghi của người gọi. PATCH /notifications/:id/read kiểm tra quyền tương tự,
+- PATCH /notifications/seen nhận mốc do server cấp, chỉ cập nhật inbox_state
+  của người gọi. PATCH /notifications/:id/read kiểm tra quyền tương tự,
   404 chung cho không tồn tại/không thuộc người gọi; các thao tác gọi lại an toàn.
 - PUT/DELETE /notifications/devices/:installationId đăng ký/cập nhật/gỡ nhận push.
   Installation ID không phải bằng chứng sở hữu; xác thực và ràng buộc đăng ký với
@@ -223,21 +226,44 @@ Các quyết định cũ của UserService phía trên giữ nguyên.
   Android TTL và iOS apns-expiration dùng thời gian còn lại. Hết push TTL vẫn có
   thể xem hộp nếu thông báo chưa hết hạn. Không dùng trạng thái gửi push làm read.
 
-6.2. Giải thích số đếm và câu hỏi UX còn mở
-- Ví dụ toàn bộ hộp có 100 thông báo còn hạn chưa xem. Tải trang đầu 20 không
-  thay đổi count. Khi 20 ID được xác nhận seen thành công: unseenCount còn 80.
-  Có thêm 1 thông báo thì thành 81. Kết quả này đúng theo nghĩa chưa xem từng dòng.
-- Không đánh dấu ID mới đến sau khi tải nếu ID đó chưa nằm trong danh sách hiển thị.
+6.2. ĐÃ CHỐT UX mở hộp về 0; thiết kế lastSeen và câu hỏi tài khoản xóa
+- Người dùng đề xuất lastSeen để tránh cập nhật nhiều dòng; đã chọn áp dụng mốc
+  chung. Ví dụ có 100 thông báo, mở trang đầu 20 dòng và xác nhận mốc 100:
+  unseenCount=0, unreadCount vẫn 100 nếu chưa bấm dòng nào. Thông báo 101 đến sau
+  mốc: unseenCount=1 và unreadCount=101. Mở hộp không đồng nghĩa đã đọc từng dòng.
+- Ý nghĩa lastSeen là mốc đã mở hộp, không phải bằng chứng đã nhìn từng dòng.
+- Thiết kế đề xuất chi tiết (chưa code): inbox_state có recipient_id (PK),
+  latest_sequence, last_seen_sequence mặc định 0, last_seen_at cho hiển thị/audit.
+  notifications có inbox_sequence duy nhất trong phạm vi recipient_id.
+- Không dùng đồng hồ điện thoại, occurredAt, UUID hoặc timestamp đơn lẻ làm mốc
+  chính: sự kiện tới muộn hoặc transaction commit muộn có thể bị tính nhầm đã xem.
+  Mốc chính đề xuất là số thứ tự nhận vào hộp. Khi tạo thông báo mới, khóa/cập nhật
+  hàng inbox_state của người nhận, tăng latest_sequence và insert notification
+  cùng transaction; giữ khóa tới commit. Các writer cùng người nhận phải tuân thủ
+  thứ tự này. Không thay bằng nextval/global bigserial rồi giả định thứ tự commit.
+  Chống trùng vẫn phải hoạt động khi hai consumer xử lý cùng event; rollback/retry
+  không được phát sinh bản ghi hoặc push job trùng.
+- GET trang đầu trả seenCursor riêng (không phải nextCursor phân trang), chứa mốc
+  latest_sequence đã commit trong cùng snapshot nhất quán với danh sách. Khi màn
+  hình hiển thị thành công, Flutter PATCH /notifications/seen với seenCursor đó.
+  GET không tự mutate, prefetch/mạng lỗi không được coi là đã mở hộp.
+- Mốc do server cấp và kiểm chứng (ví dụ opaque signed token gắn recipient và
+  giới hạn thời gian sử dụng); client không được tùy khai báo số ở tương lai.
+  Chỉ tiến mốc bằng GREATEST(mốc đã lưu, mốc hợp lệ nhận được), không lùi khi request
+  cũ/thiết bị khác tới muộn. Thông báo đến giữa GET và PATCH vẫn mới.
+- isRead = read_at IS NOT NULL; isSeen = inbox_sequence <= last_seen_sequence
+  OR read_at IS NOT NULL. Bấm riêng một push mới chỉ cập nhật readAt của bản ghi
+  đó; không tiến last_seen_sequence làm mất trạng thái mới của các thông báo khác.
+- unseenCount đếm bản ghi của người gọi còn hạn, inbox_sequence > mốc đã xem
+  và read_at IS NULL. unreadCount đếm bản ghi còn hạn có read_at IS NULL.
+  Không lấy latest_sequence - last_seen_sequence vì có bản ghi hết hạn/đã đọc/xóa.
+- Index truy vấn unseen đề xuất (recipient_id, inbox_sequence) WHERE read_at IS NULL;
+  thêm điều kiện expires_at khi đếm; giữ index list và unread theo truy vấn thực tế.
 - List, update seen và counts là các request riêng: có thể lệch tạm thời do
   thông báo mới hoặc thao tác thiết bị khác. Sau cập nhật, lấy lại số từ server;
   khi mở/resume hộp thì làm mới. Không hứa các request khác nhau cùng một snapshot.
-- Hai thiết bị cập nhật cùng ID vẫn chỉ thay đổi trạng thái một lần; không giảm
-  count thủ công nhiều lần khi retry. Cả list/count dùng cùng quyền và expiresAt.
-- CẦN CHỐT BỔ SUNG: sau khi mở 20 dòng đầu, người dùng muốn chuông còn 80 hay
-  muốn coi mọi thông báo có trước lúc mở hộp là đã xem để chuông về 0?
-  Phương án thứ hai đổi nghĩa seen thành đã mở hộp kể từ lần thông báo xuất hiện;
-  phải có mốc do server cấp, không được nuốt thông báo đến sau mốc hoặc dựa vào
-  đồng hồ điện thoại. Không tự đổi sang phương án này khi chưa được chọn.
+- Hai thiết bị cập nhật cùng mốc hoặc cùng readAt vẫn an toàn khi retry; không
+  giảm count thủ công nhiều lần. Cả list/count dùng cùng quyền và expiresAt.
 - CẦN CHỐT BỔ SUNG: tài khoản bị xóa thì xử lý snapshot tên/ảnh trong hộp người
   khác thế nào? Đề xuất ẩn danh actor, dùng avatar mặc định; dữ liệu của chính
   người nhận đã xóa và đăng ký push cần dọn theo chính sách xóa tài khoản.
@@ -307,10 +333,54 @@ Các quyết định cũ của UserService phía trên giữ nguyên.
   https://firebase.google.com/docs/cloud-messaging/manage-tokens
   https://kafka.apache.org/43/design/design/
 
-6.6. Việc tiếp theo (CHƯA thực hiện)
-- Chốt UX badge và chính sách tài khoản xóa ở mục 6.2.
+6.6. Kế hoạch ban đầu (đã thực hiện phần code, xem kết quả ở 6.8)
+- UX badge đã chốt; còn chính sách tài khoản xóa ở mục 6.2.
 - Viết ADR và technical spec: schema/index, event contract, outbox/consumer/push
   worker, API/DTO/Gateway, bảo mật, retention/dedupe/replay và hướng dẫn học.
 - Sau đó mới triển khai theo yêu cầu mới của người dùng và kiểm chứng: quyền sở
   hữu/404, cursor, seen/read retry/concurrency, counts/expiry, outbox crash/retry,
   Kafka replay, lưu job push nguyên tử, xử lý token và Flutter/device thật.
+
+6.7. BA VÍ DỤ LASTSEEN CẦN XEM LẠI
+- Mốc lúc tải: GET trả mốc 100; thông báo 101 đến trước PATCH. PATCH xác nhận
+  đúng mốc 100 thì chuông vẫn hiện 1. Không lấy mốc hiện tại lúc PATCH chạy.
+- Chỉ tiến: máy A gửi mốc 100 chậm; máy B đã xác nhận 105. A tới sau không được
+  kéo mốc về 100, nếu không 101-105 sẽ bị tính mới trở lại.
+- Đếm thực tế: lastSeen=100; 101/104/105 chưa đọc còn hạn, 102 đã đọc từ push,
+  103 hết hạn. Chuông đúng là 3, không phải 105-100=5.
+
+2026-10-30: người dùng đã yêu cầu bắt đầu triển khai. Các ghi chú CHƯA CODE phía
+trên mô tả giai đoạn trước và được thay thế bởi yêu cầu mới này. ADR-007 và spec
+notification/inbox-and-push.md là thiết kế triển khai; kết quả kiểm chứng cập nhật sau.
+
+6.8. TRIỂN KHAI NGÀY 2026-10-30
+- Đã viết ADR-007, spec inbox-and-push và hướng dẫn setup-and-learning trong
+  docs/specs/notification/. Hướng dẫn có sơ đồ và bài thực hành Kafka/outbox/push.
+- Đã thêm notification-service (NestJS, port 8084), schema/migration, cursor ký,
+  lastSeen một hàng/người nhận, readAt từng dòng, đếm theo bản ghi còn hạn và quyền sở hữu.
+- UserService có migration SocialOutbox1793318400000 dùng trigger trong cùng
+  transaction lời mời; publisher phát social.events, consumer chống trùng và
+  quarantine payload hỏng. Không backfill thông báo từ lời mời cũ.
+- Thông báo và push jobs lưu nguyên tử. Worker retry/backoff, TTL 24h, kiểm tra
+  phiên qua endpoint nội bộ AuthService trước gửi; gỡ token không hợp lệ. Đổi
+  tài khoản/token cùng installation không gửi job của đăng ký cũ.
+- Gateway đã có root /notifications và các route con. UserService thêm GET
+  /users/friend-requests/:id để Flutter kiểm tra trạng thái hiện tại khi bấm.
+- Flutter có chuông/count, hộp cursor, load-more/refresh, acknowledge mốc sau
+  hiển thị, đọc từng dòng, avatar snapshot/fallback và xử lý đích không khả dụng.
+- Đã tích hợp client Firebase tùy chọn, thiết lập native permissions/entitlements,
+  đăng ký thiết bị theo phiên, token refresh, background/terminated tap và logout.
+- Cấu hình Firebase/APNs thật chưa được cung cấp: mặc định FCM_ENABLED=false.
+  Xem hướng dẫn để bật bằng FirebaseOptions công khai + ADC server. Không có
+  secrets/service-account key trong mã nguồn và không sửa .env thực tế.
+- Chưa áp migration vào database dự án; kiểm chứng PostgreSQL dùng container
+  tạm riêng. Test Kafka dùng topic ngẫu nhiên, tự xóa sau kiểm thử.
+- Kiểm thử NotificationService: 27 bài qua, gồm PostgreSQL/Kafka thật, HTTP auth/
+  ownership, lastSeen/concurrency/expiry, outbox/replay/quarantine và push provider mock.
+- Flutter analyze sạch; 58 bài test qua. Backend Auth/User/Gateway build qua;
+  Auth unit 75 bài qua, User unit 25 bài qua, Gateway E2E 16 bài qua.
+- Bản dựng Android debug APK thành công (Firebase tắt mặc định). iOS chưa build
+  trên Windows; push thật chưa kiểm chứng vì thiếu cấu hình Firebase/APNs.
+- Push thật và iOS signing/delivery trên thiết bị cần cấu hình chủ dự án; các
+  bài provider mock không thay thế được bước đó. Chính sách actor tài khoản xóa
+  ở mục 6.2 vẫn để chốt; không tự áp chính sách xóa/ẩn danh mới.

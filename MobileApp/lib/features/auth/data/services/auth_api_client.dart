@@ -20,6 +20,7 @@ class AuthApiClient {
   final http.Client _httpClient;
   final String _baseUrl;
   final Duration requestTimeout;
+  String get origin => Uri.parse(_baseUrl).origin;
 
   AuthApiClient({
     http.Client? httpClient,
@@ -274,7 +275,21 @@ class AuthApiClient {
     String accessToken, {
     Map<String, dynamic>? body,
   }) async {
-    final request = http.Request(method, Uri.parse('$_baseUrl/users/$path'));
+    return serviceRequest(method, 'users', path, accessToken, body: body);
+  }
+
+  Future<Map<String, dynamic>> serviceRequest(
+    String method,
+    String area,
+    String path,
+    String accessToken, {
+    Map<String, dynamic>? body,
+  }) async {
+    if (!['users', 'notifications', 'auth'].contains(area)) {
+      throw ArgumentError('Invalid API area');
+    }
+    final suffix = path.isEmpty || path.startsWith('?') ? path : '/$path';
+    final request = http.Request(method, Uri.parse('$_baseUrl/$area$suffix'));
     request.headers.addAll({
       'Authorization': 'Bearer $accessToken',
       'Accept': 'application/json',

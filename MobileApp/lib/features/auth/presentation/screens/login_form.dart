@@ -18,12 +18,14 @@ class LoginForm extends StatefulWidget {
   final GoogleAuthService? googleAuthService;
   final AuthApiClient? authApiClient;
   final ValueChanged<AuthSession>? onLoginSuccess;
+  final String initialEmail;
 
   const LoginForm({
     super.key,
     this.googleAuthService,
     this.authApiClient,
     this.onLoginSuccess,
+    this.initialEmail = '',
   });
 
   @override
@@ -39,6 +41,12 @@ class _LoginFormState extends State<LoginForm> {
   bool _isLoading = false;
   bool _isGoogleLoading = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _identifierController.text = widget.initialEmail;
+  }
+
   late final GoogleAuthService _googleAuthService =
       widget.googleAuthService ?? GoogleAuthService();
   late final AuthApiClient _apiClient =
@@ -52,7 +60,14 @@ class _LoginFormState extends State<LoginForm> {
     super.dispose();
   }
 
-  void _onSuccess(AuthSession session, [String? message]) {
+  Future<void> _onSuccess(AuthSession session, [String? message]) async {
+    await _googleAuthService.acceptLogin(
+      session,
+      remember: true,
+      retain: false,
+    );
+    if (!mounted) return;
+    _passwordController.clear();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: AppColors.success,
@@ -79,6 +94,7 @@ class _LoginFormState extends State<LoginForm> {
                     auth: _apiClient,
                     session: session,
                     onSessionChanged: _googleAuthService.updateSession,
+                    refreshSession: _googleAuthService.refreshSession,
                   ),
                 ),
         ),
@@ -125,7 +141,7 @@ class _LoginFormState extends State<LoginForm> {
 
       switch (result) {
         case AuthSuccess(:final session):
-          _onSuccess(session, 'Đăng nhập thành công!');
+          await _onSuccess(session, 'Đăng nhập thành công!');
         case AuthCancelled():
           break;
         case AuthFailure(:final message):
@@ -170,7 +186,7 @@ class _LoginFormState extends State<LoginForm> {
 
       switch (result) {
         case AuthSuccess(:final session):
-          _onSuccess(session);
+          await _onSuccess(session);
         case AuthCancelled():
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text(AppStrings.googleLoginCancelled)),

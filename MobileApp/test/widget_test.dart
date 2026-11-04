@@ -6,6 +6,7 @@ import 'package:mobile_app/main.dart';
 void main() {
   testWidgets('shows the login form and social auth options', (tester) async {
     await tester.pumpWidget(const LocCocApp());
+    await tester.pumpAndSettle();
 
     expect(find.text('Email hoặc Số điện thoại'), findsOneWidget);
     expect(find.text('Mật khẩu'), findsOneWidget);
@@ -17,6 +18,7 @@ void main() {
 
   testWidgets('validates input fields correctly', (tester) async {
     await tester.pumpWidget(const LocCocApp());
+    await tester.pumpAndSettle();
 
     // Tap login with empty fields
     await tester.tap(find.text('Đăng nhập'));
@@ -26,10 +28,7 @@ void main() {
     expect(find.text('Trường này không được để trống'), findsNWidgets(2));
 
     // Enter email but short password
-    await tester.enterText(
-      find.byType(TextFormField).first,
-      'test@loccoc.vn',
-    );
+    await tester.enterText(find.byType(TextFormField).first, 'test@loccoc.vn');
     await tester.enterText(find.byType(TextFormField).last, '123');
     await tester.tap(find.text('Đăng nhập'));
     await tester.pump();
@@ -46,6 +45,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(const LocCocApp());
+    await tester.pumpAndSettle();
 
     final demoButton = find.text('Khám phá ngay (Tài khoản thử nghiệm)');
     expect(demoButton, findsOneWidget);
@@ -57,8 +57,11 @@ void main() {
     expect(find.byType(HomeScreen), findsOneWidget);
     expect(find.text('LocCoc'), findsOneWidget);
     expect(find.text('Một chút hôm nay.'), findsOneWidget);
-    expect(find.text('Những điều nhỏ xíu, gửi người thân yêu.'), findsOneWidget);
-    expect(find.text('Mời bạn'), findsOneWidget);
+    expect(
+      find.text('Những điều nhỏ xíu, gửi người thân yêu.'),
+      findsOneWidget,
+    );
+    expect(find.text('Thêm tin'), findsOneWidget);
     expect(find.text('Gửi một khoảnh khắc'), findsOneWidget);
     expect(find.text('Trang chủ'), findsOneWidget);
     expect(find.text('Kỷ niệm'), findsOneWidget);
@@ -74,6 +77,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
 
       await tester.pumpWidget(const LocCocApp());
+      await tester.pumpAndSettle();
 
       await tester.enterText(
         find.byType(TextFormField).first,

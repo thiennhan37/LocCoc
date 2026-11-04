@@ -10,6 +10,7 @@ import 'package:google_sign_in_platform_interface/google_sign_in_platform_interf
 import '../../domain/models/auth_result.dart';
 import '../../domain/models/auth_session.dart';
 import 'auth_api_client.dart';
+import 'account_vault.dart';
 
 /// Lightweight data holder for Google user credentials.
 class GoogleSignInAccountData {
@@ -174,14 +175,190 @@ class DefaultGoogleSignInAdapter implements GoogleSignInAdapter {
 /// Orchestrator service combining Google sign-in and LocCoc Auth API client.
 class GoogleAuthService {
   AuthSession? _session;
+  final AccountVault vault;
+  Future<AuthSession>? _refreshing;
+  bool _leaving = false;
+  int _generation = 0;
   final GoogleSignInAdapter signInAdapter;
   final AuthApiClient apiClient;
 
   GoogleAuthService({
     GoogleSignInAdapter? signInAdapter,
     AuthApiClient? apiClient,
+    AccountVault? vault,
   }) : signInAdapter = signInAdapter ?? DefaultGoogleSignInAdapter(),
+       vault =
+           vault ??
+           (apiClient == null
+               ? AccountVault.shared
+               : AccountVault.forOrigin(apiClient.origin)),
        apiClient = apiClient ?? AuthApiClient();
+
+  Future<void> acceptLogin(
+    AuthSession session, {
+    required bool remember,
+    required bool retain,
+  }) async {
+    if (session.accessToken.startsWith('demo-')) {
+      _session = session;
+      return;
+    }
+    try {
+      await vault.remember(
+        session,
+        remember: remember,
+        retain: remember && retain,
+      );
+    } catch (_) {
+      // Do not leave a newly created session behind after consent/storage fails.
+      try {
+        await apiClient.logout(accessToken: session.accessToken);
+      } catch (_) {}
+      _session = null;
+      throw StateError(
+        'Không thể lưu lựa chọn đăng nhập an toàn. Hãy mở khóa thiết bị và thử lại.',
+      );
+    }
+    _generation++;
+    _session = session;
+  }
+
+  Future<AuthSession?> resume(String id) async {
+    if (_leaving || _refreshing != null) {
+      throw StateError('Session operation in progress');
+    }
+    final saved = await vault.consume(id);
+    if (saved == null) return null;
+    final generation = ++_generation;
+    final pending = _rotate(saved, generation);
+    _refreshing = pending;
+    try {
+      final next = await pending;
+      await vault.select(id);
+      return next;
+    } finally {
+      if (identical(_refreshing, pending)) _refreshing = null;
+    }
+  }
+
+  Future<AuthSession> refreshSession(AuthSession current) async {
+    if (_leaving ||
+        (_session == null && _generation > 0) ||
+        (_session != null && _session!.user.id != current.user.id)) {
+      throw const AuthApiException(401);
+    }
+    if (_session != null && _session!.refreshToken != current.refreshToken) {
+      return _session!;
+    }
+    if (_refreshing case final pending?) return pending;
+    final generation = _generation;
+    final pending = () async {
+      await vault.beginRotation(current.user.id);
+      return _rotate(current, generation);
+    }();
+    _refreshing = pending;
+    try {
+      return await pending;
+    } finally {
+      if (identical(_refreshing, pending)) _refreshing = null;
+    }
+  }
+
+  Future<AuthSession> _rotate(AuthSession current, int generation) async {
+    try {
+      final next = await apiClient.refreshSession(current);
+      if (next.user.id != current.user.id || generation != _generation) {
+        throw const AuthApiException(401);
+      }
+      await vault.rotated(next);
+      _session = next;
+      return next;
+    } catch (_) {
+      if (_session?.user.id == current.user.id) _session = null;
+      if (generation == _generation) _generation++;
+      await vault.clearCredential(current.user.id);
+      rethrow;
+    }
+  }
+
+  Future<void> suspend() async {
+    _leaving = true;
+    try {
+      try {
+        await _refreshing;
+      } catch (_) {}
+      final current = _session;
+      final retained =
+          current != null &&
+          (await vault.list()).any(
+            (account) => account.id == current.user.id && account.canContinue,
+          );
+      if (current != null && !retained) {
+        await _revoke(current);
+        return;
+      }
+      await vault.select(null);
+      _generation++;
+      _session = null;
+    } finally {
+      _leaving = false;
+    }
+  }
+
+  Future<void> removeSaved(String id) async {
+    await removeSavedSession(id);
+    await vault.clearCredential(id, forget: true);
+  }
+
+  Future<void> removeSavedSession(String id) async {
+    final saved = (await vault.list()).where((a) => a.id == id).first;
+    if (saved.canContinue) {
+      try {
+        final session = await resume(id);
+        if (session != null) await signOut(session: session);
+      } on AuthApiException catch (e) {
+        if (e.statusCode != 401 && e.statusCode != 403) rethrow;
+      }
+    }
+    await vault.clearCredential(id);
+  }
+
+  Future<bool> hasSavedSession(String id) async {
+    try {
+      await _refreshing;
+    } catch (_) {}
+    return (await vault.list()).any(
+      (account) => account.id == id && account.canContinue,
+    );
+  }
+
+  Future<void> leaveRetainingSession(AuthSession session) async {
+    if (_leaving) throw StateError('Session operation in progress');
+    _leaving = true;
+    try {
+      try {
+        await _refreshing;
+      } catch (_) {}
+      if (_session == null && _generation > 0) {
+        throw const AuthApiException(401);
+      }
+      final current = _session ?? session;
+      if (current.user.id != session.user.id) throw const AuthApiException(401);
+      if (!vault.supported) {
+        throw StateError('Secure session storage unavailable');
+      }
+      await vault.remember(
+        current,
+        remember: true,
+        retain: true,
+        active: false,
+      );
+      _generation++;
+      _session = null;
+    } finally {
+      _leaving = false;
+    }
+  }
 
   /// Executes the full Google Sign-in flow:
   /// 1. Prompts user with native Google sign-in UI
@@ -217,7 +394,22 @@ class GoogleAuthService {
   }
 
   Future<void> signOut({required AuthSession session}) async {
+    if (_leaving) throw StateError('Session operation in progress');
+    _leaving = true;
+    try {
+      await _revoke(session);
+    } finally {
+      _leaving = false;
+    }
+  }
+
+  Future<void> _revoke(AuthSession session) async {
+    try {
+      await _refreshing;
+    } catch (_) {}
+    _session ??= session;
     final current = _session ?? session;
+    await vault.rememberIdentity(current);
     try {
       await apiClient.logout(accessToken: current.accessToken);
     } on AuthApiException catch (error) {
@@ -225,7 +417,9 @@ class GoogleAuthService {
       // Logout requires a valid AT. Preserve rotated credentials if a later
       // logout request fails, so retrying does not reuse the old refresh token.
       try {
+        await vault.beginRotation(current.user.id);
         _session = await apiClient.refreshSession(current);
+        await vault.rotated(_session!);
       } on AuthApiException catch (refreshError) {
         if (refreshError.statusCode != 401) rethrow;
         // Both credentials are rejected: the local session is no longer usable.
@@ -240,12 +434,48 @@ class GoogleAuthService {
   AuthSession? get session => _session;
 
   void updateSession(AuthSession session) {
+    if (_leaving ||
+        (_session == null && _generation > 0) ||
+        (_session != null &&
+            (_session!.user.id != session.user.id ||
+                _session!.refreshToken != session.refreshToken))) {
+      return;
+    }
     _session = session;
   }
 
-  Future<void> clearSession() => _clearLocalSession();
+  Future<void> clearSession() => _clearLocalSession(forget: true);
 
-  Future<void> _clearLocalSession() async {
+  Future<void> clearRevokedSession(AuthSession current) async {
+    _leaving = true;
+    try {
+      try {
+        await _refreshing;
+      } catch (_) {}
+      if (_session != null && _session!.user.id != current.user.id) {
+        throw StateError('Account changed');
+      }
+      try {
+        await vault.rememberIdentity(current);
+        await vault.clearCredential(current.user.id);
+      } finally {
+        _generation++;
+        _session = null;
+        try {
+          await signInAdapter.signOut();
+        } catch (_) {}
+      }
+    } finally {
+      _leaving = false;
+    }
+  }
+
+  Future<void> _clearLocalSession({bool forget = false}) async {
+    final id = _session?.user.id;
+    if (id != null && !_session!.accessToken.startsWith('demo-')) {
+      await vault.clearCredential(id, forget: forget);
+    }
+    _generation++;
     _session = null;
     try {
       await signInAdapter.signOut();

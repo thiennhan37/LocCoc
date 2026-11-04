@@ -63,7 +63,7 @@ class AppStrings {
   static const memoryGallery = 'Góc kỷ niệm';
   static const seeAll = 'Xem tất cả';
   static const closeFriendsCircle = 'Vòng tròn bạn thân';
-  static const settingsPrivacy = 'Cài đặt & quyền riêng tư';
+  static const settingsPrivacy = 'Cài đặt và quyền riêng tư';
   static const demoModeTitle = 'Chế độ Demo Khám phá';
   static const demoModeDesc = 'Đang trải nghiệm giao diện người dùng LocCoc';
 }

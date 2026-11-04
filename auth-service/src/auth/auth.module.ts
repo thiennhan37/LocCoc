@@ -16,6 +16,9 @@ import {
   InternalServiceGuard,
 } from './internal-accounts.controller.js';
 import { AuthService } from './auth.service.js';
+import { SessionManagementController } from './session-management.controller.js';
+import { SessionManagementService } from './session-management.service.js';
+import { SessionManagementRepository } from './session-management.repository.js';
 import { Account } from './entities/account.entity.js';
 import { Session } from './entities/session.entity.js';
 import { RefreshToken } from './entities/refresh-token.entity.js';
@@ -60,6 +63,7 @@ import {
   ],
   controllers: [
     AuthController,
+    SessionManagementController,
     SocialAuthController,
     InternalAccountsController,
     AccountStatusController,
@@ -74,6 +78,8 @@ import {
     TokenService,
     SessionCleanupService,
     AuthService,
+    SessionManagementService,
+    SessionManagementRepository,
     IdentitiesRepository,
     SocialTokenVerifier,
     SocialAuthService,

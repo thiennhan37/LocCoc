@@ -5,7 +5,14 @@ import '../data/user_api_client.dart';
 
 class FriendsScreen extends StatefulWidget {
   final UserApiClient api;
-  const FriendsScreen({super.key, required this.api});
+  final int initialTab;
+  final bool autofocus;
+  const FriendsScreen({
+    super.key,
+    required this.api,
+    this.initialTab = 0,
+    this.autofocus = false,
+  }) : assert(initialTab >= 0 && initialTab < 5);
   @override
   State<FriendsScreen> createState() => _FriendsScreenState();
 }
@@ -31,6 +38,13 @@ class _FriendsScreenState extends State<FriendsScreen> {
     'friends',
     'blocks',
   ][tab];
+  @override
+  void initState() {
+    super.initState();
+    tab = widget.initialTab;
+    if (tab != 0) load();
+  }
+
   @override
   void dispose() {
     debounce?.cancel();
@@ -304,7 +318,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Bạn bè')),
+    appBar: AppBar(title: Text(tab == 0 ? 'Tìm tài khoản' : labels[tab])),
     body: Column(
       children: [
         SingleChildScrollView(
@@ -329,6 +343,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
             child: TextField(
               key: const Key('friend-search'),
               controller: input,
+              autofocus: widget.autofocus,
               onChanged: change,
               autocorrect: false,
               decoration: const InputDecoration(
@@ -364,9 +379,35 @@ class _FriendsScreenState extends State<FriendsScreen> {
               padding: const EdgeInsets.all(12),
               children: [
                 if (!loading && rows.isEmpty && error == null)
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.all(24),
-                    child: Center(child: Text('Chưa có kết quả.')),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          Icon(
+                            tab == 0
+                                ? Icons.person_search_outlined
+                                : Icons.people_outline,
+                            size: 48,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            tab == 0 && term.isEmpty
+                                ? 'Tìm người bạn muốn kết nối'
+                                : 'Chưa có kết quả.',
+                          ),
+                          if (tab == 0)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 8),
+                              child: Text(
+                                'Nhập username từ 2–30 ký tự: chữ, số hoặc dấu gạch dưới.',
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 ...rows.map(row),
                 if (hasMore)

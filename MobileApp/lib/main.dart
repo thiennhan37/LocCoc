@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'features/notifications/data/push_notifications.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/screens/auth_screen.dart';
 import 'features/auth/data/services/google_sign_in_service.dart';
@@ -9,8 +10,9 @@ import 'features/users/presentation/profile_gate.dart';
 import 'features/users/presentation/profile_link_session.dart';
 import 'features/users/presentation/username_profile_screen.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await PushNotifications.initialize();
   runApp(const LocCocApp());
 }
 
@@ -118,6 +120,7 @@ class _ProfileLinkEntryState extends State<_ProfileLinkEntry> {
             auth: auth.apiClient,
             session: session,
             onSessionChanged: auth.updateSession,
+            refreshSession: auth.refreshSession,
           );
         });
       },

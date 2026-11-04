@@ -10,9 +10,18 @@ const fields = {
   GATEWAY_PORT: Joi.number().port().default(8080),
   AUTH_PORT: Joi.number().port().default(8000),
   USER_PORT: Joi.number().port().default(8081),
+  NOTIFICATION_PORT: Joi.number().port().default(8084),
+  NOTIFICATION_DB_NAME: Joi.string().default('notifications'),
+  NOTIFICATION_DB_USER: Joi.string().required(),
+  NOTIFICATION_DB_PASSWORD: Joi.string().required(),
+  NOTIFICATION_CURSOR_SECRET: Joi.string().min(32).required(),
+  FCM_ENABLED: Joi.string().valid('true', 'false').default('false'),
   AUTH_SERVICE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .default('http://127.0.0.1:8000'),
+  NOTIFICATION_SERVICE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('http://127.0.0.1:8084'),
   USER_SERVICE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .default('http://127.0.0.1:8081'),
@@ -87,6 +96,7 @@ const gatewayKeys = [
   'GATEWAY_PORT',
   'AUTH_SERVICE_URL',
   'USER_SERVICE_URL',
+  'NOTIFICATION_SERVICE_URL',
   'ADMIN_SERVICE_URL',
   'PAYMENT_SERVICE_URL',
   'REDIS_URL',
@@ -150,6 +160,31 @@ const userKeys = [
   'JWT_AUDIENCE',
   'JWT_KID',
 ] as const;
+
+const notificationKeys = [
+  'NODE_ENV',
+  'NOTIFICATION_PORT',
+  'DB_HOST',
+  'DB_PORT',
+  'NOTIFICATION_DB_NAME',
+  'NOTIFICATION_DB_USER',
+  'NOTIFICATION_DB_PASSWORD',
+  'NOTIFICATION_CURSOR_SECRET',
+  'FCM_ENABLED',
+  'TYPEORM_MIGRATIONS_RUN',
+  'JWT_PUBLIC_KEY',
+  'JWT_PUBLIC_KEY_PATH',
+  'JWT_ISSUER',
+  'JWT_AUDIENCE',
+  'JWT_KID',
+] as const;
+
+export function validateNotificationEnvironment(
+  input: Record<string, unknown>,
+  serviceDirectory = process.cwd(),
+): Record<string, unknown> {
+  return validateFor(input, notificationKeys, 'public', serviceDirectory);
+}
 
 type EnvironmentKey = keyof typeof fields;
 type KeyRequirement = 'none' | 'public' | 'pair';

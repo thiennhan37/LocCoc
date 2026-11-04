@@ -61,6 +61,19 @@ export class AccountAccessService {
     };
   }
 
+  async pushSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<{ allowed: boolean }> {
+    const rows: { allowed: boolean }[] = await this.db.query(
+      `SELECT EXISTS(SELECT 1 FROM accounts a JOIN sessions s ON s.user_id=a.id
+       WHERE a.id=$1 AND s.id=$2 AND a.status='active' AND a.deleted_at IS NULL
+       AND s.revoked_at IS NULL AND s.expires_at>now()) AS allowed`,
+      [userId, sessionId],
+    );
+    return { allowed: rows[0]?.allowed === true };
+  }
+
   async snapshot(id: string): Promise<AccountSnapshot> {
     const rows: { snapshot: AccountSnapshot }[] = await this.db.query(
       'SELECT account_snapshot(a) AS snapshot FROM accounts a WHERE id=$1',

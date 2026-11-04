@@ -126,6 +126,7 @@ void main() {
           ),
         ),
       );
+      await tester.pumpAndSettle();
 
       final button = find.byType(GoogleSignInButton);
       await tester.tap(button);

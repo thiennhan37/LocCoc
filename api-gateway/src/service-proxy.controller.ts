@@ -31,6 +31,14 @@ export class ServiceProxyController {
     return this.forward('auth', request, response);
   }
 
+  @All(['notifications', 'notifications/*path'])
+  forwardNotifications(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
+    return this.forward('notifications', request, response);
+  }
+
   @All('users/*path')
   forwardToUsers(
     @Req() request: RequestWithId,

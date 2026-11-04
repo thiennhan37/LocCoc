@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../auth/data/services/google_sign_in_service.dart';
 import '../../auth/data/services/auth_api_client.dart';
 import '../../auth/presentation/screens/auth_screen.dart';
+import '../../auth/presentation/widgets/logout_session_dialog.dart';
 import '../../auth/domain/models/auth_session.dart';
 import '../../home/presentation/screens/home_screen.dart';
 import '../data/user_api_client.dart';
@@ -31,6 +32,7 @@ class _ProfileGateState extends State<ProfileGate> {
         auth: widget.authService.apiClient,
         session: widget.session,
         onSessionChanged: widget.authService.updateSession,
+        refreshSession: widget.authService.refreshSession,
       );
   final username = TextEditingController();
   final displayName = TextEditingController();
@@ -39,6 +41,7 @@ class _ProfileGateState extends State<ProfileGate> {
   String? error;
   bool loading = true;
   bool saving = false;
+  bool leaving = false;
   @override
   void initState() {
     super.initState();
@@ -62,6 +65,7 @@ class _ProfileGateState extends State<ProfileGate> {
       if (!p.containsKey('username') || p['id'] != widget.session.user.id) {
         throw const FormatException('Invalid profile');
       }
+      await widget.authService.vault.profile(api.session.user.id, p);
       if (!mounted) return;
       setState(() {
         profile = p;
@@ -117,17 +121,31 @@ class _ProfileGateState extends State<ProfileGate> {
           IconButton(
             tooltip: 'Đăng xuất',
             icon: const Icon(Icons.logout_rounded),
-            onPressed: saving
+            onPressed: saving || leaving
                 ? null
                 : () async {
+                    setState(() => leaving = true);
                     try {
-                      await widget.authService.signOut(session: api.session);
+                      final retain = await chooseLogoutRetention(
+                        context,
+                        widget.authService,
+                        api.session,
+                      );
+                      if (retain == null || !mounted) return;
+                      if (retain) {
+                        await widget.authService.leaveRetainingSession(
+                          api.session,
+                        );
+                      } else {
+                        await widget.authService.signOut(session: api.session);
+                      }
                       if (context.mounted) {
                         ProfileLinkScope.maybeOf(context)?.clear();
                         Navigator.of(context).pushAndRemoveUntil(
                           MaterialPageRoute(
                             builder: (_) => AuthScreen(
                               googleAuthService: widget.authService,
+                              autoRestore: false,
                             ),
                           ),
                           (_) => false,
@@ -135,6 +153,8 @@ class _ProfileGateState extends State<ProfileGate> {
                       }
                     } catch (e) {
                       if (mounted) setState(() => error = userError(e));
+                    } finally {
+                      if (mounted) setState(() => leaving = false);
                     }
                   },
           ),

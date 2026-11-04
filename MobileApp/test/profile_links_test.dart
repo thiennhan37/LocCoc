@@ -112,6 +112,9 @@ void main() {
           claimed = true;
           return fixtures.json({'username': 'alice'}, 201);
         }
+        if (r.url.path == '/notifications/counts') {
+          return fixtures.json({'unseenCount': 0, 'unreadCount': 0});
+        }
         if (r.method != 'GET') requests++;
         reads++;
         return fixtures.json(fixtures.peer('an'));
@@ -119,6 +122,7 @@ void main() {
       final links = ProfileLinkSession()
         ..auth = GoogleAuthService(apiClient: api.auth);
       await tester.pumpWidget(LocCocApp(linkSession: links));
+      await tester.pumpAndSettle();
       final nav = tester.state<NavigatorState>(find.byType(Navigator).first);
       await tester.pumpAndSettle();
       final auth = tester.widget<AuthScreen>(find.byType(AuthScreen).last);

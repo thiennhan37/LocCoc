@@ -48,9 +48,20 @@ export class SocialService {
     await this.repo.ready(id);
     return this.repo.profiles(id, dto, 'friends');
   }
+  async summary(id: string) {
+    await this.repo.ready(id);
+    return this.repo.summary(id);
+  }
   async requests(id: string, dto: RequestsQueryDto) {
     await this.repo.ready(id);
     return this.repo.requests(id, dto, dto.direction);
+  }
+  async requestDetail(id: string, requestId: string, token: string) {
+    await this.repo.ready(id);
+    const peer = await this.repo.requestPeer(id, requestId);
+    await this.target(peer, token);
+    await this.repo.profile(id, peer);
+    return this.repo.requestDetail(id, requestId);
   }
   async send(id: string, target: string, token: string) {
     await this.repo.ready(id);

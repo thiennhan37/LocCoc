@@ -119,6 +119,15 @@ export class SocialRepository {
     };
   }
 
+  async summary(id: string): Promise<{ friendCount: number }> {
+    const [row]: { friendCount: number }[] = await this.db!.query(
+      `SELECT count(*)::int AS "friendCount" FROM users u ${relations}
+       WHERE ${visible} AND f.id IS NOT NULL`,
+      [id],
+    );
+    return row!;
+  }
+
   async profile(id: string, target: string): Promise<SafeProfile> {
     const rows: SafeProfile[] = await this.db!.query(
       `SELECT ${safeColumns} FROM users u ${relations} WHERE ${visible} AND u.id=$2`,
@@ -166,6 +175,14 @@ export class SocialRepository {
     };
   }
 
+  async requestDetail(id: string, requestId: string): Promise<FriendRequest> {
+    const rows: FriendRequest[] = await this.db!.query(
+      `SELECT ${requestColumns} FROM friend_requests WHERE id=$1 AND (sender_id=$2 OR receiver_id=$2)`,
+      [requestId, id],
+    );
+    if (!rows[0]) throw new NotFoundException('Friend request not found');
+    return rows[0];
+  }
   async requestPeer(id: string, requestId: string): Promise<string> {
     const rows: FriendRequest[] = await this.db!.query(
       `SELECT ${requestColumns} FROM friend_requests WHERE id=$1 AND (sender_id=$2 OR receiver_id=$2)`,

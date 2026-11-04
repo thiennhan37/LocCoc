@@ -1,3 +1,7 @@
+import 'dart:async';
+import '../../../notifications/data/notification_api.dart';
+import '../../../notifications/data/push_notifications.dart';
+import '../../../notifications/presentation/notifications_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../users/presentation/profile_link_session.dart';
@@ -9,8 +13,10 @@ import '../../../auth/data/services/auth_api_client.dart';
 import '../../../auth/data/services/google_sign_in_service.dart';
 import '../../../auth/domain/models/auth_session.dart';
 import '../../../auth/presentation/screens/auth_screen.dart';
+import '../../../auth/presentation/widgets/logout_session_dialog.dart';
 import '../../../users/data/user_api_client.dart';
 import '../../../users/presentation/friends_screen.dart';
+import '../../../settings/presentation/settings_privacy_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final AuthSession session;
@@ -32,44 +38,256 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  int _unseenCount = 0;
+  int _countsVersion = 0;
+  int? _friendCount;
+  bool _friendCountError = false;
+  int _socialVersion = 0;
+  PushNotifications? _push;
+  Timer? _notificationTimer;
+  late final UserApiClient _notificationUserApi = _effectiveUserApi;
+  late final NotificationApi _notifications = NotificationApi(
+    _notificationUserApi,
+  );
+  bool get _realSession => !session.accessToken.startsWith('demo-');
+  @override
+  void initState() {
+    super.initState();
+    _authService.updateSession(session);
+    WidgetsBinding.instance.addObserver(this);
+    if (_realSession) {
+      if (widget.initialTab == 2) _refreshSocialSummary();
+      _refreshNotifications();
+      _notificationTimer = Timer.periodic(
+        const Duration(seconds: 30),
+        (_) => _refreshNotifications(),
+      );
+      _push = PushNotifications(_notifications, (data) {
+        if (mounted && !_isLoggingOut && !_isDeletingAccount) {
+          unawaited(
+            openNotification(
+              context,
+              _notifications,
+              data,
+            ).then((_) => _refreshNotifications()),
+          );
+        }
+      }, () => unawaited(_refreshNotifications()));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_push!.start().catchError((Object _) {}));
+      });
+    }
+  }
+
+  Future<void> _refreshNotifications() async {
+    if (!mounted || !_realSession || _isLoggingOut || _isDeletingAccount) {
+      return;
+    }
+    try {
+      final version = ++_countsVersion;
+      final counts = await _notifications.counts();
+      if (mounted && version == _countsVersion) {
+        setState(() => _unseenCount = counts['unseenCount'] as int);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _refreshSocialSummary() async {
+    if (!mounted || !_realSession || _isLoggingOut || _isDeletingAccount) {
+      return;
+    }
+    final version = ++_socialVersion;
+    try {
+      final data = await _effectiveUserApi.request('GET', 'me/social-summary');
+      final count = data['friendCount'];
+      if (count is! int || count < 0) {
+        throw const FormatException('Invalid summary');
+      }
+      if (mounted && version == _socialVersion) {
+        setState(() {
+          _friendCount = count;
+          _friendCountError = false;
+        });
+      }
+    } catch (_) {
+      if (mounted && version == _socialVersion) {
+        setState(() {
+          _friendCount = null;
+          _friendCountError = true;
+        });
+      }
+    }
+  }
+
+  Future<void> _openAccounts({int tab = 0}) async {
+    if (!_realSession) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Hãy đăng nhập tài khoản thật để tìm và kết nối bạn bè.',
+          ),
+        ),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FriendsScreen(
+          api: _effectiveUserApi,
+          initialTab: tab,
+          autofocus: tab == 0,
+        ),
+      ),
+    );
+    await _refreshSocialSummary();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        !_isLoggingOut &&
+        !_isDeletingAccount) {
+      unawaited(_refreshNotifications());
+      unawaited(_refreshSocialSummary());
+      unawaited(_push?.sync());
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _notificationTimer?.cancel();
+    _push?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openNotifications() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => NotificationsScreen(
+          api: _notifications,
+          onChanged: () => unawaited(_refreshNotifications()),
+        ),
+      ),
+    );
+    await _refreshNotifications();
+  }
+
   late int _currentTab = widget.initialTab;
   bool _isLoggingOut = false;
+  bool _awaitingLogoutChoice = false;
   bool _isDeletingAccount = false;
   bool _isFavorited = false;
 
-  AuthSession get session => widget.userApi?.session ?? widget.session;
+  UserApiClient? _fallbackUserApi;
+  AuthSession get session =>
+      widget.userApi?.session ?? _fallbackUserApi?.session ?? widget.session;
   late final GoogleAuthService _authService =
       widget.googleAuthService ?? GoogleAuthService();
   UserApiClient get _effectiveUserApi =>
       widget.userApi ??
-      UserApiClient(
+      (_fallbackUserApi ??= UserApiClient(
         auth: _authService.apiClient,
         session: session,
         onSessionChanged: _authService.updateSession,
+        refreshSession: _authService.refreshSession,
+      ));
+
+  Future<void> _logout() => _leaveAccount();
+
+  Future<void> _openSettings() async {
+    if (!_realSession) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Hãy đăng nhập tài khoản thật để xem lịch sử đăng nhập.',
+          ),
+        ),
       );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SettingsPrivacyScreen(
+          account: _effectiveUserApi,
+          onCurrentSessionRevoked: _handleCurrentSessionRevoked,
+        ),
+      ),
+    );
+  }
 
-  Future<void> _logout() async {
-    if (_isLoggingOut || _isDeletingAccount) return;
+  Future<void> _handleCurrentSessionRevoked() async {
+    if (!mounted || _isLoggingOut) return;
     setState(() => _isLoggingOut = true);
+    _notificationTimer?.cancel();
+    _countsVersion++;
+    _socialVersion++;
+    _push?.dispose();
     try {
-      await _authService.signOut(session: session);
-      if (mounted) ProfileLinkScope.maybeOf(context)?.clear();
+      await _authService.clearRevokedSession(_notificationUserApi.session);
+    } catch (_) {
+      /* Server revocation is authoritative even if local storage is unavailable. */
+    }
+    if (!mounted) return;
+    ProfileLinkScope.maybeOf(context)?.clear();
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) =>
+            AuthScreen(googleAuthService: _authService, autoRestore: false),
+      ),
+      (_) => false,
+    );
+  }
 
+  Future<void> _switchAccount() => _leaveAccount();
+
+  Future<void> _leaveAccount() async {
+    if (_isLoggingOut || _isDeletingAccount) return;
+    setState(() {
+      _isLoggingOut = true;
+      _awaitingLogoutChoice = true;
+    });
+    try {
+      final retain = await chooseLogoutRetention(
+        context,
+        _authService,
+        _notificationUserApi.session,
+      );
+      if (retain == null || !mounted) return;
+      setState(() => _awaitingLogoutChoice = false);
+      await _push?.unregister(strict: retain);
+      if (retain) {
+        await _authService.leaveRetainingSession(_notificationUserApi.session);
+      } else {
+        await _authService.signOut(session: _notificationUserApi.session);
+      }
+      _countsVersion++;
+      _notificationTimer?.cancel();
+      _push?.dispose();
       if (!mounted) return;
+      ProfileLinkScope.maybeOf(context)?.clear();
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(
-          builder: (_) => AuthScreen(googleAuthService: _authService),
+          builder: (_) =>
+              AuthScreen(googleAuthService: _authService, autoRestore: false),
         ),
         (_) => false,
       );
     } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text(AppStrings.logoutFailed)));
+      await _push?.sync();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text(AppStrings.logoutFailed)));
+      }
     } finally {
-      if (mounted) setState(() => _isLoggingOut = false);
+      if (mounted) {
+        setState(() {
+          _isLoggingOut = false;
+          _awaitingLogoutChoice = false;
+        });
+      }
     }
   }
 
@@ -102,14 +320,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() => _isDeletingAccount = true);
     try {
-      await _effectiveUserApi.deleteAccount();
+      await _push?.unregister();
+      await _notificationUserApi.deleteAccount();
+      _push?.dispose();
       await _authService.clearSession();
       if (mounted) ProfileLinkScope.maybeOf(context)?.clear();
 
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(
-          builder: (_) => AuthScreen(googleAuthService: _authService),
+          builder: (_) =>
+              AuthScreen(googleAuthService: _authService, autoRestore: false),
         ),
         (_) => false,
       );
@@ -117,6 +338,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SnackBar(content: Text(AppStrings.deleteAccountSuccess)),
       );
     } catch (e) {
+      await _push?.sync();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -209,40 +431,93 @@ class _HomeScreenState extends State<HomeScreen> {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Top Session Info & Status Header (ensures test compatibility & session visibility)
-              _buildTopStatusHeader(email),
-              const SizedBox(height: 12),
+        child: RefreshIndicator(
+          onRefresh: _refreshSocialSummary,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Top Session Info & Status Header (ensures test compatibility & session visibility)
+                _buildTopStatusHeader(email),
+                const SizedBox(height: 12),
 
-              // Brand Header & User Greeting
-              _buildBrandHeader(),
-              const SizedBox(height: 18),
+                // Brand Header & User Greeting
+                _buildBrandHeader(),
+                const SizedBox(height: 14),
+                _buildAccountSearchBar(),
+                const SizedBox(height: 18),
 
-              // Title Section
-              _buildTitleSection(),
-              const SizedBox(height: 18),
+                // Title Section
+                _buildTitleSection(),
+                const SizedBox(height: 18),
 
-              // Stories Row
-              _buildStoriesRow(),
-              const SizedBox(height: 20),
+                // Stories Row
+                _buildStoriesRow(),
+                const SizedBox(height: 20),
 
-              // Featured Post Card
-              _buildFeaturedCard(),
-              const SizedBox(height: 20),
+                // Featured Post Card
+                _buildFeaturedCard(),
+                const SizedBox(height: 20),
 
-              // Action Button ("Gửi một khoảnh khắc")
-              _buildActionMomentsButton(),
-              const SizedBox(height: 24),
-            ],
+                // Action Button ("Gửi một khoảnh khắc")
+                _buildActionMomentsButton(),
+                const SizedBox(height: 24),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
+
+  Widget _buildAccountSearchBar() => Semantics(
+    button: true,
+    label: 'Tìm tài khoản',
+    child: Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        key: const Key('home_account_search'),
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => _openAccounts(),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          decoration: BoxDecoration(
+            border: Border.all(color: AppColors.border),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.search_rounded, color: AppColors.primary),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Tìm tài khoản bằng username',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              Icon(
+                Icons.arrow_forward_rounded,
+                size: 18,
+                color: AppColors.textSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
+  void _postingUnavailable() => ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('Tính năng thêm tin, ảnh sẽ được phát triển sau.'),
+    ),
+  );
 
   Widget _buildTopStatusHeader(String email) {
     return Container(
@@ -323,6 +598,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
+          if (_realSession)
+            IconButton(
+              tooltip: 'Thông báo',
+              onPressed: _openNotifications,
+              icon: Badge(
+                isLabelVisible: _unseenCount > 0,
+                label: Text(_unseenCount > 99 ? '99+' : '$_unseenCount'),
+                child: const Icon(Icons.notifications_outlined),
+              ),
+            ),
           IconButton(
             tooltip: AppStrings.logout,
             icon: const Icon(
@@ -367,7 +652,10 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(width: 8),
         Flexible(
           child: GestureDetector(
-            onTap: () => setState(() => _currentTab = 2),
+            onTap: () {
+              setState(() => _currentTab = 2);
+              unawaited(_refreshSocialSummary());
+            },
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -458,20 +746,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Padding(
             padding: const EdgeInsets.only(right: 14),
             child: GestureDetector(
-              onTap: () {
-                final api = widget.userApi;
-                if (api == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Hãy đăng nhập tài khoản để kết bạn.'),
-                    ),
-                  );
-                  return;
-                }
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => FriendsScreen(api: api)),
-                );
-              },
+              onTap: _postingUnavailable,
               child: Column(
                 children: [
                   Container(
@@ -495,7 +770,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    AppStrings.inviteFriends,
+                    'Thêm tin',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
@@ -983,325 +1258,371 @@ class _HomeScreenState extends State<HomeScreen> {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Top Profile Navigation Bar
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  GestureDetector(
-                    onTap: () => setState(() => _currentTab = 0),
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white,
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.arrow_back_rounded,
-                          color: AppColors.textPrimary,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Text(
-                    AppStrings.profileTitle,
-                    style: TextStyle(
-                      fontSize: 16.5,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Đã sao chép liên kết hồ sơ cá nhân'),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white,
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.share_rounded,
-                          color: AppColors.textPrimary,
-                          size: 18,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-
-              // Avatar & Name Section
-              Center(
-                child: Column(
+        child: RefreshIndicator(
+          onRefresh: _refreshSocialSummary,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Top Profile Navigation Bar
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        Container(
-                          width: 96,
-                          height: 96,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: AppColors.primary,
-                              width: 2.5,
-                            ),
-                            color: Colors.white,
+                    GestureDetector(
+                      onTap: () => setState(() => _currentTab = 0),
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white,
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.arrow_back_rounded,
+                            color: AppColors.textPrimary,
+                            size: 20,
                           ),
-                          padding: const EdgeInsets.all(3),
-                          child: ClipOval(
-                            child: _buildSafeAssetImage(
-                              'assets/images/minh_anh_circle.png',
-                              fallback: Container(
-                                color: AppColors.primarySoft,
-                                child: Center(
-                                  child: Text(
-                                    _displayName.isNotEmpty
-                                        ? _displayName[0]
-                                        : 'U',
-                                    style: const TextStyle(
-                                      fontSize: 32,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                    const Text(
+                      AppStrings.profileTitle,
+                      style: TextStyle(
+                        fontSize: 16.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Đã sao chép liên kết hồ sơ cá nhân'),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white,
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.share_rounded,
+                            color: AppColors.textPrimary,
+                            size: 18,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // Avatar & Name Section
+                Center(
+                  child: Column(
+                    children: [
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            width: 96,
+                            height: 96,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: AppColors.primary,
+                                width: 2.5,
+                              ),
+                              color: Colors.white,
+                            ),
+                            padding: const EdgeInsets.all(3),
+                            child: ClipOval(
+                              child: _buildSafeAssetImage(
+                                'assets/images/minh_anh_circle.png',
+                                fallback: Container(
+                                  color: AppColors.primarySoft,
+                                  child: Center(
+                                    child: Text(
+                                      _displayName.isNotEmpty
+                                          ? _displayName[0]
+                                          : 'U',
+                                      style: const TextStyle(
+                                        fontSize: 32,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.primary,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            width: 28,
-                            height: 28,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: AppColors.primary,
-                            ),
-                            child: const Center(
-                              child: Icon(
-                                Icons.camera_alt_rounded,
-                                color: Colors.white,
-                                size: 15,
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: Container(
+                              width: 28,
+                              height: 28,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: AppColors.primary,
+                              ),
+                              child: const Center(
+                                child: Icon(
+                                  Icons.camera_alt_rounded,
+                                  color: Colors.white,
+                                  size: 15,
+                                ),
                               ),
                             ),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _displayName,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textPrimary,
                         ),
-                      ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _displayHandle,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      if (widget.profile?['username'] is String)
+                        TextButton.icon(
+                          icon: const Icon(Icons.link),
+                          label: const Text('Sao chép link hồ sơ'),
+                          onPressed: () async {
+                            final link = Uri.https(
+                              appLinkHost,
+                              '/${widget.profile!['username']}',
+                            ).toString();
+                            await Clipboard.setData(ClipboardData(text: link));
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Đã sao chép link hồ sơ'),
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Gom những ngày bình thường đáng nhớ.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF58534C),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Stats Row (128 Khoảnh khắc | 8 Bạn thân | 24 Ngày bên nhau)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildStatCol('128', AppStrings.momentsCountLabel),
+                      Container(height: 28, width: 1, color: AppColors.border),
+                      InkWell(
+                        key: const Key('profile_friend_count'),
+                        onTap: () => _openAccounts(tab: 3),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _buildStatCol(
+                            _friendCount?.toString() ?? '—',
+                            'Bạn bè',
+                          ),
+                        ),
+                      ),
+                      Container(height: 28, width: 1, color: AppColors.border),
+                      _buildStatCol('24', AppStrings.daysTogetherLabel),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Edit Profile Button
+                if (_friendCountError)
+                  TextButton.icon(
+                    onPressed: _refreshSocialSummary,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('Thử tải lại số bạn bè'),
+                  ),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.5,
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      _displayName,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                  ),
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text(
+                    AppStrings.editProfile,
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                  ),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Chức năng chỉnh sửa hồ sơ'),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 22),
+
+                // Memory Gallery Preview
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      AppStrings.memoryGallery,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
                         color: AppColors.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _displayHandle,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    if (widget.profile?['username'] is String)
-                      TextButton.icon(
-                        icon: const Icon(Icons.link),
-                        label: const Text('Sao chép link hồ sơ'),
-                        onPressed: () async {
-                          final link = Uri.https(
-                            appLinkHost,
-                            '/${widget.profile!['username']}',
-                          ).toString();
-                          await Clipboard.setData(ClipboardData(text: link));
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Đã sao chép link hồ sơ'),
-                              ),
-                            );
-                          }
-                        },
-                      ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Gom những ngày bình thường đáng nhớ.',
-                      style: TextStyle(fontSize: 13, color: Color(0xFF58534C)),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Stats Row (128 Khoảnh khắc | 8 Bạn thân | 24 Ngày bên nhau)
-              Container(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildStatCol('128', AppStrings.momentsCountLabel),
-                    Container(height: 28, width: 1, color: AppColors.border),
-                    _buildStatCol('8', AppStrings.closeFriendsCountLabel),
-                    Container(height: 28, width: 1, color: AppColors.border),
-                    _buildStatCol('24', AppStrings.daysTogetherLabel),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // Edit Profile Button
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  side: const BorderSide(color: AppColors.primary, width: 1.5),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                ),
-                icon: const Icon(Icons.edit_outlined, size: 18),
-                label: const Text(
-                  AppStrings.editProfile,
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                ),
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Chức năng chỉnh sửa hồ sơ')),
-                  );
-                },
-              ),
-              const SizedBox(height: 22),
-
-              // Memory Gallery Preview
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    AppStrings.memoryGallery,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () => setState(() => _currentTab = 1),
-                    child: Row(
-                      children: const [
-                        Text(
-                          AppStrings.seeAll,
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
+                    GestureDetector(
+                      onTap: () => setState(() => _currentTab = 1),
+                      child: Row(
+                        children: const [
+                          Text(
+                            AppStrings.seeAll,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          SizedBox(width: 4),
+                          Icon(
+                            Icons.arrow_forward_rounded,
+                            size: 14,
                             color: AppColors.primary,
                           ),
-                        ),
-                        SizedBox(width: 4),
-                        Icon(
-                          Icons.arrow_forward_rounded,
-                          size: 14,
-                          color: AppColors.primary,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 120,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    _buildMemoryMiniCard(
-                      'assets/images/p1_sunset.png',
-                      'Hôm nay',
-                    ),
-                    _buildMemoryMiniCard(
-                      'assets/images/p2_cat.png',
-                      '24 tháng 10',
-                    ),
-                    _buildMemoryMiniCard(
-                      'assets/images/p3_coffee.png',
-                      '23 tháng 10',
+                        ],
+                      ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 20),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 120,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      _buildMemoryMiniCard(
+                        'assets/images/p1_sunset.png',
+                        'Hôm nay',
+                      ),
+                      _buildMemoryMiniCard(
+                        'assets/images/p2_cat.png',
+                        '24 tháng 10',
+                      ),
+                      _buildMemoryMiniCard(
+                        'assets/images/p3_coffee.png',
+                        '23 tháng 10',
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
 
-              // Settings Items
-              _buildSettingRow(
-                Icons.group_outlined,
-                AppStrings.closeFriendsCircle,
-                '8 người',
-              ),
-              const SizedBox(height: 10),
-              _buildSettingRow(
-                Icons.settings_outlined,
-                AppStrings.settingsPrivacy,
-                null,
-              ),
-              const SizedBox(height: 24),
+                // Settings Items
+                InkWell(
+                  onTap: () => _openAccounts(tab: 3),
+                  child: _buildSettingRow(
+                    Icons.group_outlined,
+                    'Bạn bè của bạn',
+                    _friendCount == null ? '—' : '$_friendCount người',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                InkWell(
+                  key: const Key('profile_settings'),
+                  onTap: _openSettings,
+                  child: _buildSettingRow(
+                    Icons.settings_outlined,
+                    AppStrings.settingsPrivacy,
+                    null,
+                  ),
+                ),
+                const SizedBox(height: 24),
 
-              // Account & Session Information Card
-              _buildSessionDebugCard(),
-              const SizedBox(height: 24),
+                // Account & Session Information Card
+                _buildSessionDebugCard(),
+                const SizedBox(height: 24),
 
-              // Logout Button
-              CustomButton(
-                text: AppStrings.logout,
-                isOutlined: true,
-                isLoading: _isLoggingOut,
-                onPressed: _isLoggingOut || _isDeletingAccount ? null : _logout,
-              ),
-              const SizedBox(height: 12),
+                // Logout Button
+                CustomButton(
+                  text: 'Chuyển tài khoản',
+                  isOutlined: true,
+                  icon: Icons.switch_account_outlined,
+                  onPressed: _isLoggingOut || _isDeletingAccount
+                      ? null
+                      : _switchAccount,
+                ),
+                const SizedBox(height: 12),
+                CustomButton(
+                  text: AppStrings.logout,
+                  isOutlined: true,
+                  isLoading: _isLoggingOut && !_awaitingLogoutChoice,
+                  onPressed: _isLoggingOut || _isDeletingAccount
+                      ? null
+                      : _logout,
+                ),
+                const SizedBox(height: 12),
 
-              // Delete Account Button (Danger Zone)
-              CustomButton(
-                key: const Key('delete_account_button'),
-                text: _isDeletingAccount
-                    ? AppStrings.deletingAccount
-                    : AppStrings.deleteAccount,
-                isOutlined: true,
-                isLoading: _isDeletingAccount,
-                backgroundColor: AppColors.error,
-                textColor: AppColors.error,
-                icon: Icons.delete_outline_rounded,
-                onPressed: _isDeletingAccount || _isLoggingOut
-                    ? null
-                    : _confirmDeleteAccount,
-              ),
-              const SizedBox(height: 20),
-            ],
+                // Delete Account Button (Danger Zone)
+                CustomButton(
+                  key: const Key('delete_account_button'),
+                  text: _isDeletingAccount
+                      ? AppStrings.deletingAccount
+                      : AppStrings.deleteAccount,
+                  isOutlined: true,
+                  isLoading: _isDeletingAccount,
+                  backgroundColor: AppColors.error,
+                  textColor: AppColors.error,
+                  icon: Icons.delete_outline_rounded,
+                  onPressed: _isDeletingAccount || _isLoggingOut
+                      ? null
+                      : _confirmDeleteAccount,
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
           ),
         ),
       ),
@@ -1550,7 +1871,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final color = isActive ? AppColors.primary : const Color(0xFF9E9791);
 
     return InkWell(
-      onTap: () => setState(() => _currentTab = index),
+      onTap: () {
+        setState(() => _currentTab = index);
+        if (index == 2) unawaited(_refreshSocialSummary());
+      },
       child: SizedBox(
         width: 80,
         child: Column(

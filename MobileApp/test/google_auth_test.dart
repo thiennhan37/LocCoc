@@ -426,7 +426,10 @@ void main() {
         final service = GoogleAuthService(
           signInAdapter: adapter,
           apiClient: AuthApiClient(
-            httpClient: FakeHttpClient((_) async {
+            httpClient: FakeHttpClient((request) async {
+              if (request.url.path == '/notifications/counts') {
+                return http.Response('{"unseenCount":0,"unreadCount":0}', 200);
+              }
               logoutCalls++;
               return logoutCalls == 1
                   ? firstResponse.future
@@ -440,9 +443,15 @@ void main() {
           ),
         );
         await tester.tap(find.byIcon(Icons.logout_rounded));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('logout_identity_only')));
         await tester.pump();
         expect(
-          tester.widget<IconButton>(find.byType(IconButton)).onPressed,
+          tester
+              .widget<IconButton>(
+                find.widgetWithIcon(IconButton, Icons.logout_rounded),
+              )
+              .onPressed,
           isNull,
         );
         expect(logoutCalls, 1);
@@ -456,6 +465,8 @@ void main() {
         expect(adapter.signOutCalls, 0);
 
         await tester.tap(find.byIcon(Icons.logout_rounded));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('logout_identity_only')));
         await tester.pumpAndSettle();
         expect(logoutCalls, 2);
         expect(adapter.signOutCalls, 1);
@@ -606,6 +617,7 @@ void main() {
   group('Google Sign-in UI & Widget Tests', () {
     testWidgets('renders Google sign-in button and divider', (tester) async {
       await tester.pumpWidget(const MaterialApp(home: AuthScreen()));
+      await tester.pumpAndSettle();
 
       expect(find.byType(AuthDivider), findsOneWidget);
       expect(find.text(AppStrings.orDivider), findsOneWidget);
@@ -673,8 +685,10 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(home: AuthScreen(googleAuthService: authService)),
         );
+        await tester.pumpAndSettle();
 
         // Tap Google Sign-in button
+        await tester.ensureVisible(find.byType(GoogleSignInButton));
         await tester.tap(find.byType(GoogleSignInButton));
         await tester.pumpAndSettle();
 
@@ -687,6 +701,8 @@ void main() {
 
         // Test logout from HomeScreen using AppBar action
         await tester.tap(find.byIcon(Icons.logout_rounded));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('logout_identity_only')));
         await tester.pumpAndSettle();
 
         // Verified: Navigated back to AuthScreen
@@ -704,7 +720,9 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(home: AuthScreen(googleAuthService: authService)),
       );
+      await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.byType(GoogleSignInButton));
       await tester.tap(find.byType(GoogleSignInButton));
       await tester.pumpAndSettle();
 
@@ -735,7 +753,9 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(home: AuthScreen(googleAuthService: authService)),
       );
+      await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.byType(GoogleSignInButton));
       await tester.tap(find.byType(GoogleSignInButton));
       await tester.pumpAndSettle();
 

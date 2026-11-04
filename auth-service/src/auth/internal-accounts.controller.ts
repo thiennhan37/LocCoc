@@ -45,6 +45,13 @@ export class InternalServiceGuard implements CanActivate {
 @UseGuards(InternalServiceGuard)
 export class InternalAccountsController {
   constructor(private readonly accessService: AccountAccessService) {}
+  @Get('push-sessions/:userId/:sessionId')
+  pushSession(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+  ) {
+    return this.accessService.pushSession(userId, sessionId);
+  }
   @Get('access')
   access(@Headers('authorization') token = '') {
     return this.accessService.access(token);

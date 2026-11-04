@@ -2,6 +2,7 @@ export {
   validateGatewayEnvironment,
   validateAuthEnvironment,
   validateUserEnvironment,
+  validateNotificationEnvironment,
 } from './config/environment.js';
 export { RateLimit } from './decorators/rate-limit.decorator.js';
 export { CurrentUser } from './decorators/current-user.decorator.js';

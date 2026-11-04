@@ -1,3 +1,4 @@
+import { SocialOutboxPublisher } from './social-outbox.publisher.js';
 import { Module } from '@nestjs/common';
 import { AccountAuthorityClient } from '@loccoc/common';
 import { SocialRepository } from './social.repository.js';
@@ -10,6 +11,7 @@ import { AccountEventsConsumer } from './account-events.consumer.js';
     SocialService,
     AccountAuthorityClient,
     AccountEventsConsumer,
+    SocialOutboxPublisher,
   ],
   exports: [SocialService, SocialRepository, AccountAuthorityClient],
 })

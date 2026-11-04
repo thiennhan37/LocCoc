@@ -57,12 +57,24 @@ export class SocialController {
   friends(@CurrentUser() u: AuthenticatedUser, @Query() dto: PageDto) {
     return this.service.friends(u.userId, dto);
   }
+  @Get('me/social-summary')
+  summary(@CurrentUser() u: AuthenticatedUser) {
+    return this.service.summary(u.userId);
+  }
   @Get('friend-requests')
   requests(
     @CurrentUser() u: AuthenticatedUser,
     @Query() dto: RequestsQueryDto,
   ) {
     return this.service.requests(u.userId, dto);
+  }
+  @Get('friend-requests/:id')
+  requestDetail(
+    @CurrentUser() u: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('authorization') token: string,
+  ) {
+    return this.service.requestDetail(u.userId, id, token);
   }
   @Post('friend-requests')
   send(

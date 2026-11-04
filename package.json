@@ -10,7 +10,7 @@
     "start:user": "npm --prefix user-service run start",
     "start:admin": "mvn -f admin-service/pom.xml spring-boot:run",
     "start:payment": "mvn -f payment-service/pom.xml spring-boot:run",
-    "build": "pnpm --filter @loccoc/common build && pnpm --filter './{api-gateway,auth-service,user-service}' build",
+    "build": "pnpm --filter @loccoc/common build && pnpm --filter './{api-gateway,auth-service,user-service,notification-service}' build",
     "build:admin": "mvn -f admin-service/pom.xml clean package -DskipTests",
     "build:payment": "mvn -f payment-service/pom.xml clean package -DskipTests",
     "test:e2e": "pnpm --filter api-gateway test:e2e",
@@ -22,8 +22,7 @@
     "dev:user": "pnpm --filter @loccoc/common build && pnpm --filter user-service start:dev",
     "dev:admin": "mvn -f admin-service/pom.xml spring-boot:run",
     "dev:payment": "mvn -f payment-service/pom.xml spring-boot:run",
-    "webhook:register": "node scripts/register-webhook.js"
+    "webhook:register": "node scripts/register-webhook.js",
+    "start:notification": "pnpm --filter notification-service build && pnpm --filter notification-service start"
   }
 }
-
-
