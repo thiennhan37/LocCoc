@@ -1,16 +1,26 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Inject, Injectable, Optional, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { IS_PUBLIC_KEY } from '../decorators/auth.decorator.js';
 import { JwtVerifier } from '../security/jwt-verifier.js';
+import { REDIS_CLIENT } from '../security/redis-tokens.js';
 import type { AuthenticatedUser, JwtPayload } from '../interfaces/authenticated-user.js';
+
+interface RedisClient {
+  get(key: string): Promise<string | null>;
+}
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector, private readonly config: ConfigService, private readonly verifier: JwtVerifier) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly config: ConfigService,
+    private readonly verifier: JwtVerifier,
+    @Optional() @Inject(REDIS_CLIENT) private readonly redis?: RedisClient | null,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(), context.getClass()])) return true;
     const request = context.switchToHttp().getRequest<Request & { user?: AuthenticatedUser }>();
     const value = request.headers.authorization;
@@ -23,6 +33,10 @@ export class JwtAuthGuard implements CanActivate {
       kid: this.config.get<string>('JWT_KID', 'loccoc-2026-01'),
       algorithm: 'RS256',
     });
+    if (this.redis) {
+      const revoked = await this.redis.get(`auth:revoked:sid:${payload.sid}`);
+      if (revoked) throw new UnauthorizedException('Token has been revoked');
+    }
     request.user = this.toAuthenticatedUser(payload);
     return true;
   }
@@ -38,4 +52,4 @@ export class JwtAuthGuard implements CanActivate {
       audience: payload.aud,
     };
   }
-}
+}

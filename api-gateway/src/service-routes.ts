@@ -3,6 +3,10 @@ export const SERVICE_ROUTES = {
     prefix: '/auth',
     urlConfigKey: 'AUTH_SERVICE_URL',
   },
+  notifications: {
+    prefix: '/notifications',
+    urlConfigKey: 'NOTIFICATION_SERVICE_URL',
+  },
   users: {
     prefix: '/users',
     urlConfigKey: 'USER_SERVICE_URL',

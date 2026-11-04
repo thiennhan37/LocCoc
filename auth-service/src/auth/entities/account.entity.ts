@@ -34,8 +34,8 @@ export class Account {
   @Column({ type: 'varchar', length: 32, nullable: true, unique: true })
   phone!: string | null;
 
-  @Column({ name: 'password_hash', type: 'varchar', length: 255 })
-  passwordHash!: string;
+  @Column({ name: 'password_hash', type: 'varchar', length: 255, nullable: true })
+  passwordHash!: string | null;
 
   @Column({ type: 'enum', enum: AccountRole, enumName: 'account_role_enum', default: AccountRole.USER })
   role!: AccountRole;

@@ -1,14 +1,40 @@
 import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import Joi from 'joi';
 
-const schema = Joi.object({
-  NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
+const fields = {
+  NODE_ENV: Joi.string()
+    .valid('development', 'test', 'production')
+    .default('development'),
   GATEWAY_PORT: Joi.number().port().default(8080),
   AUTH_PORT: Joi.number().port().default(8000),
   USER_PORT: Joi.number().port().default(8081),
-  AUTH_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8000'),
-  USER_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8081'),
+  NOTIFICATION_PORT: Joi.number().port().default(8084),
+  NOTIFICATION_DB_NAME: Joi.string().default('notifications'),
+  NOTIFICATION_DB_USER: Joi.string().required(),
+  NOTIFICATION_DB_PASSWORD: Joi.string().required(),
+  NOTIFICATION_CURSOR_SECRET: Joi.string().min(32).required(),
+  FCM_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  AUTH_SERVICE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('http://127.0.0.1:8000'),
+  NOTIFICATION_SERVICE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('http://127.0.0.1:8084'),
+  USER_SERVICE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('http://127.0.0.1:8081'),
+  INTERNAL_SERVICE_TOKEN: Joi.string().min(32),
+  SERVICE_BIND_HOST: Joi.string().default('127.0.0.1'),
+  KAFKA_BROKERS: Joi.string().default('127.0.0.1:9092'),
+  ACCOUNT_EVENTS_TOPIC: Joi.string().default('account.events'),
+  ADMIN_SERVICE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('http://127.0.0.1:8086'),
+  PAYMENT_SERVICE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('http://127.0.0.1:8085'),
   DB_HOST: Joi.string().hostname().required(),
   DB_PORT: Joi.number().port().default(5433),
   AUTH_DB_NAME: Joi.string().default('accounts'),
@@ -17,7 +43,9 @@ const schema = Joi.object({
   USER_DB_NAME: Joi.string().default('users'),
   USER_DB_USER: Joi.string().required(),
   USER_DB_PASSWORD: Joi.string().required(),
-  REDIS_URL: Joi.string().uri({ scheme: ['redis', 'rediss'] }).required(),
+  REDIS_URL: Joi.string()
+    .uri({ scheme: ['redis', 'rediss'] })
+    .required(),
   // Password hashing (OWASP Argon2id baseline: 19 MiB, t=2, p=1).
   ARGON2_MEMORY_COST: Joi.number().integer().min(8192).default(19456),
   ARGON2_TIME_COST: Joi.number().integer().min(1).default(2),
@@ -35,7 +63,10 @@ const schema = Joi.object({
   LOGIN_LOCK_BASE_SECONDS: Joi.number().integer().positive().default(1),
   LOGIN_LOCK_MAX_SECONDS: Joi.number().integer().positive().default(900),
   TYPEORM_LOGGING: Joi.boolean().truthy('true').falsy('false').default(false),
-  TYPEORM_MIGRATIONS_RUN: Joi.boolean().truthy('true').falsy('false').default(false),
+  TYPEORM_MIGRATIONS_RUN: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false),
   JWT_PRIVATE_KEY_PATH: Joi.string().allow('').default(''),
   JWT_PUBLIC_KEY_PATH: Joi.string().allow('').default(''),
   JWT_PRIVATE_KEY: Joi.string().allow('').default(''),
@@ -44,56 +75,235 @@ const schema = Joi.object({
   JWT_REFRESH_TTL_SECONDS: Joi.number().integer().positive().default(2592000),
   JWT_ISSUER: Joi.string().default('loccoc-auth'),
   JWT_AUDIENCE: Joi.string().default('loccoc-api'),
-  JWT_KID: Joi.string().pattern(/^[A-Za-z0-9._-]+$/).default('loccoc-2026-01'),
+  JWT_KID: Joi.string()
+    .pattern(/^[A-Za-z0-9._-]+$/)
+    .default('loccoc-2026-01'),
+  GOOGLE_CLIENT_IDS: Joi.string()
+    .allow('')
+    .pattern(/^[A-Za-z0-9._-]+(?:\s*,\s*[A-Za-z0-9._-]+)*$/)
+    .default(''),
+  APPLE_CLIENT_IDS: Joi.string()
+    .allow('')
+    .pattern(/^[A-Za-z0-9._-]+(?:\s*,\s*[A-Za-z0-9._-]+)*$/)
+    .default(''),
   CORS_ORIGINS: Joi.string().required(),
   RATE_LIMIT_TTL_MS: Joi.number().integer().positive().default(60000),
   RATE_LIMIT_MAX: Joi.number().integer().positive().default(100),
-}).unknown(true);
+};
 
-export function validateEnvironment(input: Record<string, unknown>): Record<string, unknown> {
-  // Validate environment variables
-  // abortEarly: false => validate all environment variables, return all errors
+const gatewayKeys = [
+  'NODE_ENV',
+  'GATEWAY_PORT',
+  'AUTH_SERVICE_URL',
+  'USER_SERVICE_URL',
+  'NOTIFICATION_SERVICE_URL',
+  'ADMIN_SERVICE_URL',
+  'PAYMENT_SERVICE_URL',
+  'REDIS_URL',
+  'CORS_ORIGINS',
+  'RATE_LIMIT_TTL_MS',
+  'RATE_LIMIT_MAX',
+] as const;
+
+const authKeys = [
+  'NODE_ENV',
+  'AUTH_PORT',
+  'DB_HOST',
+  'DB_PORT',
+  'AUTH_DB_NAME',
+  'AUTH_DB_USER',
+  'AUTH_DB_PASSWORD',
+  'REDIS_URL',
+  'ARGON2_MEMORY_COST',
+  'ARGON2_TIME_COST',
+  'ARGON2_PARALLELISM',
+  'ARGON2_HASH_LENGTH',
+  'ARGON2_SALT_LENGTH',
+  'AUTH_ARGON2_MEMORY_COST',
+  'AUTH_ARGON2_TIME_COST',
+  'AUTH_ARGON2_PARALLELISM',
+  'AUTH_ARGON2_HASH_LENGTH',
+  'COMMON_PASSWORDS',
+  'COMMON_PASSWORDS_PATH',
+  'LOGIN_MAX_ATTEMPTS',
+  'LOGIN_LOCK_BASE_SECONDS',
+  'LOGIN_LOCK_MAX_SECONDS',
+  'TYPEORM_LOGGING',
+  'TYPEORM_MIGRATIONS_RUN',
+  'JWT_PRIVATE_KEY_PATH',
+  'JWT_PUBLIC_KEY_PATH',
+  'JWT_PRIVATE_KEY',
+  'JWT_PUBLIC_KEY',
+  'JWT_ACCESS_TTL_SECONDS',
+  'JWT_REFRESH_TTL_SECONDS',
+  'JWT_ISSUER',
+  'JWT_AUDIENCE',
+  'JWT_KID',
+  'GOOGLE_CLIENT_IDS',
+  'APPLE_CLIENT_IDS',
+] as const;
+
+const userKeys = [
+  'NODE_ENV',
+  'USER_PORT',
+  'DB_HOST',
+  'DB_PORT',
+  'USER_DB_NAME',
+  'USER_DB_USER',
+  'USER_DB_PASSWORD',
+  'REDIS_URL',
+  'TYPEORM_LOGGING',
+  'TYPEORM_MIGRATIONS_RUN',
+  'JWT_PUBLIC_KEY_PATH',
+  'JWT_PUBLIC_KEY',
+  'JWT_ISSUER',
+  'JWT_AUDIENCE',
+  'JWT_KID',
+] as const;
+
+const notificationKeys = [
+  'NODE_ENV',
+  'NOTIFICATION_PORT',
+  'DB_HOST',
+  'DB_PORT',
+  'NOTIFICATION_DB_NAME',
+  'NOTIFICATION_DB_USER',
+  'NOTIFICATION_DB_PASSWORD',
+  'NOTIFICATION_CURSOR_SECRET',
+  'FCM_ENABLED',
+  'TYPEORM_MIGRATIONS_RUN',
+  'JWT_PUBLIC_KEY',
+  'JWT_PUBLIC_KEY_PATH',
+  'JWT_ISSUER',
+  'JWT_AUDIENCE',
+  'JWT_KID',
+] as const;
+
+export function validateNotificationEnvironment(
+  input: Record<string, unknown>,
+  serviceDirectory = process.cwd(),
+): Record<string, unknown> {
+  return validateFor(input, notificationKeys, 'public', serviceDirectory);
+}
+
+type EnvironmentKey = keyof typeof fields;
+type KeyRequirement = 'none' | 'public' | 'pair';
+
+export function validateGatewayEnvironment(
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  return validateFor(input, gatewayKeys, 'none');
+}
+
+export function validateAuthEnvironment(
+  input: Record<string, unknown>,
+  serviceDirectory = process.cwd(),
+): Record<string, unknown> {
+  return validateFor(input, authKeys, 'pair', serviceDirectory);
+}
+
+export function validateUserEnvironment(
+  input: Record<string, unknown>,
+  serviceDirectory = process.cwd(),
+): Record<string, unknown> {
+  return validateFor(input, userKeys, 'public', serviceDirectory);
+}
+
+function validateFor(
+  input: Record<string, unknown>,
+  keys: readonly EnvironmentKey[],
+  keyRequirement: KeyRequirement,
+  serviceDirectory = process.cwd(),
+): Record<string, unknown> {
+  const sharedKeys: readonly EnvironmentKey[] = [
+    'INTERNAL_SERVICE_TOKEN',
+    'SERVICE_BIND_HOST',
+    'KAFKA_BROKERS',
+    'ACCOUNT_EVENTS_TOPIC',
+    'AUTH_SERVICE_URL',
+  ];
+  const schema = Joi.object(
+    Object.fromEntries(
+      [...new Set([...keys, ...sharedKeys])].map((key) => [key, fields[key]]),
+    ),
+  ).unknown(true);
   const { error, value } = schema.validate(input, { abortEarly: false });
-  if (error) throw new Error(`Invalid environment: ${error.details.map((item) => item.path.join('.')).join(', ')}`);
+  if (error)
+    throw new Error(
+      `Invalid environment: ${error.details.map((item) => item.path.join('.')).join(', ')}`,
+    );
 
   const env = value as Record<string, string | number>;
-  // CORS_ORIGINS: must contain explicit HTTP(S) origins, not contain '*' or empty string
-  const origins = String(env.CORS_ORIGINS).split(',').map((origin) => origin.trim());
-  if (origins.some((origin) => !origin || origin === '*' || !/^https?:\/\/[^/]+$/.test(origin))) {
-    throw new Error('Invalid environment: CORS_ORIGINS must contain explicit HTTP(S) origins');
+  if (env.NODE_ENV !== 'test' && !env.INTERNAL_SERVICE_TOKEN)
+    throw new Error('Invalid environment: INTERNAL_SERVICE_TOKEN is required');
+  if (keys === gatewayKeys) {
+    const origins = String(env.CORS_ORIGINS)
+      .split(',')
+      .map((origin) => origin.trim());
+    if (
+      origins.some(
+        (origin) =>
+          !origin || origin === '*' || !/^https?:\/\/[^/]+$/.test(origin),
+      )
+    ) {
+      throw new Error(
+        'Invalid environment: CORS_ORIGINS must contain explicit HTTP(S) origins',
+      );
+    }
   }
 
-  const privatePem = loadKey(env, 'JWT_PRIVATE_KEY', false);
-  const publicPem = loadKey(env, 'JWT_PUBLIC_KEY', true);
-  // Validate the public verification key for every service. Auth-service additionally
-  // requires the private signing key at TokenService construction time.
+  if (keyRequirement === 'none') return env;
+  const privatePem =
+    keyRequirement === 'pair'
+      ? loadKey(env, 'JWT_PRIVATE_KEY', true, serviceDirectory)
+      : '';
+  const publicPem = loadKey(env, 'JWT_PUBLIC_KEY', true, serviceDirectory);
   try {
     const publicKey = createPublicKey(publicPem);
-    if (publicKey.asymmetricKeyType !== 'rsa') throw new Error('RS256 requires an RSA public key');
+    if (publicKey.asymmetricKeyType !== 'rsa')
+      throw new Error('RS256 requires an RSA public key');
     if (privatePem) {
       const privateKey = createPrivateKey(privatePem);
-      if (privateKey.asymmetricKeyType !== 'rsa') throw new Error('RS256 requires an RSA private key');
-      const derived = createPublicKey(privateKey).export({ type: 'spki', format: 'pem' });
+      if (privateKey.asymmetricKeyType !== 'rsa')
+        throw new Error('RS256 requires an RSA private key');
+      const derived = createPublicKey(privateKey).export({
+        type: 'spki',
+        format: 'pem',
+      });
       const supplied = publicKey.export({ type: 'spki', format: 'pem' });
-      if (derived !== supplied) throw new Error('public key does not match private key');
+      if (derived !== supplied)
+        throw new Error('public key does not match private key');
     }
   } catch {
-    throw new Error('Invalid environment: JWT public key is invalid or does not match the private key');
+    throw new Error(
+      'Invalid environment: JWT public key is invalid or does not match the private key',
+    );
   }
-  env.JWT_PRIVATE_KEY = privatePem;
+  if (keyRequirement === 'pair') env.JWT_PRIVATE_KEY = privatePem;
   env.JWT_PUBLIC_KEY = publicPem;
   return env;
 }
 
-function loadKey(env: Record<string, string | number>, name: 'JWT_PRIVATE_KEY' | 'JWT_PUBLIC_KEY', required: boolean): string {
+function loadKey(
+  env: Record<string, string | number>,
+  name: 'JWT_PRIVATE_KEY' | 'JWT_PUBLIC_KEY',
+  required: boolean,
+  serviceDirectory: string,
+): string {
   const inline = String(env[name] ?? '').replace(/\\n/g, '\n');
   const path = String(env[`${name}_PATH`] ?? '');
-  if (inline && path) throw new Error(`Invalid environment: set exactly one of ${name} and ${name}_PATH`);
+  if (inline && path)
+    throw new Error(
+      `Invalid environment: set exactly one of ${name} and ${name}_PATH`,
+    );
   if (!inline && !path) {
-    if (required) throw new Error(`Invalid environment: set ${name} or ${name}_PATH`);
+    if (required)
+      throw new Error(`Invalid environment: set ${name} or ${name}_PATH`);
     return '';
   }
-  try { return inline || readFileSync(path, 'utf8'); }
-  catch { throw new Error(`Invalid environment: cannot read ${name}_PATH`); }
+  try {
+    return inline || readFileSync(resolve(serviceDirectory, path), 'utf8');
+  } catch {
+    throw new Error(`Invalid environment: cannot read ${name}_PATH`);
+  }
 }
-
