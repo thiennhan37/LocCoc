@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../data/auth_api.dart';
 
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/widgets/custom_button.dart';
@@ -13,6 +14,8 @@ class LoginForm extends StatefulWidget {
 
 class _LoginFormState extends State<LoginForm> {
   final _formKey = GlobalKey<FormState>();
+  final _api = AuthApi();
+  bool _isLoading = false;
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
   final _passwordFocusNode = FocusNode();
@@ -25,13 +28,27 @@ class _LoginFormState extends State<LoginForm> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
+    if (_isLoading) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    // TODO(IAM): Connect this form only after the identity API contract exists.
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text(AppStrings.loginUnavailable)));
+    setState(() => _isLoading = true);
+    try {
+      await _api.login(_identifierController.text, _passwordController.text);
+      if (!mounted) return;
+      _passwordController.clear();
+      Navigator.of(context).pushReplacementNamed('/home');
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is AuthException
+          ? error.message
+          : 'Đăng nhập thất bại. Vui lòng thử lại.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -42,8 +59,8 @@ class _LoginFormState extends State<LoginForm> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           CustomTextField(
-            label: AppStrings.emailOrPhone,
-            hint: AppStrings.emailOrPhoneHint,
+            label: 'Email',
+            hint: 'Nhập email',
             controller: _identifierController,
             keyboardType: TextInputType.emailAddress,
             prefixIcon: Icons.alternate_email_rounded,
@@ -72,7 +89,11 @@ class _LoginFormState extends State<LoginForm> {
             },
           ),
           const SizedBox(height: 24),
-          CustomButton(text: AppStrings.loginButton, onPressed: _submit),
+          CustomButton(
+            text: AppStrings.loginButton,
+            onPressed: _submit,
+            isLoading: _isLoading,
+          ),
         ],
       ),
     );
