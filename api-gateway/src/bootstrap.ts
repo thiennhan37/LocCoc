@@ -2,6 +2,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiExceptionFilter, RedactingLogger, requestIdMiddleware } from '@loccoc/common';
 import helmet from 'helmet';
+import { json } from 'express';
 
 export function configureGateway(app: INestApplication): void {
   const config = app.get(ConfigService);
@@ -11,6 +12,8 @@ export function configureGateway(app: INestApplication): void {
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(requestIdMiddleware);
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+  // Edited PNG payloads use JSON/base64; keep a bounded limit across both gateways.
+  app.use(json({ limit: '8mb' }));
   app.enableCors({ origin: origins, credentials: true });
   // whitelist: true: Tự động lọc bỏ các field không được khai báo trong DTO.
   // forbidNonWhitelisted: true: Báo lỗi 400 nếu có field không được khai báo trong DTO.

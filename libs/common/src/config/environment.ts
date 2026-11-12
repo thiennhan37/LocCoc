@@ -9,6 +9,7 @@ const schema = Joi.object({
   USER_PORT: Joi.number().port().default(8081),
   AUTH_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8000'),
   USER_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8081'),
+  POST_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8087'),
   DB_HOST: Joi.string().hostname().required(),
   DB_PORT: Joi.number().port().default(5433),
   AUTH_DB_NAME: Joi.string().default('accounts'),

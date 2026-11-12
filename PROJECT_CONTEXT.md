@@ -4,6 +4,21 @@
 
 ---
 
+## Cập nhật 2026-10-21: NestJS shared guard dependency resolution
+
+- Fixed `npm run start:user` failing to inject `Reflector` into `JwtAuthGuard`: the service and `libs/common` loaded distinct instances of `@nestjs/core` under pnpm peer contexts.
+- `@loccoc/common` declares Nest common/config/core as peer dependencies; all three Nest services inject the workspace package through `dependenciesMeta`. Workspace builds synchronize injected dependencies.
+- Regression check: `npm --prefix user-service run test:guards` verifies actual compiled guard injection with Node package resolution, without database access or environment secrets.
+- Verified: user-service build, 3 unit tests, guard smoke test, and startup with PostgreSQL (`Nest application successfully started`). Existing peer-range warnings for Nest 12 integrations remain a separate compatibility concern.
+
+## Cập nhật 2026-10-21: LocCoc mobile camera home
+
+- Added a coral/cream camera-first home screen with black pill navigation, photo review/retake and local session memories. No photo upload or friend delivery is implemented.
+- Camera plugin uses photo-only access (`enableAudio: false`), Android CAMERA and iOS usage description; lifecycle and route visibility control camera ownership.
+- Login behavior is unchanged. Preview with `flutter run --dart-define=PREVIEW_HOME=true`; `/home` is reserved for future successful-login navigation.
+- Architecture and scope: `docs/adr/ADR-006-mobile-camera-home.md`, `docs/specs/mobile-home.md`. Run `flutter analyze` and `flutter test` in `MobileApp`.
+- Verification: analyzer clean, 2 existing login tests and 4 home tests pass; home rendering inspected. Android debug APK builds with PREVIEW_HOME enabled. Kotlin incremental compilation is disabled for the Windows cross-drive Pub cache layout.
+
 ## 1. Tổng Quan Kiến Trúc Dự Án (Monorepo Layout)
 
 * **Repository:** `LocCoc IAM & Subscription Platform`
@@ -117,6 +132,12 @@ npm run start:admin
 npm run webhook:register https://<your-tunnel-url>/payments/webhook/payos
 ```
 
+## Post service (2026-10-21)
+
+Spring post-service (8087) provides POST /posts for existing media metadata and DELETE /posts/{id}?ownerId=UUID for idempotent soft deletion. Controller/DTO -> transactional service -> JPA repository; own database with persistent local H2 and optional PostgreSQL. Both gateways route /posts via POST_SERVICE_URL. No JWT yet: client ownerId is development-only and must become authenticated principal identity before public deployment. No uploads, recipients or feed fan-out yet. See post-service/README.md, docs/specs/post-service.md and ADR-007.
+
+Verification: post-service Maven tests 6/6 passed with H2; Spring gateway tests 20/20 passed with loopback upstream and mocked Redis; Nest gateway build passed and new post proxy tests 2/2 passed. PostgreSQL deployment and a live mobile upload flow have not been tested.
+
 ## Spring MVC Gateway Alternative
 
 `api-gateway-spring` implements the same five route prefixes as the Nest gateway on port 8080, using Controller -> Service -> Repository, Redis atomic IP quotas, CORS, request IDs and standard gateway errors. No business database, automatic retries or redirects. Configuration and startup: `api-gateway-spring/README.md`. Stop Nest gateway before starting the Spring alternative. Spec: `docs/specs/gateway/spring-mvc-gateway.md`; decision: ADR-005. Verification uses a loopback HTTP upstream and mocked quota repository; real-service/Redis deployment smoke tests remain environment-dependent.
@@ -132,3 +153,9 @@ Bootstrap verification (2026-10-19): applied all three auth migrations and the u
 ## Spring gateway error envelope (WebAppBusTicket pattern)
 
 api-gateway-spring uses ErrorCode + AppException + GlobalExceptionHandler and ApiResponse(code,message,result). Both gateway failures and upstream HTTP 4xx/5xx errors are normalized; messages are catalog-based to avoid exposing SQL/secrets. HTTP status, auth/retry headers and x-request-id remain available. Successful upstream bodies are unchanged, including verified=false on HTTP 200. Direct service responses and Nest gateway are unchanged. This supersedes the earlier transparent-error contract for Spring gateway.
+
+Post-service exceptions now use the Spring gateway AppException/ErrorCode/ApiResponse contract, including framework errors and validation; success responses remain unchanged.
+
+Mobile login now calls POST /auth/login using core/constants/api_constants.dart (Android emulator gateway 10.0.2.2:8080; API_BASE_URL override for phone). Success requires authenticated=true and both tokens; tokens remain in memory. Android debug allows HTTP. Refresh and persistent sessions remain pending.
+
+Mobile API layer now includes all existing Auth endpoints and Post create/delete, centralized endpoint constants, shared HTTP errors/timeouts, explicit refresh coalescing and token rotation. UI beyond login is not connected yet; media upload is still absent from backend.

@@ -14,6 +14,11 @@ const HOP_BY_HOP_HEADERS = new Set([
 export class ServiceProxyController {
   constructor(private readonly config: ConfigService) {}
 
+  @All(['posts', 'posts/*path'])
+  forwardToPosts(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forward('posts', request, response);
+  }
+
   @All('auth/*path')
   forwardToAuth(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
     return this.forward('auth', request, response);
@@ -44,7 +49,7 @@ export class ServiceProxyController {
     const route = SERVICE_ROUTES[service];
     const baseUrl = this.config.getOrThrow<string>(route.urlConfigKey).replace(/\/$/, '');
     const path = this.getPath(request);
-    const target = new URL(`${baseUrl}${route.prefix}/${path}`);
+    const target = new URL(`${baseUrl}${route.prefix}${path ? `/${path}` : ''}`);
     // append query params from originalUrl to targetURL
     target.search = new URL(request.originalUrl, 'http://gateway.internal').search;
 

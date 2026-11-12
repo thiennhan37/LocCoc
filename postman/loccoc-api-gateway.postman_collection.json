@@ -35,6 +35,21 @@
       "key": "userId",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "postServiceUrl",
+      "value": "http://localhost:8087",
+      "type": "string"
+    },
+    {
+      "key": "postOwnerId",
+      "value": "11111111-1111-4111-8111-111111111111",
+      "type": "string"
+    },
+    {
+      "key": "postId",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -249,6 +264,75 @@
                   "pm.test('Login returns an expected status', function () {",
                   "  pm.expect([200, 401, 429]).to.include(pm.response.code);",
                   "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "description": "Bật loccoc-postgres và chạy post-service. Mặc định gọi trực tiếp 8087; đổi postServiceUrl thành http://localhost:8080 để đi qua gateway. ownerId chỉ dùng thử khi chưa xác thực.",
+      "name": "Post Service",
+      "item": [
+        {
+          "request": {
+            "url": "{{postServiceUrl}}/posts",
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Tạo bài với media đã upload. Không cần token. Tự lưu postId khi thành công.",
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Content-Type"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ownerId\": \"{{postOwnerId}}\",\n  \"mediaKey\": \"moments/photo.jpg\",\n  \"mediaType\": 0,\n  \"caption\": \"Xin chào từ Postman!\",\n  \"width\": 1080,\n  \"height\": 1920\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "name": "Create Post",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Created\", () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) { pm.collectionVariables.set(\"postId\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "request": {
+            "description": "Chạy Create Post trước. Xóa mềm bài vừa tạo, gọi lại vẫn trả 204.",
+            "url": "{{postServiceUrl}}/posts/{{postId}}?ownerId={{postOwnerId}}",
+            "method": "DELETE",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": []
+          },
+          "name": "Delete Post",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Deleted\", () => pm.response.to.have.status(204));"
                 ]
               }
             }

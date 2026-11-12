@@ -13,6 +13,9 @@
     "start:prod": "node dist/main.js",
     "test:e2e": "vitest run --config vitest.config.e2e.ts"
   },
+  "dependenciesMeta": {
+    "@loccoc/common": { "injected": true }
+  },
   "dependencies": {
     "@loccoc/common": "workspace:*",
     "@nestjs/common": "^12.0.1",

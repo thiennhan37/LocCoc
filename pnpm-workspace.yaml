@@ -4,6 +4,8 @@ packages:
   - user-service
   - admin-dashboard
   - libs/common
+syncInjectedDepsAfterScripts:
+  - build
 allowBuilds:
   argon2: true
   unrs-resolver: true
