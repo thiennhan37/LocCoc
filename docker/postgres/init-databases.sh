@@ -36,3 +36,14 @@ SELECT format('CREATE DATABASE %I OWNER notification_service', :'notification_da
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'notification_database') \gexec
 SQL
 fi
+
+# Optional Chat Service database, also runnable independently for existing volumes.
+if [ -n "${CHAT_DB_PASSWORD:-}" ]; then
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  --set="chat_password=$CHAT_DB_PASSWORD" --set="chat_database=${CHAT_DB_NAME:-chat}" <<'SQL'
+SELECT format('CREATE ROLE chat_service LOGIN PASSWORD %L', :'chat_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'chat_service') \gexec
+SELECT format('CREATE DATABASE %I OWNER chat_service', :'chat_database')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'chat_database') \gexec
+SQL
+fi

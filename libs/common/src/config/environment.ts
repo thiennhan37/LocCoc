@@ -10,6 +10,9 @@ const fields = {
   GATEWAY_PORT: Joi.number().port().default(8080),
   AUTH_PORT: Joi.number().port().default(8000),
   USER_PORT: Joi.number().port().default(8081),
+  CHAT_SERVICE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('http://127.0.0.1:8083'),
   AI_SERVICE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .default('http://127.0.0.1:8082'),
@@ -101,6 +104,7 @@ const gatewayKeys = [
   'GATEWAY_PORT',
   'AUTH_SERVICE_URL',
   'USER_SERVICE_URL',
+  'CHAT_SERVICE_URL',
   'AI_SERVICE_URL',
   'AI_RATE_LIMIT_MAX',
   'AI_RATE_LIMIT_WINDOW_MS',

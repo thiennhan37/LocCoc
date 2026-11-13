@@ -1,5 +1,47 @@
 # LocCoc Project Context & Knowledge Base (Admin & Payment Module)
 
+### 2026-11-13: Deliver authenticated realtime chat on local chat-service
+
+- User approved the [chat design](docs/specs/chat/realtime-chat-design.md).
+  Added Nest Chat Service on 8083 with its own PostgreSQL database/role and
+  additive migration CLI. Auth/User authority from main authenticates every
+  HTTP request and socket operation/delivery; only active friends can interact.
+  Participant history remains readable after block/unfriend, while fresh profile
+  exposure and new interactions fail closed.
+- REST conversation/message/read operations route through the Nest gateway.
+  Transactional sequences, monotonic read cursors and sender/client UUID
+  idempotency persist across restarts; UUID case is normalized before locking.
+  Socket.IO namespace `/chat` uses the direct service origin, emits after commit,
+  rechecks receiving sessions and supports bounded typing. REST recovers missed
+  events; no exactly-once transport or multiple-replica claim.
+- Flutter adds inbox, friend chooser and conversation screens under the existing
+  authenticated Home entry. Shared refresh, account disposal, uncertain-send retry,
+  POST/socket merge, paged recovery and read receipts are covered. Socket policy
+  denial preserves other history/drafts; queued inbox invalidations survive slow
+  requests; typing transitions share a throttle. User-Service outages disable
+  interaction while authenticated participant history still loads.
+- Verification: Chat build, 5 unit + 27 integration tests (7 PostgreSQL,
+  6 HTTP, 14 real Socket.IO); gateway build, 3 unit + 26 e2e; Auth 77 unit +
+  25 HTTP passed (18 opt-in PostgreSQL cases skipped). Flutter analyze clean,
+  full 131 tests passed, Android debug APK built. Database helper/migration CLI
+  passed twice on a disposable database with the dedicated chat role; compiled
+  service health200 and missing-auth401 verified. OpenAPI passes the official
+  3.0 schema plus nullable conversation response checks; documentation links and
+  shell syntax pass. Independent review findings were reproduced and fixed.
+- [Runbook](docs/guides/chat-two-emulators.md), [service/API setup](chat-service/README.md),
+  [Bruno OpenAPI](chat-service/openapi.yaml) and
+  [completed checklist](docs/superpowers/plans/2026-11-13-realtime-chat.md) are ready.
+  Two real accounts on two emulator UIs have **not** been exercised; automation
+  uses real PostgreSQL/socket clients with IAM/profile fixtures. Native iOS build
+  remains blocked by main's Firebase/AppCheck versus GoogleSignIn dependency
+  conflict. The runbook therefore uses two Android AVDs.
+- Foreground realtime requires the Tin nhắn flow open; returning Home disposes
+  chat state/socket, and reopening loads history. No background push, app-wide
+  chat badge, groups/media or distributed quotas. Existing analysis exclusions
+  remain uncommitted; existing Flutter lock pins are preserved alongside new
+  socket dependencies. No real secrets or project database volumes changed.
+  This chat feature stays on the local branch; no new push/PR was requested.
+
 ### 2026-11-13: Prepare chat-service with real main authentication
 
 - User selected real login integration from `main` on local `chat-service`.

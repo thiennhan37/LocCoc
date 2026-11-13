@@ -1,12 +1,12 @@
 # ADR-012: Chat 1–1 dùng danh tính IAM hiện có
 
-Ngày: 2026-11-13. Trạng thái: **Proposed**, chờ duyệt [thiết kế](../specs/chat/realtime-chat-design.md).
+Ngày: 2026-11-13. Trạng thái: **Accepted**, người dùng đã duyệt [thiết kế](../specs/chat/realtime-chat-design.md) trong hội thoại.
 
 ## Bối cảnh
 
 Người dùng chọn tích hợp đăng nhập thật từ `main` vào local `chat-service`, cần chat realtime và màn hình Flutter để thử giữa hai máy ảo. Chat cần account/session thật, dữ liệu bền vững và quyền thành viên hội thoại; không thể coi một socket kết nối thành công là bằng chứng đã đăng nhập.
 
-## Quyết định đề xuất
+## Quyết định
 
 - NestJS Chat Service, port 8083, PostgreSQL/database-per-service.
 - Tái sử dụng authority của Auth Service và API quan hệ bạn bè từ User Service.

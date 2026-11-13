@@ -9,9 +9,10 @@
     "start:auth": "npm --prefix auth-service run start",
     "start:user": "npm --prefix user-service run start",
     "start:ai": "npm --prefix ai-service run start",
+    "start:chat": "pnpm --filter @loccoc/common build && pnpm --filter chat-service build && pnpm --filter chat-service start",
     "start:admin": "mvn -f admin-service/pom.xml spring-boot:run",
     "start:payment": "mvn -f payment-service/pom.xml spring-boot:run",
-    "build": "pnpm --filter @loccoc/common build && pnpm --filter api-gateway --filter auth-service --filter user-service --filter notification-service --filter ai-service build",
+    "build": "pnpm --filter @loccoc/common build && pnpm --filter api-gateway --filter auth-service --filter user-service --filter notification-service --filter ai-service --filter chat-service build",
     "build:admin": "mvn -f admin-service/pom.xml clean package -DskipTests",
     "build:payment": "mvn -f payment-service/pom.xml clean package -DskipTests",
     "test:e2e": "pnpm --filter api-gateway test:e2e",
@@ -22,11 +23,13 @@
     "dev:auth": "pnpm --filter @loccoc/common build && pnpm --filter auth-service start:dev",
     "dev:user": "pnpm --filter @loccoc/common build && pnpm --filter user-service start:dev",
     "dev:ai": "pnpm --filter ai-service start:dev",
+    "dev:chat": "pnpm --filter @loccoc/common build && pnpm --filter chat-service start:dev",
     "dev:admin": "mvn -f admin-service/pom.xml spring-boot:run",
     "dev:payment": "mvn -f payment-service/pom.xml spring-boot:run",
     "webhook:register": "node scripts/register-webhook.js",
     "db:migrate:auth": "npm --prefix auth-service run db:migrate",
     "db:migrate:user": "npm --prefix user-service run db:migrate",
+    "db:migrate:chat": "pnpm --filter @loccoc/common build && pnpm --filter chat-service db:migrate",
     "start:notification": "pnpm --filter notification-service build && pnpm --filter notification-service start"
   }
 }

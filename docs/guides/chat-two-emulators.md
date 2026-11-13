@@ -2,28 +2,31 @@
 
 Ngày: 2026-11-13. Nhánh: `chat-service`.
 
-**Trạng thái:** đăng nhập/profile/bạn bè từ main đã được tích hợp. Mục 1–5 dùng các thành phần đang có. Mục 6 là checklist và cấu hình dự kiến cho chat, **chưa chạy được cho tới khi backend và màn hình chat được triển khai theo thiết kế được duyệt**. Không có command `dev:chat` hay biến Flutter `CHAT_SOCKET_URL` đang hoạt động ở thời điểm viết tài liệu.
+**Trạng thái:** đăng nhập/profile/bạn bè từ main và Chat Service đã được tích hợp theo thiết kế được duyệt. Các lệnh `dev:chat`, `db:migrate:chat` và cấu hình Flutter `CHAT_SOCKET_URL` được dùng trong quy trình dưới đây. Chat realtime hoạt động khi app đang mở; chưa có push tin nhắn khi app đóng.
 
 ## 1. Hai thiết bị độc lập
 
-Trên máy macOS hiện tại đã phát hiện:
+**Khuyến nghị hiện tại: hai Android AVD khác nhau theo mục 5.** Native build iOS của nền main đang gặp conflict dependency giữa `firebase_messaging 17.0.1` (Firebase iOS/AppCheck mới) và `google_sign_in_ios 6.3.8` (GoogleSignIn/AppCheck cũ). Đây là phần cần xử lý riêng trong nền đăng nhập/push trước khi dùng nhánh iPhone ở mục 4; `flutter analyze/test` không phát hiện được lỗi native dependency này. Không đổi phiên bản auth/push chỉ để chạy chat.
+
+Trên máy macOS hiện tại đã phát hiện Pixel 9 AVD `Pixel_9_API_35`. Tạo thêm một AVD tên khác trong Android Studio → Device Manager, ví dụ `Pixel_8_API_35`. Không mở lại cùng AVD đang dùng để thay cho thiết bị thứ hai.
 
 | Vai trò | Thiết bị | Định danh |
 | --- | --- | --- |
-| A | iPhone 17 Simulator | `72019E70-57C1-4A91-8125-3E5B1CE6B876` |
-| B | Pixel 9 Android Emulator | AVD `Pixel_9_API_35`; device ID lấy sau khi khởi động |
+| A | Pixel 9 Android Emulator | AVD `Pixel_9_API_35`; device ID lấy sau khi khởi động |
+| B | Android Emulator thứ hai | AVD riêng do bạn tạo; device ID lấy sau khi khởi động |
 
 Hai app cùng gọi một backend trên máy Mac. Không gọi trực tiếp IP của máy ảo còn lại. Mỗi app đăng nhập tài khoản khác nhau và có session/storage riêng.
 
 ```sh
 flutter doctor
 flutter emulators
-flutter emulators --launch apple_ios_simulator
 flutter emulators --launch Pixel_9_API_35
+# Thay SECOND_AVD_ID bằng ID AVD thứ hai đã tạo:
+flutter emulators --launch SECOND_AVD_ID
 flutter devices
 ```
 
-Chờ Android boot xong. Trong kết quả `flutter devices`, ghi lại ID Android, ví dụ `emulator-5554`; thay bằng ID thực tế ở các lệnh bên dưới. Nếu iPhone UUID đã đổi, dùng UUID mới. `apple_ios_simulator` là launcher, không phải device ID để truyền vào `flutter run -d`.
+Chờ cả hai Android boot xong. Trong kết quả `flutter devices`, ghi lại hai ID khác nhau, ví dụ `emulator-5554` và `emulator-5556`; thay bằng ID thực tế ở các lệnh bên dưới.
 
 ## 2. Chuẩn bị backend đăng nhập thật
 
@@ -34,13 +37,14 @@ pnpm install --frozen-lockfile
 pnpm --filter @loccoc/common build
 ```
 
-Kiểm tra các file môi trường riêng của [gateway](../../api-gateway/.env.example), [auth](../../auth-service/.env.example) và [user](../../user-service/.env.example). Chỉ copy mẫu khi file thật chưa tồn tại; không ghi đè cấu hình đang dùng. Gateway/Auth/User đọc file riêng; root `.env` dành cho Compose, không thay thế các file này.
+Kiểm tra các file môi trường riêng của [gateway](../../api-gateway/.env.example), [auth](../../auth-service/.env.example), [user](../../user-service/.env.example) và [chat](../../chat-service/.env.example). Chỉ copy mẫu khi file thật chưa tồn tại; không ghi đè cấu hình đang dùng. Mỗi service đọc file riêng; root `.env` dành cho Compose, không thay thế các file này.
 
 Các điều kiện cần:
 
 - PostgreSQL port host mặc định `5433`, Redis `6379`, Kafka `9092`.
 - Tên database/role/password trong Compose và env service phải thống nhất: mặc định main dùng `accounts`/`auth_service`, `users`/`user_service`.
-- Cùng `INTERNAL_SERVICE_TOKEN` ngẫu nhiên tối thiểu 32 ký tự cho gateway/auth/user. Không đưa token này vào Flutter, Bruno collection được chia sẻ hoặc Git.
+- Cùng `INTERNAL_SERVICE_TOKEN` ngẫu nhiên tối thiểu 32 ký tự cho gateway/auth/user/chat. Không đưa token này vào Flutter, Bruno collection được chia sẻ hoặc Git.
+- Chat có database riêng `chat`, role `chat_service`; `CHAT_DB_PASSWORD` trong `chat-service/.env` phải khớp password role. Gateway mặc định `CHAT_SERVICE_URL=http://127.0.0.1:8083`; Chat gọi Auth `8000` và User `8081`.
 - Auth có RSA private/public key; User có public key tương ứng, đường dẫn tương đối tính từ thư mục service. Giữ `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_KID` nhất quán.
 - Notification/FCM không bắt buộc để thử đăng nhập, bạn bè và chat foreground; giữ `FCM_ENABLED` của Flutter là false khi chưa cấu hình push.
 
@@ -53,16 +57,27 @@ docker compose up -d db redis kafka
 docker compose ps
 ```
 
-Chờ PostgreSQL/Redis healthy và Kafka sẵn sàng, rồi apply migration:
+Chờ PostgreSQL/Redis healthy và Kafka sẵn sàng. Tạo database chat nếu volume đã có từ trước (helper không xóa/đổi dữ liệu hay password role hiện có):
+
+```sh
+# Giá trị phải giống CHAT_DB_PASSWORD trong chat-service/.env, không dùng ví dụ này làm secret thật.
+export CHAT_DB_PASSWORD='your-local-chat-db-password'
+docker compose exec -T -e CHAT_DB_PASSWORD -e CHAT_DB_NAME=chat db sh -s \
+  < docker/postgres/init-chat-database.sh
+unset CHAT_DB_PASSWORD
+```
+
+Sau đó apply các migration:
 
 ```sh
 npm run db:migrate:auth
 npm run db:migrate:user
+pnpm db:migrate:chat
 ```
 
 Nếu volume cũ chưa có database/role mới, script init container không tự chạy lại. Khởi tạo phần còn thiếu bằng hướng dẫn database hiện có; không dùng `down -v` để sửa lỗi thiếu bảng/database.
 
-Mở ba terminal riêng ở root và giữ chúng chạy:
+Mở bốn terminal riêng ở root và giữ chúng chạy:
 
 ```sh
 # Terminal 1
@@ -79,10 +94,16 @@ pnpm dev:user
 pnpm dev:gateway
 ```
 
+```sh
+# Terminal 4
+pnpm dev:chat
+```
+
 Kiểm tra:
 
 ```sh
 curl --fail http://127.0.0.1:8080/health
+curl --fail http://127.0.0.1:8083/health
 ```
 
 Health gateway không xác nhận DB, Auth hay User đã sẵn sàng; thử login và API profile mới kiểm tra được cả luồng.
@@ -94,7 +115,7 @@ Dùng Bruno hoặc REST client gọi qua `http://127.0.0.1:8080`:
 1. `POST /auth/register` với `email` riêng và `password` đáp ứng chính sách backend. Đăng ký lần lượt A và B, ví dụ `chat.a@example.com`, `chat.b@example.com` nếu chưa dùng; đây không phải tài khoản đã được seed sẵn.
 2. Trong development, lấy OTP được cấp mới từ console Auth Service, hoặc từ kênh gửi OTP đang cấu hình. Không dùng mã ví dụ `000000` như mã thật.
 3. `POST /auth/verify-otp` với `{ "email": "...", "otp": "..." }` cho từng tài khoản.
-4. Đăng nhập A trên iPhone và B trên Android bằng email/password thật. Không chọn session demo hoặc chia sẻ cùng một refresh token cho hai app.
+4. Đăng nhập A trên máy ảo thứ nhất và B trên máy ảo thứ hai bằng email/password thật. Không chọn session demo hoặc chia sẻ cùng một refresh token cho hai app.
 5. Hoàn tất username/profile theo màn hình hiện có; chọn hai username khác nhau. A tìm B, gửi lời mời, B chấp nhận. Kiểm tra hai bên thấy nhau trong danh sách bạn bè.
 
 Nếu Google Sign-In được dùng thay email/password, hoàn tất OAuth cho từng nền tảng và dùng hai Google account khác nhau. Không cần cấu hình Google/FCM để test bằng email/password.
@@ -103,21 +124,23 @@ Nếu Google Sign-In được dùng thay email/password, hoàn tất OAuth cho t
 
 Trong hai terminal riêng, đều vào `MobileApp`. Chạy `flutter pub get` một lần trước khi mở hai phiên debug.
 
-Terminal A — iPhone Simulator:
+Terminal A — Android Emulator thứ nhất:
 
 ```sh
 cd MobileApp
 flutter pub get
-flutter run -d 72019E70-57C1-4A91-8125-3E5B1CE6B876 \
-  --dart-define=API_BASE_URL=http://127.0.0.1:8080
+flutter run -d emulator-5554 \
+  --dart-define=API_BASE_URL=http://10.0.2.2:8080 \
+  --dart-define=CHAT_SOCKET_URL=http://10.0.2.2:8083
 ```
 
-Terminal B — Android Emulator, thay ID thực tế:
+Terminal B — Android Emulator thứ hai, thay ID thực tế:
 
 ```sh
 cd MobileApp
-flutter run -d emulator-5554 \
-  --dart-define=API_BASE_URL=http://10.0.2.2:8080
+flutter run -d emulator-5556 \
+  --dart-define=API_BASE_URL=http://10.0.2.2:8080 \
+  --dart-define=CHAT_SOCKET_URL=http://10.0.2.2:8083
 ```
 
 Android Emulator có alias `10.0.2.2` trỏ về loopback của máy phát triển theo [tài liệu Android](https://developer.android.com/studio/run/emulator-networking-address). iOS Simulator trên Mac dùng URL loopback như cấu hình ở trên; xem [thiết lập Flutter iOS](https://docs.flutter.dev/platform-integration/ios/setup).
@@ -126,36 +149,40 @@ Có thể dùng `http://127.0.0.1:8080` cho Android nếu đã thiết lập ADB
 
 ```sh
 "$HOME/Library/Android/sdk/platform-tools/adb" -s emulator-5554 reverse tcp:8080 tcp:8080
+"$HOME/Library/Android/sdk/platform-tools/adb" -s emulator-5554 reverse tcp:8083 tcp:8083
 ```
+
+Nếu dùng ADB reverse, đặt cả hai define về loopback `127.0.0.1` với port tương ứng. Đừng dùng loopback cho socket Android khi chỉ forward mỗi port 8080.
 
 Sau khi đổi `--dart-define`, dừng và chạy lại app; hot reload không đổi build define. Nếu một terminal chờ startup lock của Flutter, chờ phiên build đầu kết thúc khởi tạo rồi chạy terminal thứ hai. Không dùng `flutter clean` khi hai phiên đang build.
 
-## 5. Nếu muốn dùng hai Android emulator
+## 5. Tùy chọn iPhone Simulator sau khi sửa dependency nền
 
-Trong Android Studio → Device Manager, tạo AVD thứ hai với tên khác, rồi mở cả hai. Không mở lại cùng AVD đang dùng để thay cho thiết bị thứ hai.
+iPhone 17 Simulator từng được phát hiện với UUID `72019E70-57C1-4A91-8125-3E5B1CE6B876`. Nhánh này chưa build iOS thành công do conflict Firebase/Google Sign-In nêu ở mục 1. Sau khi dependency nền đã được xử lý, có thể thay một Android bằng iPhone:
 
 ```sh
-flutter emulators
-flutter emulators --launch Pixel_9_API_35
-# Thay SECOND_AVD_ID bằng ID AVD thứ hai đã tạo:
-flutter emulators --launch SECOND_AVD_ID
+flutter emulators --launch apple_ios_simulator
 flutter devices
+cd MobileApp
+flutter run -d 72019E70-57C1-4A91-8125-3E5B1CE6B876 \
+  --dart-define=API_BASE_URL=http://127.0.0.1:8080 \
+  --dart-define=CHAT_SOCKET_URL=http://127.0.0.1:8083
 ```
 
-Mở hai terminal và chạy lần lượt bằng ID thực tế của từng thiết bị, ví dụ `-d emulator-5554`, `-d emulator-5556`, cùng `--dart-define=API_BASE_URL=http://10.0.2.2:8080`. Đăng nhập hai account khác nhau. Hai emulator không cần kết nối trực tiếp với nhau để chat qua server.
+Thay UUID bằng ID thực tế từ `flutter devices` nếu đã đổi. `apple_ios_simulator` là launcher, không phải ID để truyền vào `flutter run -d`. Dùng tài khoản riêng trên mỗi app; cả hai vẫn gọi cùng backend.
 
-## 6. Checklist test chat — chờ triển khai
+## 6. Test chat
 
-Theo [thiết kế đề xuất](../specs/chat/realtime-chat-design.md), Chat Service sẽ chạy port `8083`, REST qua gateway `/chat/*`, socket trực tiếp port 8083. Sau khi triển khai, hướng dẫn này phải được cập nhật với script chạy/migration thật và lệnh Flutter dùng `CHAT_SOCKET_URL` đã được code hỗ trợ.
+Theo [thiết kế đã duyệt](../specs/chat/realtime-chat-design.md), Chat Service chạy port `8083`, REST qua gateway `/chat/*`, socket trực tiếp port 8083. Hai tài khoản phải là bạn bè. Tại Home, mở **Tin nhắn**, chọn nút tạo hội thoại rồi chọn người bạn còn lại. Có thể dùng [OpenAPI chat](../../chat-service/openapi.yaml) để kiểm tra REST riêng bằng Bruno với Bearer token thật.
 
-| Máy | API_BASE_URL hiện có | CHAT_SOCKET_URL dự kiến |
+| Máy | API_BASE_URL | CHAT_SOCKET_URL |
 | --- | --- | --- |
 | iPhone Simulator | `http://127.0.0.1:8080` | `http://127.0.0.1:8083` |
 | Android Emulator | `http://10.0.2.2:8080` | `http://10.0.2.2:8083` |
 
 Nếu chọn loopback + ADB reverse cho Android, cần forward thêm port 8083; debug task hiện tại chỉ forward 8080. Socket namespace `/chat` và Engine.IO path `/socket.io` là hai khái niệm khác nhau; URL cấu hình là origin ở bảng này.
 
-- [ ] A mở Tin nhắn → chọn bạn B → gửi “Xin chào B”. B nhận khi đang mở app, không kéo refresh.
+- [ ] Cả A và B mở **Tin nhắn** (inbox hoặc hội thoại). A chọn bạn B → gửi “Xin chào B”. B nhận ngay trong giao diện chat, không kéo refresh. Khi B ở Home hoặc đã đóng app, mở Tin nhắn lại để tải lịch sử; chưa có badge/push chat toàn app.
 - [ ] B trả lời, A nhận; emoji/tiếng Việt/nhiều dòng hiển thị đúng.
 - [ ] Đang nhập chỉ hiện ở đúng hội thoại và tự tắt; chỉ báo đã đọc chỉ tăng khi B mở hội thoại.
 - [ ] Gửi khi mất mạng giữ bản nháp/trạng thái chưa xác nhận; retry cùng ID không tạo tin đôi.
@@ -176,4 +203,4 @@ Nếu chọn loopback + ADB reverse cho Android, cần forward thêm port 8083; 
 | Bạn bè không tìm thấy nhau | Account active, username đã hoàn tất, Kafka/account projection và lời mời đã được chấp nhận |
 | Chat socket không nối được sau triển khai | URL riêng port 8083, token còn hạn, namespace/path; gateway HTTP hiện không proxy WebSocket |
 
-Đến thời điểm viết tài liệu, đã chạy build và các test tự động của phần tích hợp main; chưa khởi động hai máy ảo để chạy một cuộc chat thật vì chat chưa được triển khai.
+Test tự động dùng PostgreSQL disposable và client socket thật để kiểm tra gửi/nhận, persistence, idempotency và truy cập. Việc đăng nhập hai tài khoản thật và thao tác trên hai máy ảo là bước smoke test thủ công; không coi bộ test dùng fixture là bằng chứng đã chạy UI trên hai thiết bị.

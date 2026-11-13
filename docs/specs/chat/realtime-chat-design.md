@@ -1,8 +1,8 @@
 # Thiết kế chat realtime 1–1
 
-Ngày: 2026-11-13. Trạng thái: **Đề xuất để duyệt; chưa triển khai backend hoặc màn hình chat**.
+Ngày: 2026-11-13. Trạng thái: **Đã được người dùng duyệt và triển khai; kiểm thử hai tài khoản thật trên máy ảo còn là bước thủ công**.
 
-Người dùng đã chọn tích hợp đăng nhập thật từ `main` vào nhánh local `chat-service`. Phạm vi 1–1, các thông số dưới đây và lựa chọn Socket.IO là đề xuất của agent; không suy diễn thành yêu cầu đã được duyệt.
+Người dùng đã chọn tích hợp đăng nhập thật từ `main` vào nhánh local `chat-service` và duyệt triển khai thiết kế này, gồm chat 1–1, Socket.IO, ba màn hình Flutter và hướng dẫn hai máy ảo.
 
 ## 1. Mục tiêu và nền hiện có
 
@@ -108,7 +108,9 @@ Giữ theme LocCoc và luồng đăng nhập/home của `main`. Thêm nút Tin n
 
 Composer không cho gửi rỗng hoặc khi đã mất quyền tương tác. Khi mất mạng vẫn giữ bản nháp; một tin đang chờ quá 10 giây hiện “Chưa xác nhận”, cho retry cùng ID. Người dùng có thể soạn tin khác; không khóa toàn màn hình. Dispose listener/focus/timer đúng lifecycle, tránh setState sau dispose và không đẩy người đọc về cuối khi họ đang xem tin cũ.
 
-Code feature nằm dưới `MobileApp/lib/features/chat/{domain,data,presentation}`; `ChatApi` dùng `UserApiClient.request(area: 'chat')` để dùng lại refresh/session. Khi triển khai cần mở rộng allowlist `area` trong `AuthApiClient.serviceRequest` để nhận thêm đúng `chat`; hiện allowlist chỉ có `users`, `notifications`, `auth`. `ChatSocketClient` có URL và transport được inject cho test. State điều phối nằm trong controller riêng, không nhúng networking vào widget. UI fake repository chỉ dùng trong test.
+Code feature nằm dưới `MobileApp/lib/features/chat/{domain,data,presentation}`; `ChatApi` dùng `UserApiClient.request(area: 'chat')` để dùng lại refresh/session. Allowlist `area` trong `AuthApiClient.serviceRequest` đã nhận thêm đúng `chat`. `ChatSocketClient` có URL và transport được inject cho test. State điều phối nằm trong controller riêng, không nhúng networking vào widget. UI fake repository chỉ dùng trong test.
+
+Socket được tạo khi mở luồng Tin nhắn và dispose khi trở về Home/logout. Realtime hiển thị trong inbox/hội thoại; khi mở lại luồng chat, REST phục hồi dữ liệu. Chưa có badge chat toàn app hay background push.
 
 ## 7. Các mốc triển khai sau khi duyệt
 
@@ -120,7 +122,7 @@ Code feature nằm dưới `MobileApp/lib/features/chat/{domain,data,presentatio
 | 4 | Flutter model/API/controller/socket và ba màn hình; widget/unit test cho happy/error/reconnect, bàn phím và session switch |
 | 5 | Gateway route REST, OpenAPI, hoàn thiện runbook hai máy ảo, smoke test A ↔ B và ghi lại phần nào đã/chưa chạy thật |
 
-Kế hoạch công việc chi tiết sẽ được tách thành file checklist sau khi thiết kế này được duyệt; đây chưa phải tuyên bố các mốc đã hoàn thành.
+Checklist triển khai và kết quả kiểm chứng nằm trong [kế hoạch thực thi](../../superpowers/plans/2026-11-13-realtime-chat.md). Test tự động dùng PostgreSQL disposable, authority/profile fixture và client socket thật. Chưa thực hiện smoke test UI bằng hai tài khoản thật; [runbook](../../guides/chat-two-emulators.md) dùng hai Android AVD vì native iOS đang vướng dependency Firebase/Google Sign-In của nền main.
 
 ## 8. Kiểm thử chấp nhận
 
@@ -138,4 +140,5 @@ Kế hoạch công việc chi tiết sẽ được tách thành file checklist s
 ## 9. Tài liệu liên quan
 
 - [ADR-012: lựa chọn realtime chat](../../adr/ADR-012-realtime-chat.md).
-- [Hướng dẫn hai máy ảo](../../guides/chat-two-emulators.md), tách phần đăng nhập chạy được hiện tại với phần chat chờ triển khai.
+- [Hướng dẫn hai máy ảo](../../guides/chat-two-emulators.md): chuẩn bị đăng nhập/bạn bè, chạy service và kiểm tra chat.
+- [Chat Service và OpenAPI](../../../chat-service/README.md).

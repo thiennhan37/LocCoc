@@ -53,6 +53,11 @@ export class ServiceProxyController {
     return this.forwardRaw('ai', request, response);
   }
 
+  @All('chat/*path')
+  forwardToChat(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forwardJson('chat', request, response);
+  }
+
   private async forwardJson(service: ServiceName, request: RequestWithId, response: Response): Promise<void> {
     const target = this.buildTarget(service, request);
     const headers = this.buildRequestHeaders(request);
