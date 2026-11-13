@@ -1,0 +1,132 @@
+openapi: 3.0.3
+info:
+  title: LocCoc API Gateway (Spring Boot)
+  version: 0.0.1
+  description: |
+    Chỉ mô tả operation cụ thể do Spring gateway sở hữu để import vào Bruno.
+    Import thêm openapi.yaml của downstream service rồi chọn URL gateway với cùng
+    đường dẫn. Cổng GATEWAY_PORT mặc định 8080; môi trường có thể ghi đè.
+    Đây là gateway thay thế, không chạy đồng thời cùng cổng với NestJS gateway.
+
+    Chỉ proxy các prefix /auth, /users, /admin, /payments, /subscriptions (bao gồm
+    prefix gốc và đường dẫn con), giữ nguyên path/query. Không có prefix /api.
+    Không có route /ai, /chat, /notifications hoặc /internal trong phiên bản hiện tại.
+    Upstream mặc định: auth localhost:8000, users localhost:8081, admin localhost:8086,
+    payments/subscriptions localhost:8085; có thể đổi bằng biến cấu hình service.
+
+    Spring gateway không xác minh JWT hoặc tài khoản/phiên tại gateway; chuyển
+    Authorization xuống downstream để service thực thi chính sách xác thực của mình.
+    Health public. Khác với NestJS gateway, không có echo/error probe hoặc limiter AI.
+    Giữ nguyên body/status thành công của upstream. Mọi lỗi upstream HTTP >=400 được
+    thay body bằng {code, message, result:null}, giữ status HTTP của upstream và chỉ
+    chuyển tiếp các error header Retry-After, WWW-Authenticate, Allow, Set-Cookie.
+    Do đó schema lỗi trong spec downstream không áp dụng khi đi qua Spring gateway.
+
+    Mỗi request proxy dùng chung limiter Redis theo IP kết nối: mặc định
+    RATE_LIMIT_MAX=100 trong RATE_LIMIT_TTL_MS=60000. Health không qua limiter.
+    Vượt giới hạn trả HTTP429/code1103/Retry-After; Redis lỗi trả HTTP503/code1105.
+    Giới hạn request/response proxy mặc định GATEWAY_MAX_BODY_BYTES=1048576 (1 MiB),
+    tương ứng lỗi 413/code1102 hoặc 502/code1107. Kết nối upstream mặc định 3000 ms,
+    tổng thời gian upstream mặc định 10000 ms, cấu hình qua GATEWAY_CONNECT_TIMEOUT_MS
+    và GATEWAY_REQUEST_TIMEOUT_MS. Timeout trả 504/code1106; lỗi kết nối trả 502/code1104.
+    x-request-id được giữ nếu khớp [a-zA-Z0-9_-]{1,100}, nếu không sẽ sinh UUID.
+servers:
+  - url: http://localhost:8080
+    description: Spring gateway (GATEWAY_PORT mặc định)
+security: []
+x-service-openapi:
+  - service: auth-service
+    file: ../auth-service/openapi.yaml
+    prefixes: [/auth]
+    upstreamDefault: http://localhost:8000
+    urlEnvironment: AUTH_SERVICE_URL
+  - service: user-service
+    file: ../user-service/openapi.yaml
+    prefixes: [/users]
+    upstreamDefault: http://localhost:8081
+    urlEnvironment: USER_SERVICE_URL
+  - service: admin-service
+    file: ../admin-service/openapi.yaml
+    prefixes: [/admin]
+    upstreamDefault: http://localhost:8086
+    urlEnvironment: ADMIN_SERVICE_URL
+  - service: payment-service
+    file: ../payment-service/openapi.yaml
+    prefixes: [/payments, /subscriptions]
+    upstreamDefault: http://localhost:8085
+    urlEnvironment: PAYMENT_SERVICE_URL
+x-proxy-error-schema: '#/components/schemas/ApiError'
+tags:
+  - name: Gateway health
+paths:
+  /:
+    get:
+      operationId: getSpringGatewayRootHealth
+      tags: [Gateway health]
+      summary: Kiểm tra gateway qua đường dẫn gốc
+      description: Public; không kiểm tra Redis hoặc các downstream service.
+      responses:
+        '200':
+          $ref: '#/components/responses/Healthy'
+  /health:
+    get:
+      operationId: getSpringGatewayHealth
+      tags: [Gateway health]
+      summary: Kiểm tra gateway đang chạy
+      description: Public; cùng handler với GET /, không đi qua limiter.
+      responses:
+        '200':
+          $ref: '#/components/responses/Healthy'
+components:
+  headers:
+    RequestId:
+      description: ID client hợp lệ hoặc UUID do gateway tạo.
+      schema:
+        type: string
+        pattern: '^[a-zA-Z0-9_-]{1,100}$'
+  schemas:
+    Health:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        service:
+          type: string
+          enum: [api-gateway-spring]
+    ApiError:
+      type: object
+      required: [code, message, result]
+      description: |
+        Envelope lỗi do gateway tạo. HTTP status độc lập với application code.
+        Các lỗi upstream phổ biến: 400->1006, 401->1001, 403->1004, 404->1100,
+        405->1101, 409->1109, 413->1102, 415->1108, 422->1003, 429->1103,
+        500->9999, 502->1104, 503->1110, 504->1106.
+        Lỗi upstream >=500 khác dùng 1112; lỗi HTTP >=400 khác dùng 1111.
+        Mã 1105 dành cho limiter nội bộ lỗi; 1107 dành cho response quá lớn.
+      properties:
+        code:
+          type: integer
+          example: 1104
+        message:
+          type: string
+          example: Upstream service unavailable
+        result:
+          type: object
+          nullable: true
+          description: Luôn null trong error envelope.
+          example: null
+  responses:
+    Healthy:
+      description: Gateway đang chạy
+      headers:
+        x-request-id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Health'
+          example:
+            status: ok
+            service: api-gateway-spring

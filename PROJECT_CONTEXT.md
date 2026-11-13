@@ -1,5 +1,103 @@
 # LocCoc Project Context & Knowledge Base (Admin & Payment Module)
 
+### 2026-11-13: Publish chat-service for review against main
+
+- User reported satisfactory local testing and explicitly requested commit,
+  remote push and a pull request into main. The branch also contains the AI
+  implementation inherited from filter_service; main does not yet include it,
+  and the AI-only PR9 is still open. The new PR must describe this overlap.
+- Fresh pre-push verification: root Nest build passes; Flutter analyze is clean
+  and all131 tests pass; Chat5 unit +27 PostgreSQL/HTTP/socket integration,
+  gateway3 unit +26 e2e, AI60 unit +13 e2e all pass. Chat database validation
+  uses a disposable PostgreSQL container; existing project data is untouched
+  by these verification suites. All9 OpenAPI specs/83 operations pass schema,
+  reference and concrete-route checks.
+- Android debug APK was built and installed on both local emulators earlier.
+  User manual testing is reported by the user; automated tests do not establish
+  every manual checklist item. The known native iOS dependency conflict and
+  unrelated Notification/MySQL/PayOS setup limits remain documented.
+- Service env credentials, JWT/FCM files, local test-account passwords and build
+  outputs are excluded. The pre-existing local Flutter analyzer exclusions remain
+  outside this delivery commit.
+
+### 2026-11-13: Two local chat test accounts
+
+- At the user's request, created `chat.a@loccoc.test` / `chat_test_a` and
+  `chat.b@loccoc.test` / `chat_test_b`, with local test phone fields
+  `+84900000001` and `+84900000002`. Both accounts completed the normal
+  development console OTP verification and password login through the gateway.
+  Passwords were supplied only in the conversation, not written into the repo.
+- Claimed usernames, sent/accepted their friend request through the actual User
+  APIs, and verified the friendship from both accounts. Created an empty direct
+  chat and confirmed the recipient can interact. No chat messages were seeded;
+  verification sessions were logged out after setup.
+- Current login API accepts email/password; the mobile label suggesting phone
+  login does not establish backend phone-login support. Use email on each emulator.
+
+### 2026-11-13: Two-emulator Android build collision
+
+- Recovered the exact reported64s failure from Gradle daemon89382: task
+  `:app:copyFlutterAssetsDebug` failed with `NoSuchFileException` for generated
+  `flutter_assets/FontManifest.json`. Two Gradle daemons started builds in the
+  same MobileApp/android checkout at20:59:06 and20:59:10; the other build produced
+  an APK at21:00:14. Both emulators are ARM64, so the failure does not establish
+  an emulator ABI incompatibility or a missing source font asset.
+- Installed the successfully built APK onto emulator-5554 with `adb install -r`
+  and launched MainActivity. Install returned Success; app PIDs were verified on
+  both5554 and5556. Existing5556 Flutter run was preserved. No account login or
+  two-account chat exchange was performed by this recovery.
+- Updated the [runbook](docs/guides/chat-two-emulators.md) to build once and install
+  the same APK on both emulators. If debugging with separate Flutter run sessions,
+  wait until the first build/install completes before starting the second; avoid
+  clean/cache deletion during builds. No Gradle tracking workaround or dependency
+  upgrade is needed for this observed output collision.
+
+### 2026-11-13: Local backend configuration audit
+
+- Verified PostgreSQL5433, Redis6379 and Kafka9092 healthy. Existing project
+  databases use `auth`, `user` and `chat`; service defaults `accounts`/`users`
+  do not match this volume. Auth/User local env credentials were aligned with
+  read-only verified credentials from the running PostgreSQL container; no role
+  password rotation or volume removal. Their migration commands completed.
+- Auth/User/Chat/Notification/Gateway internal tokens match; User/Notification
+  public keys match Auth. Base URLs currently omit trailing slashes; a direct
+  probe demonstrated `/internal/access`401 versus `//internal/access`404 with
+  the clients' existing path concatenation. Running services need restart after
+  env changes; Gateway health200 does not establish Auth availability.
+- Built AI/Chat/Notification; smoke-started Auth, User, Chat, AI and Nest gateway
+  on temporary ports55810–55814 and stopped only those test processes afterward.
+  Auth/User/gateway returned expected401 for invalid/missing auth; AI/Chat health
+  returned200. Chat DB contains its migration and conversation/message tables.
+- Remaining local blockers: Notification role/database not provisioned; its env
+  enables FCM but configured credential file is absent. Admin/Payment MySQL3307
+  is not listening and current Compose does not supply MySQL; PayOS credentials
+  are unset. Spring gateway runtime was not started (alternative default8080).
+  No Gemini/PayOS/FCM provider calls or real payment/push delivery were performed.
+  Setup notes added to the [OpenAPI/Bruno guide](docs/guides/services-openapi-bruno.md).
+
+### 2026-11-13: OpenAPI catalog for all backend services
+
+- Added standalone OpenAPI3.0.3 files for Auth, User, Notification, Admin,
+  Payment, Nest gateway and Spring gateway. Existing AI/Chat specs remain the
+  contracts for those services. The [catalog and Bruno guide](docs/guides/services-openapi-bruno.md)
+  links all nine specs, default ports, auth setup and a real-account test flow.
+- Specs follow implemented controller/DTO/service returns and guard behavior,
+  including Auth internal-only routes, session rotation, social request IDs,
+  notification cursors/devices, actual Java envelopes and webhook status handling.
+  Gateway specs describe their owned health/probe operations and link downstream
+  specs; import each downstream file to obtain its Bruno requests.
+- Documented existing integration limits: both gateways default8080, Spring lacks
+  AI/chat/notification routes; Java Admin/Payment trust numeric identity headers,
+  while current Nest IAM injects UUIDs. No new JWT/RBAC compatibility guarantee
+  or payment idempotency behavior was introduced. Java payment/admin databases
+  remain separate; callback acknowledgement does not prove payment verification.
+- Validation: all nine specs pass the official OpenAPI3.0 schema, internal refs,
+  operation IDs, required path parameters and implemented concrete-route coverage.
+  The seven new specs contain74 operations; including AI/Chat there are83.
+  Input/response schema spot checks and documentation links pass. No business code,
+  secrets, databases or external providers were changed/called; Bruno GUI import
+  and live endpoint execution were not performed for this documentation task.
+
 ### 2026-11-13: Deliver authenticated realtime chat on local chat-service
 
 - User approved the [chat design](docs/specs/chat/realtime-chat-design.md).

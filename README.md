@@ -1,5 +1,7 @@
 # LocCoc IAM Level 1
 
+API contracts for every backend service: [OpenAPI catalog and Bruno setup](docs/guides/services-openapi-bruno.md).
+
 This repository now contains the IAM Level 1 platform foundation: an API gateway, auth-service, user-service and shared NestJS security library. Business authentication flows can be added behind the gateway without changing the security bootstrap.
 
 ## Monorepo layout

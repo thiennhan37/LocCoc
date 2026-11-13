@@ -6,7 +6,7 @@ Ngày: 2026-11-13. Nhánh: `chat-service`.
 
 ## 1. Hai thiết bị độc lập
 
-**Khuyến nghị hiện tại: hai Android AVD khác nhau theo mục 5.** Native build iOS của nền main đang gặp conflict dependency giữa `firebase_messaging 17.0.1` (Firebase iOS/AppCheck mới) và `google_sign_in_ios 6.3.8` (GoogleSignIn/AppCheck cũ). Đây là phần cần xử lý riêng trong nền đăng nhập/push trước khi dùng nhánh iPhone ở mục 4; `flutter analyze/test` không phát hiện được lỗi native dependency này. Không đổi phiên bản auth/push chỉ để chạy chat.
+**Khuyến nghị hiện tại: hai Android AVD khác nhau theo mục 4.** Native build iOS của nền main đang gặp conflict dependency giữa `firebase_messaging 17.0.1` (Firebase iOS/AppCheck mới) và `google_sign_in_ios 6.3.8` (GoogleSignIn/AppCheck cũ). Đây là phần cần xử lý riêng trong nền đăng nhập/push trước khi dùng nhánh iPhone ở mục 4; `flutter analyze/test` không phát hiện được lỗi native dependency này. Không đổi phiên bản auth/push chỉ để chạy chat.
 
 Trên máy macOS hiện tại đã phát hiện Pixel 9 AVD `Pixel_9_API_35`. Tạo thêm một AVD tên khác trong Android Studio → Device Manager, ví dụ `Pixel_8_API_35`. Không mở lại cùng AVD đang dùng để thay cho thiết bị thứ hai.
 
@@ -21,8 +21,7 @@ Hai app cùng gọi một backend trên máy Mac. Không gọi trực tiếp IP 
 flutter doctor
 flutter emulators
 flutter emulators --launch Pixel_9_API_35
-# Thay SECOND_AVD_ID bằng ID AVD thứ hai đã tạo:
-flutter emulators --launch SECOND_AVD_ID
+flutter emulators --launch Pixel_8
 flutter devices
 ```
 
@@ -122,26 +121,31 @@ Nếu Google Sign-In được dùng thay email/password, hoàn tất OAuth cho t
 
 ## 4. Chạy app trên hai máy ảo
 
-Trong hai terminal riêng, đều vào `MobileApp`. Chạy `flutter pub get` một lần trước khi mở hai phiên debug.
+Build **một lần**, chờ hoàn tất rồi cài cùng APK vào hai máy ảo. Hai lượt `flutter run` build đồng thời từ cùng thư mục có thể ghi/xóa chung asset output và gây lỗi `copyFlutterAssetsDebug` / thiếu `FontManifest.json`. Hai emulator vẫn giữ dữ liệu và phiên đăng nhập riêng khi dùng cùng APK.
 
-Terminal A — Android Emulator thứ nhất:
+Chạy từng bước trong một terminal, từ root repository:
 
 ```sh
 cd MobileApp
 flutter pub get
-flutter run -d emulator-5554 \
+flutter build apk --debug \
   --dart-define=API_BASE_URL=http://10.0.2.2:8080 \
   --dart-define=CHAT_SOCKET_URL=http://10.0.2.2:8083
 ```
 
-Terminal B — Android Emulator thứ hai, thay ID thực tế:
+Sau khi build thành công, cài và mở app trên cả hai emulator. Thay ID bằng kết quả thực tế từ `flutter devices`; đường dẫn ADB dưới đây dành cho Android SDK mặc định trên macOS:
 
 ```sh
-cd MobileApp
-flutter run -d emulator-5556 \
-  --dart-define=API_BASE_URL=http://10.0.2.2:8080 \
-  --dart-define=CHAT_SOCKET_URL=http://10.0.2.2:8083
+chat_adb="$HOME/Library/Android/sdk/platform-tools/adb"
+"$chat_adb" -s emulator-5554 install -r build/app/outputs/flutter-apk/app-debug.apk
+"$chat_adb" -s emulator-5556 install -r build/app/outputs/flutter-apk/app-debug.apk
+"$chat_adb" -s emulator-5554 shell am start -n com.example.mobile_app/.MainActivity
+"$chat_adb" -s emulator-5556 shell am start -n com.example.mobile_app/.MainActivity
 ```
+
+`install -r` cập nhật app và giữ dữ liệu đang có. Mỗi emulator đăng nhập một account riêng. Khi đổi code hoặc build define, build lại một lượt rồi cập nhật APK trên hai máy; quy trình này dùng để test A/B bằng app đã build.
+
+Nếu cần dùng `flutter run` để debug, khởi động từng phiên lần lượt: đợi phiên đầu build/cài xong và app đã mở, rồi mới chạy phiên thứ hai. Không bắt đầu hai lượt Gradle build cùng lúc trong cùng checkout.
 
 Android Emulator có alias `10.0.2.2` trỏ về loopback của máy phát triển theo [tài liệu Android](https://developer.android.com/studio/run/emulator-networking-address). iOS Simulator trên Mac dùng URL loopback như cấu hình ở trên; xem [thiết lập Flutter iOS](https://docs.flutter.dev/platform-integration/ios/setup).
 
@@ -154,7 +158,7 @@ Có thể dùng `http://127.0.0.1:8080` cho Android nếu đã thiết lập ADB
 
 Nếu dùng ADB reverse, đặt cả hai define về loopback `127.0.0.1` với port tương ứng. Đừng dùng loopback cho socket Android khi chỉ forward mỗi port 8080.
 
-Sau khi đổi `--dart-define`, dừng và chạy lại app; hot reload không đổi build define. Nếu một terminal chờ startup lock của Flutter, chờ phiên build đầu kết thúc khởi tạo rồi chạy terminal thứ hai. Không dùng `flutter clean` khi hai phiên đang build.
+Sau khi đổi `--dart-define`, build và cài lại APK; hot reload không đổi build define. Startup lock của Flutter không bảo đảm mọi output Gradle được tách riêng. Chờ build trước kết thúc hoàn toàn; không chạy `flutter clean` hoặc xóa cache khi còn lượt build đang chạy.
 
 ## 5. Tùy chọn iPhone Simulator sau khi sửa dependency nền
 
