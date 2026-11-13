@@ -1,0 +1,58 @@
+[
+  {
+    "DisplayName": "LocCoc Dev - API Gateway from Android phone over Wi-Fi",
+    "LocalAddress": [
+      "10.251.37.35"
+    ],
+    "Direction": "Inbound",
+    "Name": "LocCoc-Dev-Gateway-Phone-WiFi",
+    "Program": "D:\\MySystemApplication\\node.exe",
+    "Profile": "Public",
+    "Group": "LocCoc Development",
+    "RemotePort": [
+      "Any"
+    ],
+    "InterfaceAlias": [
+      "Wi-Fi"
+    ],
+    "Action": "Allow",
+    "LocalPort": [
+      "8080"
+    ],
+    "Protocol": "TCP",
+    "Enabled": "True",
+    "RemoteAddress": [
+      "10.251.36.96"
+    ]
+  },
+  {
+    "DisplayName": "LocCoc Dev - keep gateway blocked for other devices",
+    "LocalAddress": [
+      "Any"
+    ],
+    "Direction": "Inbound",
+    "Name": "LocCoc-Dev-Gateway-Block-Other-Devices",
+    "Program": "D:\\MySystemApplication\\node.exe",
+    "Profile": "Public",
+    "Group": "LocCoc Development",
+    "RemotePort": [
+      "Any"
+    ],
+    "InterfaceAlias": [
+      "Any"
+    ],
+    "Action": "Block",
+    "LocalPort": [
+      "8080"
+    ],
+    "Protocol": "TCP",
+    "Enabled": "True",
+    "RemoteAddress": [
+      "0.0.0.1-10.251.36.95",
+      "10.251.36.97-255.255.255.254",
+      "2000::/3",
+      "fc00::/7",
+      "fe80::/10"
+    ]
+  }
+]

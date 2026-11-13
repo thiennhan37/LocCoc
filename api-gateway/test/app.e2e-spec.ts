@@ -2,7 +2,8 @@ import { generateKeyPairSync } from 'node:crypto';
 import { createServer, request as httpRequest, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Test } from '@nestjs/testing';
-import { type INestApplication } from '@nestjs/common';
+import { type INestApplication, UnauthorizedException } from '@nestjs/common';
+import { AccountAuthorityClient } from '@loccoc/common';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { configureGateway } from '../src/bootstrap.js';
@@ -58,6 +59,9 @@ describe('IAM gateway security contract (e2e)', () => {
     requestId: string;
     expectHeader: string | undefined;
     proxyConnection: string | undefined;
+    userId: string | undefined;
+    userRole: string | undefined;
+    serviceToken: string | undefined;
   }>();
   let jsonCapture = deferred<Buffer>();
   let releaseStream = deferred<void>();
@@ -87,6 +91,9 @@ describe('IAM gateway security contract (e2e)', () => {
             requestId: String(requestMessage.headers['x-request-id']),
             expectHeader: requestMessage.headers.expect,
             proxyConnection: requestMessage.headers['proxy-connection'],
+            userId: requestMessage.headers['x-user-id'] as string | undefined,
+            userRole: requestMessage.headers['x-user-role'] as string | undefined,
+            serviceToken: requestMessage.headers['x-service-token'] as string | undefined,
           });
           responseMessage.writeHead(200, {
             'content-type': 'image/png',
@@ -166,6 +173,13 @@ describe('IAM gateway security contract (e2e)', () => {
 
     const { AppModule } = await import('../src/app.module.js');
     const module = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(AccountAuthorityClient)
+      .useValue({
+        access: async (authorization: string) => {
+          if (authorization !== 'Bearer gateway-test-token') throw new UnauthorizedException('Authentication required');
+          return { user: { userId: 'authenticated-account', role: 'user' } };
+        },
+      })
       .overrideProvider(RedisThrottlerStorage)
       .useValue({ increment: storageIncrement })
       .compile();
@@ -213,6 +227,10 @@ describe('IAM gateway security contract (e2e)', () => {
 
     const response = await request(app.getHttpServer())
       .post('/ai/enhance')
+      .set('authorization', 'Bearer gateway-test-token')
+      .set('x-user-id', 'forged-account')
+      .set('x-user-role', 'admin')
+      .set('x-service-token', 'client-supplied-secret')
       .set('x-forwarded-for', '198.51.100.20')
       .set('content-type', `multipart/form-data; boundary=${boundary}`)
       .set('proxy-connection', 'keep-alive')
@@ -226,6 +244,9 @@ describe('IAM gateway security contract (e2e)', () => {
     expect(captured.contentType).toBe(`multipart/form-data; boundary=${boundary}`);
     expect(captured.requestId).toBe(response.headers['x-request-id']);
     expect(captured.proxyConnection).toBeUndefined();
+    expect(captured.userId).toBe('authenticated-account');
+    expect(captured.userRole).toBe('user');
+    expect(captured.serviceToken).toBeUndefined();
     expect(response.headers['content-type']).toMatch(/^image\/png/);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.headers['x-upstream-safe']).toBe('kept');
@@ -242,6 +263,7 @@ describe('IAM gateway security contract (e2e)', () => {
       path: '/ai/enhance',
       method: 'POST',
       headers: {
+        authorization: 'Bearer gateway-test-token',
         'content-type': 'application/octet-stream',
         'content-length': String(body.length),
         expect: '100-continue',
@@ -274,7 +296,7 @@ describe('IAM gateway security contract (e2e)', () => {
       port: gatewayPort,
       path: '/ai/stream',
       method: 'GET',
-      headers: { 'x-forwarded-for': '198.51.100.21' },
+      headers: { authorization: 'Bearer gateway-test-token', 'x-forwarded-for': '198.51.100.21' },
     }, (responseMessage) => {
       responseMessage.on('data', (chunk: Buffer) => {
         chunks.push(Buffer.from(chunk));
@@ -301,7 +323,7 @@ describe('IAM gateway security contract (e2e)', () => {
       port: gatewayPort,
       path: '/ai/abort',
       method: 'GET',
-      headers: { 'x-forwarded-for': '198.51.100.22' },
+      headers: { authorization: 'Bearer gateway-test-token', 'x-forwarded-for': '198.51.100.22' },
     }, (responseMessage) => {
       responseMessage.once('data', () => responseMessage.destroy());
     });
@@ -315,6 +337,7 @@ describe('IAM gateway security contract (e2e)', () => {
     const payload = { email: 'person@example.com', nested: { enabled: true } };
     const response = await request(app.getHttpServer())
       .post('/auth/echo')
+      .set('authorization', 'Bearer gateway-test-token')
       .set('x-forwarded-for', '198.51.100.23')
       .send(payload)
       .expect(200);
@@ -329,6 +352,7 @@ describe('IAM gateway security contract (e2e)', () => {
   it('sanitizes an unavailable AI upstream response', async () => {
     const response = await request(app.getHttpServer())
       .get('/ai/failure')
+      .set('authorization', 'Bearer gateway-test-token')
       .set('x-forwarded-for', '198.51.100.24')
       .expect(502);
 
@@ -340,6 +364,14 @@ describe('IAM gateway security contract (e2e)', () => {
     });
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.body).not.toHaveProperty('stack');
+  });
+
+  it('rejects unauthenticated AI requests before forwarding image content', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/ai/enhance')
+      .send({ filterId: 'handwritten_diary' })
+      .expect(401);
+    expect(response.body.message).toBe('Authentication required');
   });
 
   afterAll(async () => {

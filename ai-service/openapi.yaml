@@ -5,7 +5,9 @@ info:
   description: |
     API hiện có của AI Service, dùng để import vào Bruno.
     Xử lý ảnh đồng bộ, không lưu ảnh hoặc tạo bản ghi nghiệp vụ.
-    Không yêu cầu Authorization/JWT trong implementation hiện tại.
+    Gọi trực tiếp AI Service không yêu cầu Authorization/JWT.
+    Qua API Gateway sau khi tích hợp main, phải gửi Bearer access token hợp lệ
+    từ auth-service; gateway kiểm tra cả trạng thái tài khoản/phiên đăng nhập.
     GEMINI_API_KEY chỉ cấu hình ở backend, không gửi từ Bruno.
 
     Server mặc định là AI Service trực tiếp (8082). Có thể đổi sang
@@ -72,6 +74,7 @@ paths:
         Qua gateway, mặc định tối đa 5 request/IP/60000 ms cho các route /ai/*;
         ngoài ra còn có limiter chung (mặc định 100 request/IP/60000 ms).
         Gọi trực tiếp AI Service không đi qua các limiter này.
+        Qua gateway cần Authorization: Bearer <accessToken>.
         Không cần truyền x-request-id: backend tự sinh ID cho từng request.
       requestBody:
         required: true
@@ -136,6 +139,18 @@ paths:
                     message:
                       - 'filterId must be one of the following values: handwritten_diary, subject_sticker'
                     requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+        '401':
+          description: Gateway từ chối token thiếu, không hợp lệ, hết hạn hoặc phiên đã bị thu hồi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Gateway từ chối tài khoản không còn được phép truy cập
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
         '413':
           description: File đầu vào lớn hơn 10 MiB
           headers:
@@ -263,6 +278,12 @@ paths:
                     error: Bad Gateway
                     message: Upstream service unavailable
                     requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+        '503':
+          description: Gateway không thể kiểm tra tài khoản qua auth-service
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
         '504':
           description: Quá thời gian xử lý AI_REQUEST_TIMEOUT_MS
           headers:
@@ -280,6 +301,12 @@ paths:
                 message: Timeout
                 requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Chọn Bearer Token trong Bruno khi gọi qua gateway; service trực tiếp không yêu cầu token
   headers:
     RequestId:
       description: UUID do server sinh, trùng requestId trong JSON lỗi nếu có

@@ -7,8 +7,6 @@ export function configureGateway(app: INestApplication): void {
   const config = app.get(ConfigService);
   const origins = config.getOrThrow<string>('CORS_ORIGINS').split(',').map((origin) => origin.trim());
   app.useLogger(new RedactingLogger());
-  // Trust one ingress proxy so req.ip (and therefore the limiter key) is stable behind a load balancer.
-  app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(requestIdMiddleware);
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
   app.enableCors({ origin: origins, credentials: true });
