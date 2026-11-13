@@ -14,7 +14,7 @@ npm start
 
 `npm start` chạy chế độ thường; dùng `npm run start:dev` để watch file.
 
-Set `USER_PORT` in the root `.env` if a different port is needed. The service uses the shared environment schema and validates database, Redis, CORS and JWT settings at startup.
+Set `USER_PORT` in `user-service/.env` if a different port is needed. The service validates its own database, Redis, and JWT public-key settings at startup.
 
 ## Verify
 

@@ -1,0 +1,14 @@
+{
+  "OriginalBlockName": "{A534430E-1745-42AF-BBC8-C518D42852F1}",
+  "OriginalLocalPort": [
+    "Any"
+  ],
+  "NodeProgram": "D:\\MySystemApplication\\node.exe",
+  "AddedRules": [
+    "LocCoc-Dev-Gateway-Phone-WiFi",
+    "LocCoc-Dev-Gateway-Block-Other-Devices"
+  ],
+  "LaptopIp": "10.251.37.35",
+  "PhoneIp": "10.251.36.96",
+  "GatewayPort": 8080
+}

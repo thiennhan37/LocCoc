@@ -10,7 +10,7 @@
     "start:user": "npm --prefix user-service run start",
     "start:admin": "mvn -f admin-service/pom.xml spring-boot:run",
     "start:payment": "mvn -f payment-service/pom.xml spring-boot:run",
-    "build": "pnpm --filter @loccoc/common build && pnpm --filter './{api-gateway,auth-service,user-service}' build",
+    "build": "pnpm --filter @loccoc/common build && pnpm --filter api-gateway --filter auth-service --filter user-service --filter notification-service build",
     "build:admin": "mvn -f admin-service/pom.xml clean package -DskipTests",
     "build:payment": "mvn -f payment-service/pom.xml clean package -DskipTests",
     "test:e2e": "pnpm --filter api-gateway test:e2e",
@@ -24,6 +24,11 @@
     "dev:payment": "mvn -f payment-service/pom.xml spring-boot:run",
     "webhook:register": "node scripts/register-webhook.js",
     "db:migrate:auth": "npm --prefix auth-service run db:migrate",
-    "db:migrate:user": "npm --prefix user-service run db:migrate"
+    "db:migrate:user": "npm --prefix user-service run db:migrate",
+    "start:notification": "pnpm --filter notification-service build && pnpm --filter notification-service start"
+  },
+  "dependencies": {
+    "jose": "^6.2.17",
+    "kafkajs": "^2.2.4"
   }
 }

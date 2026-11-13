@@ -154,7 +154,8 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted) return;
     _sheetOpen = false;
     _covered = false;
-    if (_shouldUseCamera && WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+    if (_shouldUseCamera &&
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
       unawaited(_camera.start());
     }
     _camera.retake();

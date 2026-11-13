@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_app/core/network/api_client.dart';
 import 'package:mobile_app/features/auth/data/auth_api.dart';
@@ -22,6 +24,39 @@ class RecordingClient extends ApiClient {
 
 void main() {
   setUp(AuthApi.clearSession);
+  test(
+    'photo upload encodes bytes and preserves request ID through API',
+    () async {
+      final client = RecordingClient()
+        ..response = {
+          'id': 'request-id',
+          'mediaKey': '/posts/media/request-id',
+        };
+      final api = PostApi(client: client);
+      final png = Uint8List.fromList([137, 80, 78, 71]);
+      await api.publishPhoto(
+        ownerId: 'owner',
+        requestId: 'request-id',
+        png: png,
+        caption: 'Chào',
+      );
+      expect((client.calls.single['uri'] as Uri).path, '/posts/photos');
+      expect(client.calls.single['body'], {
+        'ownerId': 'owner',
+        'requestId': 'request-id',
+        'imageBase64': base64Encode(png),
+        'caption': 'Chào',
+      });
+      client.response = {
+        'id': 'unexpected',
+        'mediaKey': '/posts/media/unexpected',
+      };
+      await expectLater(
+        api.publishPhoto(ownerId: 'owner', requestId: 'request-id', png: png),
+        throwsA(isA<ApiException>()),
+      );
+    },
+  );
   test(
     'register and OTP requests match backend and false is not success',
     () async {

@@ -2,12 +2,22 @@ import { All, Controller, Req, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import type { RequestWithId } from '@loccoc/common';
+import type { AuthenticatedUser } from '@loccoc/common';
+import { Public } from '@loccoc/common';
 import { SERVICE_ROUTES, type ServiceName } from './service-routes.js';
 
 // Hop-by-hop headers: headers that are not forwarded from the client to the server
 const HOP_BY_HOP_HEADERS = new Set([
-  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
-  'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length',
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  'host',
+  'content-length',
 ]);
 
 @Controller()
@@ -15,65 +25,128 @@ export class ServiceProxyController {
   constructor(private readonly config: ConfigService) {}
 
   @All(['posts', 'posts/*path'])
+  @Public()
   forwardToPosts(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
     return this.forward('posts', request, response);
   }
 
   @All('auth/*path')
-  forwardToAuth(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+  forwardToAuth(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
     return this.forward('auth', request, response);
   }
 
+  @All(['notifications', 'notifications/*path'])
+  forwardNotifications(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
+    return this.forward('notifications', request, response);
+  }
+
   @All('users/*path')
-  forwardToUsers(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+  forwardToUsers(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
     return this.forward('users', request, response);
   }
 
   @All('admin/*path')
-  forwardToAdmin(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+  forwardToAdmin(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
     return this.forward('admin', request, response);
   }
 
   @All('payments/*path')
-  forwardToPayments(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+  forwardToPayments(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
     return this.forward('payments', request, response);
   }
 
   @All('subscriptions/*path')
-  forwardToSubscriptions(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+  forwardToSubscriptions(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
     return this.forward('subscriptions', request, response);
   }
 
-  private async forward(service: ServiceName, request: RequestWithId, response: Response): Promise<void> {
+  private async forward(
+    service: ServiceName,
+    request: RequestWithId,
+    response: Response,
+  ): Promise<void> {
     // Create targetURL for request
     const route = SERVICE_ROUTES[service];
-    const baseUrl = this.config.getOrThrow<string>(route.urlConfigKey).replace(/\/$/, '');
+    const baseUrl = this.config
+      .getOrThrow<string>(route.urlConfigKey)
+      .replace(/\/$/, '');
     const path = this.getPath(request);
     const target = new URL(`${baseUrl}${route.prefix}${path ? `/${path}` : ''}`);
     // append query params from originalUrl to targetURL
-    target.search = new URL(request.originalUrl, 'http://gateway.internal').search;
+    target.search = new URL(
+      request.originalUrl,
+      'http://gateway.internal',
+    ).search;
 
     // eliminate HOP_BY_HOP_HEADERS and copy headers from request to headers
     const headers = new Headers();
     for (const [name, value] of Object.entries(request.headers)) {
-      if (HOP_BY_HOP_HEADERS.has(name.toLowerCase()) || ['x-forwarded-for', 'x-real-ip'].includes(name.toLowerCase()) || Array.isArray(value) || value === undefined) continue;
+      if (
+        [
+          'x-service-token',
+          'x-user-id',
+          'x-user-role',
+          'x-user-roles',
+        ].includes(name.toLowerCase())
+      )
+        continue;
+      if (
+        HOP_BY_HOP_HEADERS.has(name.toLowerCase()) ||
+        ['x-forwarded-for', 'x-real-ip'].includes(name.toLowerCase()) ||
+        Array.isArray(value) ||
+        value === undefined
+      )
+        continue;
       headers.set(name, value);
     }
     headers.set('x-request-id', request.requestId);
+    const user = (request as RequestWithId & { user?: AuthenticatedUser }).user;
+    if (user) {
+      headers.set('x-user-id', user.userId);
+      headers.set('x-user-role', user.role);
+    }
     // Replace client-supplied forwarding headers with the gateway-derived IP.
     const clientIp = request.ip ?? request.socket.remoteAddress ?? 'unknown';
     headers.set('x-forwarded-for', clientIp);
     headers.set('x-real-ip', clientIp);
 
     const hasBody = !['GET', 'HEAD'].includes(request.method);
-    const body = hasBody && request.body !== undefined ? JSON.stringify(request.body) : undefined;
-    if (body && !headers.has('content-type')) headers.set('content-type', 'application/json');
+    const body =
+      hasBody && request.body !== undefined
+        ? JSON.stringify(request.body)
+        : undefined;
+    if (body && !headers.has('content-type'))
+      headers.set('content-type', 'application/json');
 
     try {
-      const upstream = await fetch(target, { method: request.method, headers, body, redirect: 'manual' });
+      const upstream = await fetch(target, {
+        method: request.method,
+        headers,
+        body,
+        redirect: 'manual',
+      });
       response.status(upstream.status);
       upstream.headers.forEach((value, name) => {
-        if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase())) response.setHeader(name, value);
+        if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase()))
+          response.setHeader(name, value);
       });
       response.send(Buffer.from(await upstream.arrayBuffer()));
     } catch {
@@ -88,6 +161,8 @@ export class ServiceProxyController {
 
   private getPath(request: RequestWithId): string {
     const wildcard = request.params?.path;
-    return Array.isArray(wildcard) ? wildcard.join('/') : String(wildcard ?? '').replace(/^\//, '');
+    return Array.isArray(wildcard)
+      ? wildcard.join('/')
+      : String(wildcard ?? '').replace(/^\//, '');
   }
 }

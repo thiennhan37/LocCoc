@@ -1,21 +1,20 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mobile_app/core/network/api_client.dart';
 import 'package:mobile_app/features/auth/data/auth_api.dart';
 import 'package:mobile_app/features/posts/data/post_api.dart';
 import 'package:mobile_app/features/posts/presentation/photo_editor_screen.dart';
 
 final sample = base64Decode(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aPmQAAAAASUVORK5CYII=',
+  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAxSURBVFhH7c4hAQAACMAwItKI6OAJAGbi5mrRlf1Z7HEdAAAAAAAAAAAAAAAAAADAAPlINKZoOLjRAAAAAElFTkSuQmCC',
 );
 
 class FakePostApi extends PostApi {
+  final owners = <String>[];
   final ids = <String>[];
   final captions = <String>[];
   final images = <Uint8List>[];
@@ -26,6 +25,7 @@ class FakePostApi extends PostApi {
     required Uint8List png,
     String caption = '',
   }) async {
+    owners.add(ownerId);
     ids.add(requestId);
     captions.add(caption);
     images.add(png);
@@ -68,7 +68,11 @@ void main() {
                 result = await Navigator.push<PublishedPhoto>(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => PhotoEditorScreen(photo: sample, api: api),
+                    builder: (_) => PhotoEditorScreen(
+                      photo: sample,
+                      api: api,
+                      ownerId: '22222222-2222-4222-8222-222222222222',
+                    ),
                   ),
                 );
               },
@@ -101,9 +105,17 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Mất mạng thử nghiệm'), findsOneWidget);
       expect(result, isNull);
+      await tester.ensureVisible(find.text('Đen trắng'));
+      await tester.tap(find.text('Đen trắng'));
+      await tester.tap(find.byTooltip('Thêm chữ'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Xong'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const ValueKey('send-photo')));
       await tester.tap(find.byKey(const ValueKey('send-photo')));
       await tester.pumpAndSettle();
       expect(api.ids.length, 2);
+      expect(api.owners, everyElement('22222222-2222-4222-8222-222222222222'));
       expect(api.ids[0], api.ids[1]);
       expect(api.images[0], api.images[1]);
       expect(api.captions, ['Xin chào', 'Xin chào']);
@@ -136,13 +148,22 @@ void main() {
   testWidgets('editor visual preview', (tester) async {
     final fontPath = Platform.environment['LOCCOC_QA_FONT'];
     if (fontPath == null) return;
-    final loader = FontLoader('Roboto')
-      ..addFont(
-        File(
-          fontPath,
-        ).readAsBytes().then((bytes) => ByteData.sublistView(bytes)),
-      );
-    await tester.runAsync(loader.load);
+    await tester.runAsync(() async {
+      final loader = FontLoader('Roboto')
+        ..addFont(
+          File(
+            fontPath,
+          ).readAsBytes().then((bytes) => ByteData.sublistView(bytes)),
+        );
+      await loader.load();
+      final icons = FontLoader('MaterialIcons')
+        ..addFont(
+          File(
+            'D:/Flutter/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+          ).readAsBytes().then((bytes) => ByteData.sublistView(bytes)),
+        );
+      await icons.load();
+    });
     Uint8List? photo;
     await tester.runAsync(() async {
       final recorder = ui.PictureRecorder();
@@ -185,7 +206,10 @@ void main() {
     await tester.pumpWidget(
       RepaintBoundary(
         key: key,
-        child: MaterialApp(home: PhotoEditorScreen(photo: photo!)),
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: PhotoEditorScreen(photo: photo!),
+        ),
       ),
     );
     await loaded(tester);

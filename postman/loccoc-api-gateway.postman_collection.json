@@ -50,6 +50,11 @@
       "key": "postId",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "photoRequestId",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -338,6 +343,53 @@
             }
           ],
           "response": []
+        },
+        {
+          "name": "Publish local photo",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('photoRequestId')) pm.collectionVariables.set('photoRequestId', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Photo created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) pm.collectionVariables.set('postId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{photoRequestId}}\",\n  \"ownerId\": \"11111111-1111-4111-8111-111111111111\",\n  \"imageBase64\": \"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAxSURBVFhH7c4hAQAACMAwItKI6OAJAGbi5mrRlf1Z7HEdAAAAAAAAAAAAAAAAAADAAPlINKZoOLjRAAAAAElFTkSuQmCC\",\n  \"caption\": \"Ảnh thử LocCoc\"\n}"
+            },
+            "url": "{{gatewayUrl}}/posts/photos",
+            "description": "PNG tối đa 5 MiB; caption tối đa 200 ký tự. Giữ photoRequestId khi retry cùng ảnh. Xóa biến photoRequestId trước khi tạo bài mới. File lưu ở Downloads/LocCoc/posts trên máy chạy post-service."
+          }
+        },
+        {
+          "name": "Read local photo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{gatewayUrl}}/posts/media/{{postId}}"
+          }
         }
       ]
     }

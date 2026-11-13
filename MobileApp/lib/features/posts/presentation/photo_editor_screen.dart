@@ -2,7 +2,6 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import '../../../core/network/api_client.dart';
 import '../../auth/data/auth_api.dart';
 import '../application/photo_renderer.dart';
 import '../data/post_api.dart';
@@ -14,9 +13,15 @@ class PublishedPhoto {
 }
 
 class PhotoEditorScreen extends StatefulWidget {
-  const PhotoEditorScreen({super.key, required this.photo, this.api});
+  const PhotoEditorScreen({
+    super.key,
+    required this.photo,
+    this.api,
+    this.ownerId,
+  });
   final Uint8List photo;
   final PostApi? api;
+  final String? ownerId;
   @override
   State<PhotoEditorScreen> createState() => _PhotoEditorScreenState();
 }
@@ -124,7 +129,7 @@ class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
         ),
       ),
     );
-    if (mounted && result != null) {
+    if (mounted && result != null && result != _caption) {
       setState(() {
         _caption = result;
         _invalidate();
@@ -134,7 +139,7 @@ class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
 
   Future<void> _send() async {
     if (_sending || _image == null) return;
-    final ownerId = AuthApi.userId;
+    final ownerId = widget.ownerId ?? AuthApi.userId;
     if (ownerId == null || ownerId.isEmpty) {
       setState(() => _error = 'Hãy đăng nhập để gửi ảnh.');
       return;
@@ -265,10 +270,13 @@ class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
                                   ),
                                   onSelected: _sending
                                       ? null
-                                      : (_) => setState(() {
-                                          _filter = filter;
-                                          _invalidate();
-                                        }),
+                                      : (_) {
+                                          if (_filter == filter) return;
+                                          setState(() {
+                                            _filter = filter;
+                                            _invalidate();
+                                          });
+                                        },
                                 ),
                               ),
                             )

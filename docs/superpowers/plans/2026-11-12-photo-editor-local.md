@@ -11,10 +11,12 @@
 - Test timeout retry, invalid PNG, DB rollback, deleted media access, editor overflow and caption export.
 
 ## Tasks
-- [ ] HTTP tests first for /posts/photos and /posts/media/{id}; prove missing endpoint fails.
-- [ ] Implement PhotoPostRequest, LocalPhotoStorage, PhotoPostService and thin PhotoPostController. Add request limit and gateway 8 MiB support. Run Maven/gateway tests.
-- [ ] Add PostApi.publishPhoto and canvas PhotoRenderer with filters/text; test request body and image export.
-- [ ] Add PhotoEditorScreen and wire Home capture/retake. Test failure preserves editor, repeat send reuses UUID and success returns edited image.
-- [ ] Create Downloads/LocCoc/posts, update README/Postman/context, run Flutter checks and local database/file smoke. Stop only diagnostic processes.
+- [x] HTTP tests first for /posts/photos and /posts/media/{id}; prove missing endpoint fails.
+- [x] Implement PhotoPostRequest, LocalPhotoStorage, PhotoPostService and thin PhotoPostController. Add request limit and gateway 8 MiB support. Run Maven/gateway tests.
+- [x] Add PostApi.publishPhoto and canvas PhotoRenderer with filters/text; test request body and image export.
+- [x] Add PhotoEditorScreen and wire Home capture/retake. Test failure preserves editor, repeat send reuses UUID and success returns edited image.
+- [x] Create Downloads/LocCoc/posts, update README/Postman/context, run Flutter checks and local database/file smoke. Stop only diagnostic processes.
 
 Execution: native in this chat, as continuation of user's explicit instruction to implement local storage and editor. No further storage decision is pending.
+
+Merge integration: preserve incoming Home/auth/profile/social, add dedicated capture route with explicit ownerId; retain old camera route tests. Local smoke verified 2026-11-13, diagnostic post-service stopped.

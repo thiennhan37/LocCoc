@@ -64,3 +64,23 @@ Không cần Bearer token. `mediaKey` là khóa media đã upload, không phải
 
 Kiểm tra local 2026-11-12: POST trả 201, bản ghi được xác nhận trong PostgreSQL posts.moments;
 DELETE trả 204 và deleted_at được cập nhật. Service đọc mật khẩu từ môi trường/.env.
+
+## Đăng ảnh local từ mobile
+
+Home mới → Thêm tin / Gửi khoảnh khắc → chụp → chọn filter, thêm chữ → Gửi.
+Mobile xuất PNG 1080×1080, rồi gọi POST /posts/photos qua gateway.
+
+Body: requestId (UUID), ownerId (UUID), imageBase64 (PNG base64 thuần), caption (tối đa 200 ký tự).
+PNG tối đa 5 MiB, chiều ảnh tối đa 2048 px; HTTP body tối đa 8 MiB.
+Trả 201 với id và mediaKey=/posts/media/{id}; GET mediaKey trả image/png.
+Retry phải giữ nguyên requestId và nội dung; cùng ID nhưng dữ liệu khác trả 409.
+
+Ảnh mặc định: \Users\<user>\Downloads\LocCoc\posts\{id}.png trên máy chạy Java.
+Trên máy hiện tại: C:/Users/tahpn/Downloads/LocCoc/posts.
+Có thể đổi bằng biến POST_MEDIA_DIR (đường dẫn tuyệt đối). Metadata ở PostgreSQL posts.moments.
+Xóa bài là xóa mềm; API ngừng phục vụ ảnh nhưng file vẫn giữ ở local.
+Endpoint /posts cũ vẫn dành cho metadata của media đã upload.
+Chưa phân phối bài tới bạn bè.
+
+Postman: Publish local photo, Read local photo đã có trong cả hai collection.
+Xóa biến photoRequestId trước khi tạo ảnh mới; giữ biến khi thử lại.

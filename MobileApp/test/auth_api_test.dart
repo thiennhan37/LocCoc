@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_app/features/auth/data/auth_api.dart';
 
 void main() {
+  // These transport tests use a loopback server, not the widget HTTP stub.
+  setUp(() => HttpOverrides.global = null);
   test(
     'login sends credentials and accepts only valid token response',
     () async {

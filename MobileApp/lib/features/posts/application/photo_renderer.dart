@@ -134,6 +134,7 @@ class PhotoRenderer {
         text: TextSpan(
           text: text.trim(),
           style: const TextStyle(
+            fontFamily: 'Roboto',
             color: Colors.white,
             fontSize: 48,
             fontWeight: FontWeight.w700,

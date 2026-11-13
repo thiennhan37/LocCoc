@@ -32,7 +32,7 @@ class FakeCameraSession extends CameraSession {
   Future<void> capture() async {
     photo = Uint8List.fromList(
       base64Decode(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aPmQAAAAASUVORK5CYII=',
+        'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAxSURBVFhH7c4hAQAACMAwItKI6OAJAGbi5mrRlf1Z7HEdAAAAAAAAAAAAAAAAAADAAPlINKZoOLjRAAAAAElFTkSuQmCC',
       ),
     );
     notifyListeners();
@@ -110,6 +110,17 @@ void main() {
     await mountHome(tester, camera);
     await tester.ensureVisible(find.byKey(const ValueKey('camera-shutter')));
     await tester.tap(find.byKey(const ValueKey('camera-shutter')));
+    await tester.pump();
+    for (
+      var i = 0;
+      i < 50 && find.byKey(const ValueKey('edited-photo')).evaluate().isEmpty;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
     await tester.pumpAndSettle();
     expect(find.text('Khoảnh khắc của bạn'), findsOneWidget);
     expect(camera.stops, greaterThan(0));

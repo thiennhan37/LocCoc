@@ -2,10 +2,13 @@ packages:
   - api-gateway
   - auth-service
   - user-service
+  - notification-service
   - admin-dashboard
   - libs/common
 syncInjectedDepsAfterScripts:
   - build
 allowBuilds:
+  '@firebase/util': true
   argon2: true
+  protobufjs: true
   unrs-resolver: true

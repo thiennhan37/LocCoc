@@ -5,6 +5,9 @@ import request from 'supertest';
 import { vi } from 'vitest';
 import { ServiceProxyController } from '../src/service-proxy.controller.js';
 import { configureGateway } from '../src/bootstrap.js';
+import { APP_GUARD } from '@nestjs/core';
+import { AccountAuthorityClient } from '@loccoc/common';
+import { GatewayAccountAccessGuard } from '../src/account-access.guard.js';
 
 describe('Post proxy routes', () => {
   let app: INestApplication;
@@ -13,7 +16,11 @@ describe('Post proxy routes', () => {
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       controllers: [ServiceProxyController],
-      providers: [{ provide: ConfigService, useValue: { getOrThrow: () => 'http://localhost:8087' } }],
+      providers: [
+        { provide: ConfigService, useValue: { getOrThrow: () => 'http://localhost:8087' } },
+        { provide: AccountAuthorityClient, useValue: { access: () => { throw new Error('Posts must remain public during local development'); } } },
+        { provide: APP_GUARD, useClass: GatewayAccountAccessGuard },
+      ],
     }).compile();
     app = module.createNestApplication();
     configureGateway(app);
