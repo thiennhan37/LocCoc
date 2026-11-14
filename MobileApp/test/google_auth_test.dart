@@ -218,7 +218,14 @@ void main() {
       );
       final result = await client.loginWithGoogleToken(idToken: 'used');
       expect(result, isA<AuthFailure>());
-      expect((result as AuthFailure).message, contains('đã được sử dụng'));
+      expect((result as AuthFailure).kind, AuthFailureKind.authentication);
+      expect(
+        result.message,
+        body.contains('SOCIAL_TOKEN_REPLAY')
+            ? contains('đã được sử dụng')
+            : contains('Không thể xác thực'),
+      );
+      expect(result.message, isNot(contains('Social ID token')));
       expect(result.message, isNot(contains('khóa')));
     }
   });
@@ -291,7 +298,7 @@ void main() {
       expect(failed, isA<AuthFailure>());
       expect(
         (failed as AuthFailure).message,
-        contains('Google configuration unavailable'),
+        isNot(contains('Google configuration unavailable')),
       );
       expect(sdk.authenticateCalls, 0);
 
@@ -429,6 +436,9 @@ void main() {
             httpClient: FakeHttpClient((request) async {
               if (request.url.path == '/notifications/counts') {
                 return http.Response('{"unseenCount":0,"unreadCount":0}', 200);
+              }
+              if (request.url.path != '/auth/logout') {
+                return http.Response('{}', 200);
               }
               logoutCalls++;
               return logoutCalls == 1
@@ -581,7 +591,8 @@ void main() {
         expect(result, isA<AuthFailure>());
         final failure = result as AuthFailure;
         expect(failure.statusCode, 503);
-        expect(failure.message, contains('bảo trì'));
+        expect(failure.kind, AuthFailureKind.server);
+        expect(failure.message, contains('tạm thời không khả dụng'));
       },
     );
   });
@@ -608,7 +619,7 @@ void main() {
         expect(result, isA<AuthFailure>());
         expect(
           (result as AuthFailure).message,
-          contains('Google Play Services'),
+          isNot(contains('Google Play Services')),
         );
       },
     );
@@ -694,10 +705,14 @@ void main() {
 
         // Verified: Navigated to HomeScreen with user's info
         expect(find.byType(HomeScreen), findsOneWidget);
-        expect(find.text('vietnam.dev@loccoc.vn'), findsOneWidget);
+        final home = tester.widget<HomeScreen>(find.byType(HomeScreen));
+        expect(home.session.user.email, 'vietnam.dev@loccoc.vn');
+        expect(home.session.user.role, 'user');
+        expect(home.session.user.status, 'active');
+        expect(find.text('vietnam.dev@loccoc.vn'), findsNothing);
         expect(find.text(AppStrings.welcomeBack), findsOneWidget);
-        expect(find.text('USER'), findsOneWidget);
-        expect(find.text('ACTIVE'), findsOneWidget);
+        expect(find.text('USER'), findsNothing);
+        expect(find.text('ACTIVE'), findsNothing);
 
         // Test logout from HomeScreen using AppBar action
         await tester.tap(find.byIcon(Icons.logout_rounded));
@@ -760,7 +775,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.text('Không thể xác thực đăng nhập Google. Vui lòng thử lại.'),
+        find.text(
+          'Không thể xác thực đăng nhập Google. Vui lòng đăng nhập lại.',
+        ),
         findsOneWidget,
       );
       expect(find.byType(HomeScreen), findsNothing);

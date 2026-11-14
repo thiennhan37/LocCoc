@@ -1,5 +1,6 @@
 import {
   Injectable,
+  ForbiddenException,
   NotFoundException,
   Optional,
   UnauthorizedException,
@@ -15,6 +16,17 @@ import { UsersRepository } from './users.repository.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
 import { ListUsersQueryDto } from './dto/list-users-query.dto.js';
 import { User } from './entities/user.entity.js';
+import { nextDisplayNameChangeAt } from './display-name.policy.js';
+
+export type UserProfile = User & { nextDisplayNameChangeAt: string | null };
+
+function profile(user: User): UserProfile {
+  return Object.assign(user, {
+    nextDisplayNameChangeAt:
+      nextDisplayNameChangeAt(user.lastDisplayNameChangedAt)?.toISOString() ??
+      null,
+  });
+}
 
 @Injectable()
 export class UsersService {
@@ -24,7 +36,7 @@ export class UsersService {
     @Optional() private readonly social?: SocialRepository,
   ) {}
 
-  async getMyProfile(userId: string, token?: string): Promise<User> {
+  async getMyProfile(userId: string, token?: string): Promise<UserProfile> {
     if (this.authority && this.social) {
       if (!token) throw new UnauthorizedException('Authentication required');
       const decision = await this.authority.access(token);
@@ -36,39 +48,66 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    return user;
+    return profile(user);
   }
 
   async getUserById(
     targetId: string,
     requester: AuthenticatedUser,
-  ): Promise<User> {
+  ): Promise<UserProfile> {
     assertOwner(targetId, requester, ['admin', 'moderator']);
     const user = await this.usersRepository.findById(targetId);
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    return user;
+    return profile(user);
   }
 
-  async updateMyProfile(userId: string, dto: UpdateUserDto): Promise<User> {
+  async updateMyProfile(userId: string, dto: UpdateUserDto): Promise<UserProfile> {
     const user = await this.usersRepository.updateProfile(userId, dto);
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    return user;
+    return profile(user);
   }
 
   async updateUserById(
     targetId: string,
     dto: UpdateUserDto,
-    _requester: AuthenticatedUser,
-  ): Promise<User> {
-    const user = await this.usersRepository.updateProfile(targetId, dto);
+    requester: AuthenticatedUser,
+  ): Promise<UserProfile> {
+    this.requireAdmin(requester);
+    if (targetId !== requester.userId && (dto.avatarUrl !== undefined || dto.coverUrl !== undefined)) {
+      throw new ForbiddenException('Profile images can only be changed by their owner');
+    }
+    const user = await this.usersRepository.updateProfile(targetId, dto, {
+      id: requester.userId,
+      type: 'ADMIN',
+    });
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    return user;
+    return profile(user);
+  }
+
+  async displayNameHistory(
+    targetId: string,
+    query: ListUsersQueryDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.requireAdmin(requester);
+    if (!(await this.usersRepository.findById(targetId)))
+      throw new NotFoundException('User not found');
+    return this.usersRepository.displayNameHistory(
+      targetId,
+      query.page ?? 1,
+      query.limit ?? 20,
+    );
+  }
+
+  private requireAdmin(requester: AuthenticatedUser): void {
+    if (!requester.roles.includes('admin'))
+      throw new ForbiddenException('Administrator role required');
   }
 
   async deleteMyAccount(userId: string, token?: string): Promise<void> {

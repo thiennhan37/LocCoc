@@ -30,5 +30,16 @@ public class RateLimitService {
       response.setHeader("Retry-After", String.valueOf(decision.retryAfterSeconds()));
       throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
     }
+    if (request.getMethod().equals("PUT") && request.getRequestURI().matches("/users/me/media/(avatar|cover)")) {
+      try {
+        decision = repository.consume("media:" + request.getRemoteAddr(), 10, 60000);
+      } catch (RuntimeException e) {
+        throw new AppException(ErrorCode.RATE_LIMITER_UNAVAILABLE);
+      }
+      if (!decision.allowed()) {
+        response.setHeader("Retry-After", String.valueOf(decision.retryAfterSeconds()));
+        throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
+      }
+    }
   }
 }

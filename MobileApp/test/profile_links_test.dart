@@ -30,8 +30,8 @@ void main() {
   for (final entry in {
     'SELF': 'Đây là hồ sơ của bạn',
     'NONE': 'Kết bạn',
-    'FRIENDS': 'Friends',
-    'OUTGOING_PENDING': 'Request Sent',
+    'FRIENDS': 'Bạn bè',
+    'OUTGOING_PENDING': 'Đã gửi lời mời',
     'INCOMING_PENDING': 'Chấp nhận',
   }.entries) {
     testWidgets(
@@ -54,6 +54,10 @@ void main() {
         expect(find.text(entry.value), findsOneWidget);
         expect(methods, ['GET']);
         if (entry.key != 'NONE') expect(find.text('Kết bạn'), findsNothing);
+        expect(
+          find.byKey(const Key('profile_more_actions')),
+          entry.key == 'SELF' ? findsNothing : findsOneWidget,
+        );
       },
     );
   }
@@ -83,6 +87,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(mutations, 0);
+    await tester.ensureVisible(find.text('Kết bạn'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Kết bạn'));
     await tester.pumpAndSettle();
     expect(mutations, 1);
@@ -114,6 +120,9 @@ void main() {
         }
         if (r.url.path == '/notifications/counts') {
           return fixtures.json({'unseenCount': 0, 'unreadCount': 0});
+        }
+        if (r.url.path == '/users/me/social-summary') {
+          return fixtures.json({'friendCount': 0});
         }
         if (r.method != 'GET') requests++;
         reads++;

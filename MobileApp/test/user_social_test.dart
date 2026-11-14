@@ -120,7 +120,7 @@ void main() {
           fresh = Completer<http.Response>();
       final calls = <String>[];
       final api = apiFor((r) {
-        final q = r.url.queryParameters['username']!;
+        final q = r.url.queryParameters['q']!;
         calls.add(q);
         return q == 'an' ? old.future : fresh.future;
       });
@@ -169,7 +169,7 @@ void main() {
           sent = true;
           return json({'id': 'request'}, 201);
         }
-        final page = r.url.queryParameters['page']!;
+        final page = r.url.queryParameters['cursor'] == null ? '1' : '2';
         pages.add(page);
         return json({
           'data': [
@@ -180,6 +180,7 @@ void main() {
             ),
           ],
           'hasMore': page == '1',
+          'nextCursor': page == '1' ? 'search-session:1' : null,
         });
       });
       await tester.pumpWidget(MaterialApp(home: FriendsScreen(api: api)));
@@ -192,7 +193,7 @@ void main() {
       expect(find.text('@anh'), findsOneWidget);
       await tester.tap(find.text('Kết bạn').first);
       await tester.pumpAndSettle();
-      expect(find.text('Request Sent'), findsOneWidget);
+      expect(find.text('Đã gửi lời mời'), findsOneWidget);
       expect(find.text('Thu hồi'), findsOneWidget);
     },
   );
@@ -303,10 +304,10 @@ void main() {
     await tester.pump();
     pending['an']!.complete(json({'id': 'r1'}, 201));
     await tester.pumpAndSettle();
-    expect(find.text('Request Sent'), findsOneWidget);
+    expect(find.text('Đã gửi lời mời'), findsOneWidget);
     pending['anh']!.complete(json({'id': 'r2'}, 201));
     await tester.pumpAndSettle();
-    expect(find.text('Request Sent'), findsNWidgets(2));
+    expect(find.text('Đã gửi lời mời'), findsNWidgets(2));
   });
   test('shares a single refresh across simultaneous user requests', () async {
     var refreshes = 0;

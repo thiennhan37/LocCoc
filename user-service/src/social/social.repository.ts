@@ -8,12 +8,14 @@ import {
 import { DataSource, EntityManager } from 'typeorm';
 import type { AccountSnapshot } from '@loccoc/common';
 import type { PageDto } from './social.dto.js';
+import { writeDisplayName } from '../users/display-name.writer.js';
 
 export interface SafeProfile {
   id: string;
   username: string;
   displayName: string | null;
   avatarUrl: string | null;
+  coverUrl: string | null;
   relationshipStatus:
     'SELF' | 'NONE' | 'FRIENDS' | 'OUTGOING_PENDING' | 'INCOMING_PENDING';
   friendRequestId: string | null;
@@ -28,14 +30,14 @@ export interface FriendRequest {
 }
 const requestColumns = `id, sender_id AS "senderId", receiver_id AS "receiverId", status,
   created_at AS "createdAt", resolved_at AS "resolvedAt"`;
-const safeColumns = `u.id,u.username,u.display_name AS "displayName",u.avatar_url AS "avatarUrl",
+export const safeColumns = `u.id,u.username,u.display_name AS "displayName",u.avatar_url AS "avatarUrl",u.cover_url AS "coverUrl",
   CASE WHEN u.id=$1 THEN 'SELF' WHEN f.id IS NOT NULL THEN 'FRIENDS' WHEN r.sender_id=$1 THEN 'OUTGOING_PENDING'
     WHEN r.receiver_id=$1 THEN 'INCOMING_PENDING' ELSE 'NONE' END AS "relationshipStatus",
   r.id AS "friendRequestId"`;
-const relations = `LEFT JOIN friendships f ON f.user_low_id=LEAST($1::uuid,u.id) AND f.user_high_id=GREATEST($1::uuid,u.id)
+export const relations = `LEFT JOIN friendships f ON f.user_low_id=LEAST($1::uuid,u.id) AND f.user_high_id=GREATEST($1::uuid,u.id)
   LEFT JOIN friend_requests r ON LEAST(r.sender_id,r.receiver_id)=LEAST($1::uuid,u.id)
     AND GREATEST(r.sender_id,r.receiver_id)=GREATEST($1::uuid,u.id) AND r.status='PENDING'`;
-const visible = `u.id<>$1 AND u.username IS NOT NULL AND u.deleted_at IS NULL AND u.account_status='active'
+export const visible = `u.id<>$1 AND u.username IS NOT NULL AND u.deleted_at IS NULL AND u.account_status='active'
   AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$1 AND b.blocked_id=u.id)
     OR (b.blocked_id=$1 AND b.blocker_id=u.id))`;
 
@@ -61,17 +63,28 @@ export class SocialRepository {
     displayName?: string,
   ): Promise<void> {
     try {
-      const rows: { id: string }[] = await this.db!.query(
-        `WITH claimed AS (UPDATE users SET username=$2,
-        display_name=COALESCE($3,display_name),updated_at=now()
-        WHERE id=$1 AND username IS NULL AND deleted_at IS NULL AND account_status='active' RETURNING id) SELECT * FROM claimed`,
-        [id, username, displayName ?? null],
-      );
-      if (!rows.length)
-        throw new ConflictException({
-          code: 'USERNAME_ALREADY_SET',
-          message: 'Username has already been set',
-        });
+      await this.db!.transaction(async (manager) => {
+        const rows: { id: string }[] = await manager.query(
+          `SELECT id FROM users WHERE id=$1 AND username IS NULL
+           AND deleted_at IS NULL AND account_status='active' FOR UPDATE`,
+          [id],
+        );
+        if (!rows.length)
+          throw new ConflictException({
+            code: 'USERNAME_ALREADY_SET',
+            message: 'Username has already been set',
+          });
+        if (displayName?.trim()) {
+          await writeDisplayName(manager, id, displayName, {
+            id,
+            type: 'USER',
+          });
+        }
+        await manager.query(
+          'UPDATE users SET username=$2,updated_at=now() WHERE id=$1',
+          [id, username],
+        );
+      });
     } catch (e) {
       if (this.code(e) === '23505')
         throw new ConflictException({
@@ -199,6 +212,8 @@ export class SocialRepository {
         message: 'Cannot send a request to yourself',
       });
     return this.transaction(async (m) => {
+      await this.assertUsers(m, id, target);
+      await m.query('SELECT lock_social_pair($1,$2)', [id, target]);
       await this.assertPair(m, id, target);
       const friends: { id: string }[] = await m.query(
         'SELECT id FROM friendships WHERE user_low_id=LEAST($1::uuid,$2::uuid) AND user_high_id=GREATEST($1::uuid,$2::uuid)',
@@ -235,6 +250,10 @@ export class SocialRepository {
       )
         throw new NotFoundException('Friend request not found');
       if (r.status !== 'PENDING') this.changed();
+      await m.query('SELECT lock_social_pair($1,$2)', [
+        r.senderId,
+        r.receiverId,
+      ]);
       await this.assertPair(m, r.senderId, r.receiverId);
       const updated: FriendRequest[] = await m.query(
         `WITH resolved AS (UPDATE friend_requests SET status=$2,resolved_at=now() WHERE id=$1 AND status='PENDING' RETURNING ${requestColumns}) SELECT * FROM resolved`,
@@ -246,6 +265,14 @@ export class SocialRepository {
           'INSERT INTO friendships(user_low_id,user_high_id) VALUES(LEAST($1::uuid,$2::uuid),GREATEST($1::uuid,$2::uuid))',
           [r.senderId, r.receiverId],
         );
+      if (action !== 'ACCEPTED')
+        await this.cooldown(
+          m,
+          r.senderId,
+          r.receiverId,
+          action === 'REJECTED' ? 'REJECT' : 'CANCEL',
+          action === 'REJECTED' ? 30 : 7,
+        );
       return updated[0]!;
     });
   }
@@ -254,11 +281,13 @@ export class SocialRepository {
     if (id === target) throw new ConflictException('Cannot block yourself');
     await this.transaction(async (m) => {
       await this.assertUsers(m, id, target);
+      await m.query('SELECT lock_social_pair($1,$2)', [id, target]);
       await m.query(
         'INSERT INTO user_blocks(blocker_id,blocked_id) VALUES($1,$2) ON CONFLICT DO NOTHING',
         [id, target],
       );
-      await this.removePair(m, id, target);
+      if (await this.removePair(m, id, target))
+        await this.cooldown(m, id, target, 'UNFRIEND', 30);
       await m.query(
         "UPDATE friend_requests SET status='CANCELLED',resolved_at=now() WHERE status='PENDING' AND LEAST(sender_id,receiver_id)=LEAST($1::uuid,$2::uuid) AND GREATEST(sender_id,receiver_id)=GREATEST($1::uuid,$2::uuid)",
         [id, target],
@@ -267,6 +296,14 @@ export class SocialRepository {
   }
   async unblock(id: string, target: string): Promise<void> {
     await this.transaction(async (m) => {
+      if (id === target) throw new NotFoundException('User not found');
+      // Preserve idempotence for unavailable targets; only lock existing users.
+      const exists: { id: string }[] = await m.query(
+        'SELECT id FROM users WHERE id=$1',
+        [target],
+      );
+      if (!exists.length) return;
+      await m.query('SELECT lock_social_pair($1,$2)', [id, target]);
       await m.query(
         'DELETE FROM user_blocks WHERE blocker_id=$1 AND blocked_id=$2',
         [id, target],
@@ -275,8 +312,16 @@ export class SocialRepository {
   }
   async unfriend(id: string, target: string): Promise<void> {
     await this.transaction(async (m) => {
+      if (id === target) throw new NotFoundException('User not found');
+      await this.assertUsers(m, id, target);
+      await m.query('SELECT lock_social_pair($1,$2)', [id, target]);
       await this.assertPair(m, id, target);
-      await this.removePair(m, id, target);
+      const removed: { id: string }[] = await m.query(
+        'WITH removed AS (DELETE FROM friendships WHERE user_low_id=LEAST($1::uuid,$2::uuid) AND user_high_id=GREATEST($1::uuid,$2::uuid) RETURNING id) SELECT id FROM removed',
+        [id, target],
+      );
+      // Retrying an already completed unfriend must not extend its cooldown.
+      if (removed.length) await this.cooldown(m, id, target, 'UNFRIEND', 30);
     });
   }
   async blocks(id: string, page: PageDto) {
@@ -297,9 +342,24 @@ export class SocialRepository {
     };
   }
   private async removePair(m: EntityManager, id: string, target: string) {
-    await m.query(
-      'DELETE FROM friendships WHERE user_low_id=LEAST($1::uuid,$2::uuid) AND user_high_id=GREATEST($1::uuid,$2::uuid)',
+    const removed: { id: string }[] = await m.query(
+      'WITH removed AS (DELETE FROM friendships WHERE user_low_id=LEAST($1::uuid,$2::uuid) AND user_high_id=GREATEST($1::uuid,$2::uuid) RETURNING id) SELECT id FROM removed',
       [id, target],
+    );
+    return removed.length > 0;
+  }
+  private async cooldown(
+    m: EntityManager,
+    a: string,
+    b: string,
+    reason: string,
+    days: number,
+  ) {
+    await m.query(
+      `INSERT INTO suggestion_feedback(viewer_id,target_id,reason,expires_at)
+      VALUES($1,$2,$3,clock_timestamp()+$4*interval '1 day'),($2,$1,$3,clock_timestamp()+$4*interval '1 day')
+      ON CONFLICT(viewer_id,target_id,reason) DO UPDATE SET expires_at=EXCLUDED.expires_at`,
+      [a, b, reason, days],
     );
   }
   private async assertUsers(m: EntityManager, id: string, target: string) {

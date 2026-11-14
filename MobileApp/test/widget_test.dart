@@ -8,7 +8,7 @@ void main() {
     await tester.pumpWidget(const LocCocApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Email hoặc Số điện thoại'), findsOneWidget);
+    expect(find.text('Email'), findsOneWidget);
     expect(find.text('Mật khẩu'), findsOneWidget);
     expect(find.text('Đăng ký'), findsNothing);
     expect(find.text('HOẶC'), findsOneWidget);
@@ -27,13 +27,13 @@ void main() {
     // Both email and password fields report required
     expect(find.text('Trường này không được để trống'), findsNWidgets(2));
 
-    // Enter email but short password
-    await tester.enterText(find.byType(TextFormField).first, 'test@loccoc.vn');
+    // A phone number is not a LoginDto email.
+    await tester.enterText(find.byType(TextFormField).first, '0901234567');
     await tester.enterText(find.byType(TextFormField).last, '123');
     await tester.tap(find.text('Đăng nhập'));
     await tester.pump();
 
-    expect(find.text('Mật khẩu phải có ít nhất 6 ký tự'), findsOneWidget);
+    expect(find.text('Vui lòng nhập email hợp lệ.'), findsOneWidget);
   });
 
   testWidgets('logging in via explore button displays the LocCoc home screen', (
@@ -68,34 +68,33 @@ void main() {
     expect(find.text('Cá nhân'), findsOneWidget);
   });
 
-  testWidgets(
-    'submitting login form attempts authentication and provides demo fallback',
-    (tester) async {
-      tester.view.physicalSize = const Size(1080, 2400);
-      tester.view.devicePixelRatio = 2.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets('failed login keeps Demo as an independent entry', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(const LocCocApp());
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(const LocCocApp());
+    await tester.pumpAndSettle();
 
-      await tester.enterText(
-        find.byType(TextFormField).first,
-        'user@example.com',
-      );
-      await tester.enterText(find.byType(TextFormField).last, 'password123');
-      await tester.tap(find.text('Đăng nhập'));
-      await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextFormField).first,
+      'user@example.com',
+    );
+    await tester.enterText(find.byType(TextFormField).last, 'password123');
+    await tester.tap(find.text('Đăng nhập'));
+    await tester.pumpAndSettle();
 
-      // In test environment without live backend, it shows error snackbar with demo action
-      expect(find.text('Vào Demo'), findsOneWidget);
+    expect(find.text('Vào Demo'), findsNothing);
+    expect(find.byType(HomeScreen), findsNothing);
+    final demo = find.text('Khám phá ngay (Tài khoản thử nghiệm)');
+    await tester.ensureVisible(demo);
+    await tester.tap(demo);
+    await tester.pumpAndSettle();
 
-      // Tapping Vào Demo navigates to HomeScreen
-      await tester.tap(find.text('Vào Demo'));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(HomeScreen), findsOneWidget);
-      expect(find.text('Một chút hôm nay.'), findsOneWidget);
-    },
-  );
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(find.text('Một chút hôm nay.'), findsOneWidget);
+  });
 }

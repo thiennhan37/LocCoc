@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform, SocketException;
+import 'dart:io' show Platform, SocketException, HttpDate;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 
@@ -12,13 +12,31 @@ class AuthApiException implements Exception {
   final int statusCode;
   final String? code;
   final String? message;
+  final DateTime? nextDisplayNameChangeAt;
+  final Duration? retryAfter;
 
-  const AuthApiException(this.statusCode, {this.code, this.message});
+  const AuthApiException(
+    this.statusCode, {
+    this.code,
+    this.message,
+    this.nextDisplayNameChangeAt,
+    this.retryAfter,
+  });
+}
+
+/// The caller belongs to a departed session; never present this as a server 401.
+class SessionChangedException extends AuthApiException {
+  const SessionChangedException() : super(0);
+}
+
+class SessionExpiredException extends AuthApiException {
+  const SessionExpiredException() : super(401);
 }
 
 class AuthApiClient {
   final http.Client _httpClient;
   final String _baseUrl;
+  String get baseUrl => _baseUrl;
   final Duration requestTimeout;
   String get origin => Uri.parse(_baseUrl).origin;
 
@@ -38,190 +56,106 @@ class AuthApiClient {
     return 'unknown';
   }
 
-  /// Exchanges a Google ID Token with LocCoc backend for an authenticated session.
   Future<AuthResult> loginWithGoogleToken({
     required String idToken,
     String? nonce,
     String? platform,
-  }) async {
-    final uri = Uri.parse('$_baseUrl${ApiConstants.googleAuthPath}');
-    final payload = <String, dynamic>{
-      'idToken': idToken,
-      if (nonce != null && nonce.isNotEmpty) 'nonce': nonce,
-    };
+  }) => _login(ApiConstants.googleAuthPath, {
+    'idToken': idToken,
+    if (nonce != null && nonce.isNotEmpty) 'nonce': nonce,
+  }, platform);
 
-    final effectivePlatform = platform ?? _detectPlatform();
+  Future<AuthResult> loginWithPassword({
+    required String email,
+    required String password,
+    String? platform,
+  }) => _login('/auth/login', {'email': email, 'password': password}, platform);
 
+  Future<AuthResult> _login(
+    String path,
+    Map<String, dynamic> payload,
+    String? platform,
+  ) async {
     try {
       final response = await _httpClient
           .post(
-            uri,
+            Uri.parse('$_baseUrl$path'),
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
-              'x-platform': effectivePlatform,
+              'x-platform': platform ?? _detectPlatform(),
             },
             body: jsonEncode(payload),
           )
           .timeout(requestTimeout);
-
-      final statusCode = response.statusCode;
-
-      if (statusCode == 200) {
-        final Map<String, dynamic> body =
-            jsonDecode(response.body) as Map<String, dynamic>;
-        final session = AuthSession.fromJson(body);
-        return AuthSuccess(session);
-      }
-
-      if (statusCode == 400) {
-        return const AuthFailure(
-          'Dữ liệu đăng nhập không hợp lệ.',
-          statusCode: 400,
+      if (response.statusCode == 200) {
+        return AuthSuccess(
+          AuthSession.fromJson(
+            jsonDecode(response.body) as Map<String, dynamic>,
+          ),
         );
       }
-
-      if (statusCode == 401) {
+      final wait = retryAfter(response.headers['retry-after']);
+      if (response.statusCode == 401 && path != '/auth/login') {
         try {
-          final body = jsonDecode(response.body);
-          if (body is Map<String, dynamic> &&
-              (body['code'] == 'SOCIAL_TOKEN_REPLAY' ||
-                  body['message'] == 'Social ID token has already been used')) {
+          final error = jsonDecode(response.body);
+          if (error is Map && error['code'] == 'SOCIAL_TOKEN_REPLAY') {
             return const AuthFailure(
               'Mã đăng nhập Google đã được sử dụng. Vui lòng đăng nhập lại để lấy mã mới.',
               statusCode: 401,
             );
           }
         } catch (_) {}
-        return const AuthFailure(
-          'Không thể xác thực đăng nhập Google. Vui lòng thử lại.',
-          statusCode: 401,
-        );
       }
-
-      if (statusCode == 403) {
-        return const AuthFailure(
-          'Tài khoản yêu cầu xác minh bảo mật bổ sung.',
-          statusCode: 403,
-        );
-      }
-
-      if (statusCode == 429) {
-        return const AuthFailure(
-          'Bạn thao tác quá nhanh. Vui lòng chờ ít phút và thử lại.',
-          statusCode: 429,
-        );
-      }
-
-      if (statusCode == 503) {
-        return const AuthFailure(
-          'Hệ thống đăng nhập Google đang được bảo trì.',
-          statusCode: 503,
-        );
-      }
-
-      // Fallback for other status codes
-      String errorMessage = 'Lỗi máy chủ ($statusCode). Vui lòng thử lại.';
-      try {
-        final Map<String, dynamic> body =
-            jsonDecode(response.body) as Map<String, dynamic>;
-        if (body['message'] is String &&
-            (body['message'] as String).isNotEmpty) {
-          errorMessage = body['message'] as String;
-        }
-      } catch (_) {}
-
-      return AuthFailure(errorMessage, statusCode: statusCode);
+      final message = switch (response.statusCode) {
+        400 || 422 => 'Dữ liệu đăng nhập không hợp lệ.',
+        401 =>
+          path == '/auth/login'
+              ? 'Email hoặc mật khẩu không chính xác.'
+              : 'Không thể xác thực đăng nhập Google. Vui lòng đăng nhập lại.',
+        403 => 'Tài khoản hiện không được phép đăng nhập.',
+        429 =>
+          wait == null
+              ? 'Bạn thao tác quá nhanh. Vui lòng chờ ít phút và thử lại.'
+              : 'Bạn thao tác quá nhanh. Vui lòng thử lại sau ${wait.inSeconds} giây.',
+        _ => 'Máy chủ đăng nhập tạm thời không khả dụng. Vui lòng thử lại.',
+      };
+      return AuthFailure(
+        message,
+        statusCode: response.statusCode,
+        retryAfter: wait,
+      );
     } on TimeoutException {
       return const AuthFailure(
-        'Kết nối đến máy chủ LocCoc đã hết thời gian chờ. '
-        'Vui lòng kiểm tra kết nối và thử đăng nhập lại.',
+        'Kết nối đến máy chủ LocCoc đã hết thời gian chờ. Vui lòng kiểm tra kết nối và thử lại.',
+        category: AuthFailureKind.network,
       );
     } on SocketException {
       return const AuthFailure(
         'Không thể kết nối đến máy chủ LocCoc. Vui lòng kiểm tra mạng.',
+        category: AuthFailureKind.network,
       );
-    } catch (e) {
-      return AuthFailure('Đã xảy ra lỗi kết nối: ${e.toString()}');
+    } on http.ClientException {
+      return const AuthFailure(
+        'Không thể kết nối đến máy chủ LocCoc. Vui lòng kiểm tra mạng.',
+        category: AuthFailureKind.network,
+      );
+    } catch (_) {
+      return const AuthFailure('Chưa thể đăng nhập. Vui lòng thử lại.');
     }
   }
 
-  /// Authenticates with email and password through the LocCoc backend (/auth/login).
-  Future<AuthResult> loginWithPassword({
-    required String email,
-    required String password,
-    String? platform,
-  }) async {
-    final uri = Uri.parse('$_baseUrl/auth/login');
-    final payload = <String, dynamic>{'email': email, 'password': password};
-
-    final effectivePlatform = platform ?? _detectPlatform();
-
+  static Duration? retryAfter(String? value) {
+    if (value == null) return null;
+    final seconds = int.tryParse(value.trim());
+    if (seconds != null) return Duration(seconds: seconds.clamp(0, 2147483647));
     try {
-      final response = await _httpClient
-          .post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'x-platform': effectivePlatform,
-            },
-            body: jsonEncode(payload),
-          )
-          .timeout(requestTimeout);
-
-      final statusCode = response.statusCode;
-
-      if (statusCode == 200) {
-        final Map<String, dynamic> body =
-            jsonDecode(response.body) as Map<String, dynamic>;
-        final session = AuthSession.fromJson(body);
-        return AuthSuccess(session);
-      }
-
-      if (statusCode == 400) {
-        return const AuthFailure(
-          'Dữ liệu đăng nhập không hợp lệ.',
-          statusCode: 400,
-        );
-      }
-
-      if (statusCode == 401) {
-        return const AuthFailure(
-          'Email hoặc mật khẩu không chính xác.',
-          statusCode: 401,
-        );
-      }
-
-      if (statusCode == 429) {
-        return const AuthFailure(
-          'Bạn thao tác quá nhanh. Vui lòng chờ ít phút và thử lại.',
-          statusCode: 429,
-        );
-      }
-
-      String errorMessage = 'Lỗi máy chủ ($statusCode). Vui lòng thử lại.';
-      try {
-        final Map<String, dynamic> body =
-            jsonDecode(response.body) as Map<String, dynamic>;
-        if (body['message'] is String &&
-            (body['message'] as String).isNotEmpty) {
-          errorMessage = body['message'] as String;
-        }
-      } catch (_) {}
-
-      return AuthFailure(errorMessage, statusCode: statusCode);
-    } on TimeoutException {
-      return const AuthFailure(
-        'Kết nối đến máy chủ LocCoc đã hết thời gian chờ. '
-        'Vui lòng kiểm tra kết nối và thử đăng nhập lại.',
+      final delta = HttpDate.parse(value).difference(DateTime.now().toUtc());
+      return Duration(
+        seconds: (delta.inMilliseconds / 1000).ceil().clamp(0, 2147483647),
       );
-    } on SocketException {
-      return const AuthFailure(
-        'Không thể kết nối đến máy chủ LocCoc. Vui lòng kiểm tra mạng.',
-      );
-    } catch (e) {
-      return AuthFailure('Đã xảy ra lỗi kết nối: ${e.toString()}');
+    } catch (_) {
+      return null;
     }
   }
 
@@ -235,7 +169,7 @@ class AuthApiClient {
             'Accept': 'application/json',
           },
         )
-        .timeout(const Duration(seconds: 15));
+        .timeout(requestTimeout);
     if (response.statusCode != 200) {
       throw AuthApiException(response.statusCode);
     }
@@ -251,7 +185,7 @@ class AuthApiClient {
           },
           body: jsonEncode({'refreshToken': session.refreshToken}),
         )
-        .timeout(const Duration(seconds: 15));
+        .timeout(requestTimeout);
     if (response.statusCode != 200) {
       throw AuthApiException(response.statusCode);
     }
@@ -294,14 +228,56 @@ class AuthApiClient {
       'Authorization': 'Bearer $accessToken',
       'Accept': 'application/json',
       'Content-Type': 'application/json',
+      if (area == 'auth' && path == 'change-password')
+        'x-platform': _detectPlatform(),
     });
     if (body != null) request.body = jsonEncode(body);
+    return _sendServiceRequest(request, requestTimeout);
+  }
+
+  Future<Map<String, dynamic>> uploadMedia(
+    String kind,
+    List<int> bytes,
+    String contentType,
+    String accessToken,
+  ) {
+    if (!['avatar', 'cover'].contains(kind)) {
+      throw ArgumentError('Invalid media kind');
+    }
+    final request = http.Request(
+      'PUT',
+      Uri.parse('$_baseUrl/users/me/media/$kind'),
+    );
+    request.headers.addAll({
+      'Authorization': 'Bearer $accessToken',
+      'Accept': 'application/json',
+      'Content-Type': contentType,
+    });
+    request.bodyBytes = bytes;
+    return _sendServiceRequest(request, const Duration(seconds: 60));
+  }
+
+  Future<Map<String, dynamic>> _sendServiceRequest(
+    http.BaseRequest request,
+    Duration timeout,
+  ) async {
     final response = await http.Response.fromStream(
-      await _httpClient.send(request).timeout(requestTimeout),
-    ).timeout(requestTimeout);
+      await _httpClient.send(request).timeout(timeout),
+    ).timeout(timeout);
     Map<String, dynamic> data = {};
     if (response.body.isNotEmpty) {
-      final decoded = jsonDecode(response.body);
+      dynamic decoded;
+      try {
+        decoded = jsonDecode(response.body);
+      } catch (_) {
+        if (response.statusCode >= 400) {
+          throw AuthApiException(
+            response.statusCode,
+            retryAfter: retryAfter(response.headers['retry-after']),
+          );
+        }
+        rethrow;
+      }
       if (decoded is! Map<String, dynamic>) {
         throw const FormatException('Invalid user response');
       }
@@ -310,8 +286,12 @@ class AuthApiClient {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AuthApiException(
         response.statusCode,
-        code: data['code'] as String?,
+        retryAfter: retryAfter(response.headers['retry-after']),
+        code: data['code'] is String ? data['code'] as String : null,
         message: data['message'] is String ? data['message'] as String : null,
+        nextDisplayNameChangeAt: data['nextDisplayNameChangeAt'] is String
+            ? DateTime.tryParse(data['nextDisplayNameChangeAt'] as String)
+            : null,
       );
     }
     return data;

@@ -47,6 +47,15 @@ export class ApiExceptionFilter implements ExceptionFilter {
         ? { code: (exception.getResponse() as { code: string }).code }
         : {}),
       requestId: request.requestId,
+      ...(exception instanceof HttpException &&
+      typeof exception.getResponse() === 'object' &&
+      'nextDisplayNameChangeAt' in (exception.getResponse() as object)
+        ? {
+            nextDisplayNameChangeAt: (
+              exception.getResponse() as { nextDisplayNameChangeAt: string }
+            ).nextDisplayNameChangeAt,
+          }
+        : {}),
     });
   }
 }

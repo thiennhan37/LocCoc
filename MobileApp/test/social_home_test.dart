@@ -49,7 +49,14 @@ void main() {
         3,
       );
       count = 2;
-      await tester.pageBack();
+      final retained = tester.state(find.byType(FriendsScreen));
+      await tester.tap(find.text('Cá nhân'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bạn bè của bạn'));
+      await tester.pumpAndSettle();
+      expect(tester.state(find.byType(FriendsScreen)), same(retained));
+      expect(friendsReads, 1);
+      await tester.tap(find.text('Cá nhân'));
       await tester.pumpAndSettle();
       expect(countValue('2'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
@@ -96,7 +103,7 @@ void main() {
       var sent = false;
       final api = fixtures.apiFor((request) async {
         if (request.url.path == '/users/search') {
-          expect(request.url.queryParameters['username'], 'antony');
+          expect(request.url.queryParameters['q'], 'antony');
           return fixtures.json({
             'data': [fixtures.peer('antony4')],
             'hasMore': false,
@@ -143,6 +150,20 @@ void main() {
       await tester.tap(find.byKey(const Key('home_account_search')));
       await tester.pumpAndSettle();
       expect(find.byType(FriendsScreen), findsOneWidget);
+      expect(find.text('Tìm tài khoản'), findsOneWidget);
+      expect(find.byKey(const Key('friend-search')), findsOneWidget);
+      expect(find.byType(ChoiceChip), findsNothing);
+      for (final label in const [
+        'Tìm bạn',
+        'Lời mời đến',
+        'Đã gửi',
+        'Bạn bè',
+        'Đã chặn',
+        'Gợi ý',
+      ]) {
+        expect(find.text(label), findsNothing);
+      }
+      expect(find.byKey(const Key('friends_privacy_button')), findsNothing);
       await tester.enterText(find.byKey(const Key('friend-search')), 'antony');
       await tester.pump(const Duration(milliseconds: 351));
       await tester.pumpAndSettle();
@@ -150,10 +171,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(UsernameProfileScreen), findsOneWidget);
       expect(find.text('@antony4'), findsOneWidget);
+      await tester.ensureVisible(find.text('Kết bạn'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Kết bạn'));
       await tester.pumpAndSettle();
       expect(sent, isTrue);
-      expect(find.text('Request Sent'), findsOneWidget);
+      expect(find.text('Đã gửi lời mời'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     },
   );

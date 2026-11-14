@@ -1,5 +1,12 @@
 # Notification inbox and push
 
+Flutter wave 2 (2026-11-11): inbox uses shared avatars, local timestamps and the
+actor payload fallback (trimmed name, then @username, then generic user). Pagination
+deduplicates within/across pages, and an individual read retains loaded pages and
+cursor. No per-item profile enrichment is added. Firebase initialization,
+permission and server registration have separate diagnostic state; see the
+[wave-2 report](../user/mobile-wave-2.md) for tests and integration limits.
+
 Implementation sequence: migrations -> outbox -> Kafka -> inbox repository/service ->
 controllers -> gateway -> durable push worker -> Flutter -> verification.
 

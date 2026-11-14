@@ -26,6 +26,7 @@
     "db:migrate": "npm --prefix ../libs/common run build && npm run build && node dist/database/migrate.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1166.0",
     "@loccoc/common": "workspace:*",
     "@nestjs/common": "^12.0.1",
     "@nestjs/config": "^4.0.2",
@@ -39,6 +40,7 @@
     "pg": "^8.13.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "sharp": "^0.35.5",
     "typeorm": "^0.3.27"
   },
   "devDependencies": {
