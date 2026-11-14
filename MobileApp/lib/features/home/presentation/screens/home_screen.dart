@@ -7,7 +7,13 @@ import '../../../debug/presentation/debug_screen.dart';
 import '../widgets/home_navigation.dart';
 import '../widgets/home_actions_header.dart';
 import '../../../auth/presentation/widgets/session_boundary.dart';
+import 'capture_moment_screen.dart';
+import '../../../posts/presentation/photo_editor_screen.dart';
 import 'dart:async';
+import '../../../chat/data/chat_api.dart';
+import '../../../chat/data/chat_socket_client.dart';
+import '../../../chat/presentation/chat_controller.dart';
+import '../../../chat/presentation/chat_screens.dart';
 import '../../../notifications/data/notification_api.dart';
 import '../../../notifications/data/push_notifications.dart';
 import '../../../notifications/presentation/notifications_screen.dart';
@@ -59,6 +65,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _friendCountError = false;
   int _socialVersion = 0;
   PushNotifications? _push;
+  ChatController? _chat;
+  Future<void> _openChat() async {
+    if (!_realSession ||
+        !session.authenticated ||
+        session.accessToken.isEmpty) {
+      return;
+    }
+    final controller = ChatController(
+      api: ChatApi(_effectiveUserApi),
+      socket: ChatSocketClient(),
+    );
+    _chat = controller;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ChatInboxScreen(controller: controller),
+        ),
+      );
+    } finally {
+      controller.dispose();
+      if (identical(_chat, controller)) _chat = null;
+    }
+  }
+
   Timer? _notificationTimer;
   late final UserApiClient _notificationUserApi = _effectiveUserApi;
   late final NotificationApi _notifications = NotificationApi(
@@ -174,6 +204,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _authService.removeReplacementCleanup(_prepareSessionReplacement);
+    _chat?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _notificationTimer?.cancel();
     _push?.dispose();
@@ -709,6 +740,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 _buildBrandHeader(),
                 const SizedBox(height: 14),
                 _buildAccountSearchBar(),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  key: const Key('home_chat'),
+                  onPressed:
+                      _realSession &&
+                          session.authenticated &&
+                          session.accessToken.isNotEmpty
+                      ? _openChat
+                      : null,
+                  icon: const Icon(Icons.chat_bubble_outline_rounded),
+                  label: const Text('Tin nhắn'),
+                ),
                 const SizedBox(height: 18),
 
                 const Text('Bản xem trước · Nội dung khoảnh khắc mẫu'),
@@ -776,11 +819,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ),
   );
 
-  void _postingUnavailable() => ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text('Tính năng thêm tin, ảnh sẽ được phát triển sau.'),
-    ),
-  );
+  bool _openingCamera = false;
+  Future<void> _openCamera() async {
+    if (_openingCamera || _isLoggingOut || _isDeletingAccount) return;
+    if (!_realSession || !session.authenticated || session.user.id.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Hãy đăng nhập để gửi ảnh.')),
+      );
+      return;
+    }
+    _openingCamera = true;
+    try {
+      final result = await Navigator.of(context).push<PublishedPhoto>(
+        MaterialPageRoute(
+          builder: (_) => CaptureMomentScreen(ownerId: session.user.id),
+        ),
+      );
+      if (mounted && result != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã đăng khoảnh khắc của bạn.')),
+        );
+      }
+    } finally {
+      _openingCamera = false;
+    }
+  }
 
   Widget _buildBrandHeader() => Row(
     children: [
@@ -864,7 +927,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Padding(
             padding: const EdgeInsets.only(right: 14),
             child: GestureDetector(
-              onTap: _postingUnavailable,
+              onTap: _openCamera,
               child: Column(
                 children: [
                   Container(
@@ -1175,7 +1238,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
-          onTap: _postingUnavailable,
+          onTap: _openCamera,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(

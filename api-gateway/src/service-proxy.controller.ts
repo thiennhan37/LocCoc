@@ -1,151 +1,97 @@
-import {
-  All,
-  Controller,
-  Req,
-  Res,
-  Put,
-  PayloadTooLargeException,
-  BadRequestException,
-} from "@nestjs/common";
-import { Throttle } from "@nestjs/throttler";
-import { ConfigService } from "@nestjs/config";
-import type { Response } from "express";
-import type { RequestWithId } from "@loccoc/common";
-import type { AuthenticatedUser } from "@loccoc/common";
-import { SERVICE_ROUTES, type ServiceName } from "./service-routes.js";
+import { All, Controller, Req, Res, Put, PayloadTooLargeException, BadRequestException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { ConfigService } from '@nestjs/config';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { Response } from 'express';
+import { Public, type AuthenticatedUser, type RequestWithId } from '@loccoc/common';
+import { SERVICE_ROUTES, type ServiceName } from './service-routes.js';
 
-// Hop-by-hop headers: headers that are not forwarded from the client to the server
 const HOP_BY_HOP_HEADERS = new Set([
-  "connection",
-  "keep-alive",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-  "host",
-  "content-length",
+  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+  'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade',
 ]);
+
+const REQUEST_ONLY_HEADERS = new Set(['host', 'content-length', 'expect']);
 
 @Controller()
 export class ServiceProxyController {
   constructor(private readonly config: ConfigService) {}
 
-  @All("auth/*path")
+  @All(['posts', 'posts/*path'])
+  @Public()
+  forwardToPosts(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forwardJson('posts', request, response);
+  }
+
+  @All('auth/*path')
   forwardToAuth(
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward("auth", request, response);
+    return this.forwardJson('auth', request, response);
   }
 
-  @All(["notifications", "notifications/*path"])
+  @All(['notifications', 'notifications/*path'])
   forwardNotifications(
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward("notifications", request, response);
+    return this.forwardJson('notifications', request, response);
   }
 
-  @Put("users/me/media/:kind")
+  @Put('users/me/media/:kind')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  forwardMedia(
-    @Req() request: RequestWithId,
-    @Res() response: Response,
-  ): Promise<void> {
-    return this.forward("users", request, response);
+  forwardMedia(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forwardJson('users', request, response);
   }
 
-  @All("users/*path")
+  @All('users/*path')
   forwardToUsers(
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward("users", request, response);
+    return this.forwardJson('users', request, response);
   }
 
-  @All("admin/*path")
+  @All('admin/*path')
   forwardToAdmin(
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward("admin", request, response);
+    return this.forwardJson('admin', request, response);
   }
 
-  @All("payments/*path")
+  @All('payments/*path')
   forwardToPayments(
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward("payments", request, response);
+    return this.forwardJson('payments', request, response);
   }
 
-  @All("subscriptions/*path")
+  @All('subscriptions/*path')
   forwardToSubscriptions(
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward("subscriptions", request, response);
+    return this.forwardJson('subscriptions', request, response);
   }
 
-  @All(["ai", "ai/*path"])
-  forwardToAi(
-    @Req() request: RequestWithId,
-    @Res() response: Response,
-  ): Promise<void> {
-    return this.forward("ai", request, response);
+  @All('ai/*path')
+  @Public()
+  forwardToAi(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forwardRaw('ai', request, response);
   }
 
-  private async forward(
-    service: ServiceName,
-    request: RequestWithId,
-    response: Response,
-  ): Promise<void> {
-    // Create targetURL for request
-    const route = SERVICE_ROUTES[service];
-    const baseUrl = this.config
-      .getOrThrow<string>(route.urlConfigKey)
-      .replace(/\/$/, "");
-    const path = request.path.slice(route.prefix.length).replace(/^\//, "");
-    const target = new URL(`${baseUrl}${route.prefix}/${path}`);
-    // append query params from originalUrl to targetURL
-    target.search = new URL(
-      request.originalUrl,
-      "http://gateway.internal",
-    ).search;
+  @All('chat/*path')
+  forwardToChat(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forwardJson('chat', request, response);
+  }
 
-    // eliminate HOP_BY_HOP_HEADERS and copy headers from request to headers
-    const headers = new Headers();
-    for (const [name, value] of Object.entries(request.headers)) {
-      if (
-        [
-          "x-service-token",
-          "x-user-id",
-          "x-user-role",
-          "x-user-roles",
-        ].includes(name.toLowerCase())
-      )
-        continue;
-      if (
-        HOP_BY_HOP_HEADERS.has(name.toLowerCase()) ||
-        ["x-forwarded-for", "x-real-ip"].includes(name.toLowerCase()) ||
-        Array.isArray(value) ||
-        value === undefined
-      )
-        continue;
-      headers.set(name, value);
-    }
-    headers.set("x-request-id", request.requestId);
-    const user = (request as RequestWithId & { user?: AuthenticatedUser }).user;
-    if (user) {
-      headers.set("x-user-id", user.userId);
-      headers.set("x-user-role", user.role);
-    }
-    // Replace client-supplied forwarding headers with the gateway-derived IP.
-    const clientIp = request.ip ?? request.socket.remoteAddress ?? "unknown";
-    headers.set("x-forwarded-for", clientIp);
-    headers.set("x-real-ip", clientIp);
+  private async forwardJson(service: ServiceName, request: RequestWithId, response: Response): Promise<void> {
+    const target = this.buildTarget(service, request);
+    const headers = this.buildRequestHeaders(request);
 
     const hasBody = !["GET", "HEAD"].includes(request.method);
     const mediaUpload =
@@ -192,26 +138,133 @@ export class ServiceProxyController {
 
     try {
       const upstream = await fetch(target, {
-        method: request.method,
-        headers,
+        method: request.method, headers,
         body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
-        redirect: "manual",
-        signal: AbortSignal.timeout(mediaUpload ? 60000 : 15000),
+        redirect: 'manual', signal: AbortSignal.timeout(mediaUpload ? 60000 : 15000),
       });
       response.status(upstream.status);
-      upstream.headers.forEach((value, name) => {
-        if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase()))
-          response.setHeader(name, value);
-      });
+      this.copyResponseHeaders(upstream.headers, response);
       response.send(Buffer.from(await upstream.arrayBuffer()));
-    } catch {
-      response.status(502).json({
-        statusCode: 502,
-        error: "Bad Gateway",
-        message: "Upstream service unavailable",
-        requestId: request.requestId,
-      });
+    } catch (error) {
+      this.handleUpstreamError(error, request, response);
     }
+  }
+
+  private async forwardRaw(service: ServiceName, request: RequestWithId, response: Response): Promise<void> {
+    const target = this.buildTarget(service, request);
+    const headers = this.buildRequestHeaders(request);
+    const hasBody = !['GET', 'HEAD'].includes(request.method);
+    const abortController = new AbortController();
+    let clientDisconnected = false;
+    let responseFinished = false;
+
+    const abortUpstream = () => {
+      clientDisconnected = true;
+      abortController.abort();
+    };
+    const markFinished = () => { responseFinished = true; };
+    const abortOnPrematureClose = () => {
+      if (!responseFinished) abortUpstream();
+    };
+
+    request.once('aborted', abortUpstream);
+    response.once('finish', markFinished);
+    response.once('close', abortOnPrematureClose);
+
+    try {
+      const init: RequestInit & { duplex?: 'half' } = {
+        method: request.method,
+        headers,
+        body: hasBody ? request as unknown as BodyInit : undefined,
+        redirect: 'manual',
+        signal: abortController.signal,
+      };
+      if (hasBody) init.duplex = 'half';
+
+      const upstream = await fetch(target, init);
+      response.status(upstream.status);
+      this.copyResponseHeaders(upstream.headers, response);
+
+      if (!upstream.body) {
+        response.end();
+        return;
+      }
+      await pipeline(Readable.fromWeb(upstream.body as never), response);
+    } catch (error) {
+      if (clientDisconnected || abortController.signal.aborted) {
+        if (!response.destroyed && !response.writableEnded) response.destroy();
+        return;
+      }
+      this.handleUpstreamError(error, request, response);
+    } finally {
+      request.removeListener('aborted', abortUpstream);
+      response.removeListener('finish', markFinished);
+      response.removeListener('close', abortOnPrematureClose);
+    }
+  }
+
+  private buildTarget(service: ServiceName, request: RequestWithId): URL {
+    const route = SERVICE_ROUTES[service];
+    const baseUrl = this.config.getOrThrow<string>(route.urlConfigKey).replace(/\/$/, '');
+    const path = this.getPath(request);
+    const target = new URL(`${baseUrl}${route.prefix}${path ? `/${path}` : ''}`);
+    target.search = new URL(request.originalUrl, 'http://gateway.internal').search;
+    return target;
+  }
+
+  private buildRequestHeaders(request: RequestWithId): Headers {
+    const headers = new Headers();
+    const blocked = new Set([
+      ...HOP_BY_HOP_HEADERS,
+      ...REQUEST_ONLY_HEADERS,
+      'x-service-token',
+      'x-user-id',
+      'x-user-role',
+      'x-user-roles',
+      'x-forwarded-for',
+      'x-real-ip',
+      ...this.connectionHeaderNames(request.headers.connection),
+    ]);
+    for (const [name, value] of Object.entries(request.headers)) {
+      if (blocked.has(name.toLowerCase()) || Array.isArray(value) || value === undefined) continue;
+      headers.set(name, value);
+    }
+    headers.set('x-request-id', request.requestId);
+    const user = (request as RequestWithId & { user?: AuthenticatedUser }).user;
+    if (user) {
+      headers.set('x-user-id', user.userId);
+      headers.set('x-user-role', user.role);
+    }
+    const clientIp = request.ip ?? request.socket.remoteAddress ?? 'unknown';
+    headers.set('x-forwarded-for', clientIp);
+    headers.set('x-real-ip', clientIp);
+    return headers;
+  }
+
+  private copyResponseHeaders(upstreamHeaders: Headers, response: Response): void {
+    const blocked = new Set([...HOP_BY_HOP_HEADERS, ...this.connectionHeaderNames(upstreamHeaders.get('connection'))]);
+    upstreamHeaders.forEach((value, name) => {
+      if (!blocked.has(name.toLowerCase())) response.setHeader(name, value);
+    });
+  }
+
+  private connectionHeaderNames(value: string | string[] | undefined | null): string[] {
+    const header = Array.isArray(value) ? value.join(',') : value;
+    return String(header ?? '').split(',').map((name) => name.trim().toLowerCase()).filter(Boolean);
+  }
+
+  private handleUpstreamError(error: unknown, request: RequestWithId, response: Response): void {
+    if (response.headersSent) {
+      response.destroy(error instanceof Error ? error : undefined);
+      return;
+    }
+    response.setHeader('Cache-Control', 'no-store');
+    response.status(502).json({
+      statusCode: 502,
+      error: 'Bad Gateway',
+      message: 'Upstream service unavailable',
+      requestId: request.requestId,
+    });
   }
 
   private async drainRejectedBody(request: RequestWithId): Promise<void> {
@@ -228,5 +281,14 @@ export class ServiceProxyController {
       request.once("error", finish);
       request.resume();
     });
+  }
+
+  private getPath(request: RequestWithId): string {
+    // Named media routes have :kind instead of the wildcard parameter.
+    if (request.method === 'PUT' && request.params?.kind !== undefined) {
+      return request.path.slice('/users/'.length);
+    }
+    const wildcard = request.params?.path;
+    return Array.isArray(wildcard) ? wildcard.join('/') : String(wildcard ?? '').replace(/^\//, '');
   }
 }

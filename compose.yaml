@@ -44,10 +44,14 @@ services:
       POSTGRES_DB: postgres
       AUTH_DB_NAME: ${AUTH_DB_NAME:-accounts}
       USER_DB_NAME: ${USER_DB_NAME:-users}
+      POST_DB_NAME: ${POST_DB_NAME:-posts}
       NOTIFICATION_DB_NAME: ${NOTIFICATION_DB_NAME:-notifications}
       NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:-}
+      CHAT_DB_NAME: ${CHAT_DB_NAME:-chat}
+      CHAT_DB_PASSWORD: ${CHAT_DB_PASSWORD:-}
       USER_DB_PASSWORD: ${USER_DB_PASSWORD:?Set USER_DB_PASSWORD in .env}
       AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Set AUTH_DB_PASSWORD in .env}
+      POST_DB_PASSWORD: ${POST_DB_PASSWORD:-postgres}
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:

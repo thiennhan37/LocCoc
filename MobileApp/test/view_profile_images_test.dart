@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_app/core/widgets/full_screen_image_viewer.dart';
-import 'package:mobile_app/core/widgets/user_avatar.dart';
-import 'package:mobile_app/core/widgets/user_cover.dart';
 import 'package:mobile_app/features/home/presentation/screens/home_screen.dart';
 import 'package:mobile_app/features/users/presentation/username_profile_screen.dart';
 import 'package:mobile_app/features/users/presentation/avatar_url_screen.dart';

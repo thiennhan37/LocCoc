@@ -80,7 +80,7 @@ class FullScreenImageViewer extends StatelessWidget {
                 ),
               );
             },
-            errorBuilder: (_, __, ___) => const Center(
+            errorBuilder: (_, _, _) => const Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [

@@ -1,0 +1,1039 @@
+openapi: 3.0.3
+info:
+  title: LocCoc Auth Service
+  version: 1.0.0
+  description: >-
+    Đăng ký/OTP, đăng nhập thật, token rotation và quản lý session. Các route /auth qua gateway hoặc trực tiếp
+    đều xác thực theo guard hiện có; route public được đánh dấu riêng. /internal chỉ dùng trực tiếp cho
+    service tin cậy, không được proxy qua gateway. Không có GET /health tại Auth Service. POST JSON từ chối
+    field ngoài DTO. Không đưa x-service-token vào mobile hay collection chia sẻ.
+servers:
+  - url: http://localhost:8080
+    description: Nest gateway
+  - url: http://localhost:8000
+    description: Service trực tiếp (local)
+security:
+  - bearerAuth: []
+paths:
+  /auth/register:
+    post:
+      operationId: authRegister
+      summary: Đăng ký account chờ xác minh
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Register'
+      description: >-
+        5/phút/IP theo metadata. Email trim/lowercase; response không xác nhận account đã tồn tại. Không tự
+        cấp token.
+      responses:
+        '201':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResult'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/verify-otp:
+    post:
+      operationId: authVerifyOtp
+      summary: Xác minh OTP
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyOtp'
+      description: >-
+        10/phút/IP. email/phone đều optional ở DTO; nếu thiếu destination, OTP sai/hết hạn vẫn trả200 với
+        verified:false. Nếu có cả hai, service ưu tiên email. Xác minh email kích hoạt account pending.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Verification'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/resend-otp:
+    post:
+      operationId: authResendOtp
+      summary: Yêu cầu OTP mới
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendOtp'
+      description: 5/phút/IP; trả thông báo chung kể cả không có account/destination. Hạn mức OTP riêng vẫn áp dụng.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/login:
+    post:
+      operationId: authLogin
+      summary: Đăng nhập email/password
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+      parameters:
+        - name: x-platform
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Gợi ý android/ios/web; không phải danh tính tin cậy
+      description: >-
+        10/phút/IP và lockout riêng. Account phải active; lưu accessToken và refreshToken vừa cấp để test các
+        API khác.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResult'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/refresh:
+    post:
+      operationId: authRefresh
+      summary: Xoay refresh token
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Refresh'
+      parameters:
+        - name: x-platform
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Gợi ý android/ios/web; không phải danh tính tin cậy
+      description: >-
+        20/phút/IP. Refresh token chỉ dùng một lần; luôn thay cặp token trong môi trường local sau thành công.
+        Replay có thể thu hồi session.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/logout:
+    post:
+      operationId: authLogout
+      summary: Thu hồi session hiện tại
+      tags:
+        - Authentication
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - revoked
+                properties:
+                  revoked:
+                    type: boolean
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/logout-all:
+    post:
+      operationId: authLogoutAll
+      summary: Thu hồi tất cả session của account
+      tags:
+        - Authentication
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - revokedSessions
+                properties:
+                  revokedSessions:
+                    type: integer
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/change-password:
+    post:
+      operationId: authChangePassword
+      summary: Đổi mật khẩu và cấp session mới
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+      parameters:
+        - name: x-platform
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Gợi ý android/ios/web; không phải danh tính tin cậy
+      description: Thu hồi toàn bộ session/refresh token cũ; thay cặp token đang dùng bằng response mới.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePasswordResult'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/social/google:
+    post:
+      operationId: authSocialgoogle
+      summary: Đăng nhập google bằng ID token thật
+      tags:
+        - Authentication
+      security: []
+      parameters:
+        - name: x-platform
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Gợi ý android/ios/web; không phải danh tính tin cậy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SocialGoogle'
+      description: >-
+        5/phút/IP. Cần cấu hình audience/JWKS/provider hợp lệ. Token/nonce replay bị chặn; không dùng JWT giả
+        để thử.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResult'
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                  - no-store
+              description: Không lưu response nhạy cảm
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/social/apple:
+    post:
+      operationId: authSocialapple
+      summary: Đăng nhập apple bằng ID token thật
+      tags:
+        - Authentication
+      security: []
+      parameters:
+        - name: x-platform
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Gợi ý android/ios/web; không phải danh tính tin cậy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SocialApple'
+      description: >-
+        5/phút/IP. Cần cấu hình audience/JWKS/provider hợp lệ. Token/nonce replay bị chặn; không dùng JWT giả
+        để thử.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResult'
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                  - no-store
+              description: Không lưu response nhạy cảm
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/sessions:
+    get:
+      operationId: authListSessions
+      summary: Session đang hoạt động của account hiện tại
+      tags:
+        - Sessions
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 512
+            pattern: ^[A-Za-z0-9_-]+$
+          description: Opaque cursor của đúng account và đúng loại danh sách; bỏ ở trang đầu
+      description: 30/phút; Cache-Control:no-store. Không có admin bypass quyền sở hữu.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sessions'
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                  - no-store
+              description: Không lưu response nhạy cảm
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/sessions/history:
+    get:
+      operationId: authSessionHistory
+      summary: Lịch sử đăng nhập của account hiện tại
+      tags:
+        - Sessions
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 512
+            pattern: ^[A-Za-z0-9_-]+$
+          description: Opaque cursor của đúng account và đúng loại danh sách; bỏ ở trang đầu
+      description: 30/phút; Cache-Control:no-store. Giữ90 ngày cộng session cũ còn active; cursor khác với /sessions.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionHistory'
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                  - no-store
+              description: Không lưu response nhạy cảm
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/sessions/{id}:
+    delete:
+      operationId: authRevokeSession
+      summary: Thu hồi một session thuộc account
+      tags:
+        - Sessions
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      description: >-
+        20/phút; Cache-Control:no-store. Session không thuộc account trả404; lặp lại session đã revoke trả
+        revoked:false. Tự revoke sẽ làm token hiện tại hết hiệu lực.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - sessionId
+                  - revoked
+                  - isCurrent
+                properties:
+                  sessionId:
+                    type: string
+                    format: uuid
+                  revoked:
+                    type: boolean
+                  isCurrent:
+                    type: boolean
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                  - no-store
+              description: Không lưu response nhạy cảm
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/accounts/{id}/status:
+    patch:
+      operationId: authSetAccountStatus
+      summary: Admin thay đổi trạng thái account khác
+      tags:
+        - Administration
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - active
+                    - suspended
+              additionalProperties: false
+      description: Chỉ admin; không tự đổi trạng thái của mình; không chuyển pending_verification qua API này.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSnapshot'
+        default:
+          $ref: '#/components/responses/Error'
+  /internal/access:
+    get:
+      operationId: authInternalAccess
+      summary: Xác minh account/session hiện tại
+      tags:
+        - Internal
+      servers:
+        - url: http://localhost:8000
+          description: Chỉ Auth Service trực tiếp
+      security:
+        - bearerAuth: []
+          serviceToken: []
+      description: >-
+        Chỉ service tin cậy; đồng thời cần Bearer account/session thật và x-service-token. Không có route
+        gateway /internal.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessDecision'
+        default:
+          $ref: '#/components/responses/Error'
+  /internal/accounts/{id}:
+    get:
+      operationId: authInternalAccount
+      summary: Đọc account snapshot nội bộ
+      tags:
+        - Internal
+      servers:
+        - url: http://localhost:8000
+          description: Chỉ Auth Service trực tiếp
+      security:
+        - bearerAuth: []
+          serviceToken: []
+      description: >-
+        Chỉ service tin cậy; đồng thời cần Bearer account/session thật và x-service-token. Không có route
+        gateway /internal.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSnapshot'
+        default:
+          $ref: '#/components/responses/Error'
+  /internal/accounts/{id}/delete:
+    post:
+      operationId: authInternalDeleteAccount
+      summary: Soft delete account (nội bộ)
+      tags:
+        - Internal
+      servers:
+        - url: http://localhost:8000
+          description: Chỉ Auth Service trực tiếp
+      security:
+        - bearerAuth: []
+          serviceToken: []
+      description: >-
+        Chỉ service tin cậy; đồng thời cần Bearer account/session thật và x-service-token. Không có route
+        gateway /internal. Chỉ self/admin được xóa; thao tác thay đổi dữ liệu thật và làm mất quyền truy cập.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSnapshot'
+        default:
+          $ref: '#/components/responses/Error'
+  /internal/push-sessions/{userId}/{sessionId}:
+    get:
+      operationId: authInternalPushSession
+      summary: Kiểm tra session được phép nhận push
+      tags:
+        - Internal
+      servers:
+        - url: http://localhost:8000
+          description: Chỉ Auth Service trực tiếp
+      security:
+        - serviceToken: []
+      description: >-
+        Chỉ x-service-token, không yêu cầu Bearer ở handler. Không có route gateway; allowed:false nếu
+        account/session không còn active.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - allowed
+                properties:
+                  allowed:
+                    type: boolean
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    serviceToken:
+      type: apiKey
+      in: header
+      name: x-service-token
+      description: INTERNAL_SERVICE_TOKEN của backend; không lưu giá trị thật trong collection chia sẻ
+  responses:
+    Error:
+      description: >-
+        400 validation/cursor; 401 token/credentials; 403 role/account; 404 missing/hidden resource; 409
+        conflict; 429 rate limit; 500 internal; 502/503 upstream unavailable. Shape có thể khác giữa service
+        trực tiếp và gateway.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+        error:
+          type: string
+        code:
+          type: string
+        message:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        errors:
+          type: array
+          items:
+            type: string
+        requestId:
+          type: string
+    Message:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+    Register:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: chat.a@example.com
+        password:
+          type: string
+          minLength: 6
+          maxLength: 128
+          description: Policy còn chặn mật khẩu phổ biến và mật khẩu trùng email/local-part; policy vi phạm trả409.
+        phone:
+          type: string
+          description: 'Nếu có: chuẩn hóa bỏ dấu cách/().- rồi kiểm tra E.164, ví dụ +84912345678'
+          nullable: true
+      additionalProperties: false
+    RegisterResult:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+        userId:
+          type: string
+          format: uuid
+    VerifyOtp:
+      type: object
+      required:
+        - otp
+      properties:
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        otp:
+          type: string
+          minLength: 6
+          maxLength: 6
+          description: OTP 6 ký tự được cấp thật; không phải giá trị seed
+      additionalProperties: false
+    ResendOtp:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        channel:
+          type: string
+          enum:
+            - email
+            - phone
+            - null
+          nullable: true
+      additionalProperties: false
+    Verification:
+      type: object
+      required:
+        - verified
+        - message
+      properties:
+        verified:
+          type: boolean
+        message:
+          type: string
+    Login:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: chat.a@example.com
+        password:
+          type: string
+      additionalProperties: false
+    Refresh:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          minLength: 43
+      additionalProperties: false
+    PublicAccount:
+      type: object
+      required:
+        - id
+        - email
+        - phone
+        - role
+        - status
+        - emailVerifiedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum:
+            - user
+            - moderator
+            - admin
+        status:
+          type: string
+          enum:
+            - pending_verification
+            - active
+            - suspended
+        emailVerifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+    TokenPair:
+      type: object
+      required:
+        - accessToken
+        - refreshToken
+        - tokenType
+        - expiresIn
+        - refreshExpiresIn
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        tokenType:
+          type: string
+          enum:
+            - Bearer
+        expiresIn:
+          type: integer
+          description: Giây; mặc định900, có thể cấu hình
+        refreshExpiresIn:
+          type: integer
+          description: Giây; mặc định2592000, có thể cấu hình
+    LoginResult:
+      allOf:
+        - $ref: '#/components/schemas/TokenPair'
+        - type: object
+          required:
+            - authenticated
+            - user
+          properties:
+            authenticated:
+              type: boolean
+            user:
+              $ref: '#/components/schemas/PublicAccount'
+    ChangePassword:
+      type: object
+      required:
+        - currentPassword
+        - newPassword
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 128
+        newPassword:
+          type: string
+          minLength: 10
+          maxLength: 128
+          description: Cũng áp dụng password policy của service
+      additionalProperties: false
+    ChangePasswordResult:
+      allOf:
+        - $ref: '#/components/schemas/TokenPair'
+        - $ref: '#/components/schemas/Message'
+    SocialGoogle:
+      type: object
+      required:
+        - idToken
+      properties:
+        idToken:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          description: Google ID token JWT thật; không phải access token của LocCoc
+        nonce:
+          type: string
+          minLength: 1
+          maxLength: 256
+      additionalProperties: false
+    SocialApple:
+      type: object
+      required:
+        - idToken
+      properties:
+        idToken:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          description: Apple ID token JWT thật
+        nonce:
+          type: string
+          minLength: 1
+          maxLength: 256
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Gợi ý display name không đáng tin; không dùng liên kết danh tính
+      additionalProperties: false
+    Session:
+      type: object
+      required:
+        - id
+        - device
+        - ip
+        - createdAt
+        - lastUsedAt
+        - expiresAt
+        - isCurrent
+      properties:
+        id:
+          type: string
+          format: uuid
+        device:
+          type: object
+          required:
+            - platform
+            - userAgent
+          properties:
+            platform:
+              type: string
+              enum:
+                - android
+                - ios
+                - web
+                - unknown
+            userAgent:
+              type: string
+              nullable: true
+              maxLength: 512
+        ip:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        isCurrent:
+          type: boolean
+    HistorySession:
+      allOf:
+        - $ref: '#/components/schemas/Session'
+        - type: object
+          required:
+            - status
+            - revokedAt
+          properties:
+            status:
+              type: string
+              enum:
+                - ACTIVE
+                - REVOKED
+                - EXPIRED
+            revokedAt:
+              type: string
+              format: date-time
+              nullable: true
+    PageInfo:
+      type: object
+      required:
+        - hasMore
+        - nextCursor
+      properties:
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+          nullable: true
+    Sessions:
+      type: object
+      required:
+        - items
+        - pageInfo
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Session'
+        pageInfo:
+          $ref: '#/components/schemas/PageInfo'
+    SessionHistory:
+      type: object
+      required:
+        - items
+        - pageInfo
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HistorySession'
+        pageInfo:
+          $ref: '#/components/schemas/PageInfo'
+    AccountSnapshot:
+      type: object
+      required:
+        - id
+        - email
+        - phone
+        - status
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - pending_verification
+            - active
+            - suspended
+            - deleted
+        version:
+          type: integer
+    AuthenticatedUser:
+      type: object
+      required:
+        - userId
+        - sessionId
+        - role
+        - roles
+        - scopes
+        - issuer
+        - audience
+      properties:
+        userId:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        role:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        issuer:
+          type: string
+        audience:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+    AccessDecision:
+      type: object
+      required:
+        - user
+        - account
+      properties:
+        user:
+          $ref: '#/components/schemas/AuthenticatedUser'
+        account:
+          $ref: '#/components/schemas/AccountSnapshot'
+tags:
+  - name: Authentication
+  - name: Sessions
+  - name: Administration
+  - name: Internal
+    description: Chỉ trực tiếp Auth Service; cần token nội bộ, không dùng từ mobile

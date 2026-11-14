@@ -88,7 +88,7 @@ class ApiGatewayApplicationTests {
 
   @DynamicPropertySource
   static void properties(DynamicPropertyRegistry registry) {
-    for (String name : new String[] {"auth", "users", "admin", "payments", "subscriptions"})
+    for (String name : new String[] {"auth", "users", "admin", "payments", "subscriptions", "posts"})
       registry.add(
           "gateway.routes." + name, () -> "http://127.0.0.1:" + upstream.getAddress().getPort());
     registry.add("gateway.cors-origins", () -> "http://localhost:3000");
@@ -112,7 +112,7 @@ class ApiGatewayApplicationTests {
 
   @Test
   void allPrefixesPreserved() throws Exception {
-    for (String prefix : new String[] {"auth", "users", "admin", "payments", "subscriptions"}) {
+    for (String prefix : new String[] {"auth", "users", "admin", "payments", "subscriptions", "posts"}) {
       mvc.perform(
               get(java.net.URI.create("/" + prefix + "/check?q=a%20b"))
                   .header("Authorization", "Bearer test")
@@ -141,6 +141,18 @@ class ApiGatewayApplicationTests {
     mvc.perform(put("/users/me/media/cover").contentType("image/png").header("Content-Encoding", "gzip").content("bad"))
         .andExpect(status().isUnsupportedMediaType());
     verify(repository, atLeastOnce()).consume(eq("media:127.0.0.1"), eq(10), eq(60000L));
+  }
+
+  @Test
+  void forwardsPostRootAndDeletionWithoutToken() throws Exception {
+    mvc.perform(post("/posts/photos").contentType("application/json").content("{\"imageBase64\":\"abc\"}"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("POST /posts/photos {\"imageBase64\":\"abc\"}"));
+    mvc.perform(post("/posts").contentType("application/json").content("{\"mediaType\":0}"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("POST /posts {\"mediaType\":0}"));
+    mvc.perform(delete("/posts/123?ownerId=456")).andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("DELETE /posts/123?ownerId=456"));
   }
 
   @Test

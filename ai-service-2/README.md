@@ -70,9 +70,9 @@ cp .env.example .env
 
 ### Bước 4: Khởi chạy AI Service 2
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8087 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8088 --reload
 ```
-*Swagger UI tài liệu API tương tác trực tiếp tại: [http://localhost:8087/docs](http://localhost:8087/docs)*
+*Swagger UI tài liệu API tương tác trực tiếp tại: [http://localhost:8088/docs](http://localhost:8088/docs)*
 
 ---
 
@@ -92,14 +92,14 @@ uvicorn app.main:app --host 0.0.0.0 --port 8087 --reload
 
 ### 1. Sinh vector cho văn bản tiếng Việt
 ```bash
-curl -X POST "http://localhost:8087/api/v1/embeddings/text" \
+curl -X POST "http://localhost:8088/api/v1/embeddings/text" \
      -H "Content-Type: application/json" \
      -d '{"texts": ["chuyến dã ngoại mùa hè với bạn bè", "hóa đơn tiền điện"], "truncate_dim": 512}'
 ```
 
 ### 2. Index một ảnh vào Qdrant
 ```bash
-curl -X POST "http://localhost:8087/api/v1/media/index" \
+curl -X POST "http://localhost:8088/api/v1/media/index" \
      -F "file=@/path/to/my_photo.jpg" \
      -F "media_id=photo_001" \
      -F "user_id=user_abc" \
@@ -110,7 +110,7 @@ curl -X POST "http://localhost:8087/api/v1/media/index" \
 
 ### 3. Tìm kiếm khoảnh khắc bằng ngôn ngữ tự nhiên
 ```bash
-curl -X POST "http://localhost:8087/api/v1/search/moments" \
+curl -X POST "http://localhost:8088/api/v1/search/moments" \
      -H "Content-Type: application/json" \
      -d '{
        "query": "ảnh chụp ở biển với gia đình",
@@ -124,5 +124,16 @@ curl -X POST "http://localhost:8087/api/v1/search/moments" \
 
 ## 6. Chạy Script Kiểm Thử Tự Động
 ```bash
-python scripts/test_search.py --base-url http://localhost:8087
+python scripts/test_search.py --base-url http://localhost:8088
 ```
+
+
+## Coexistence with Gemini and posts
+
+AI2 defaults to port 8088; Gemini uses 8082 and post-service uses 8087.
+`AI_SERVICE_URL` and Gateway `/ai/*` belong to Gemini.
+`AI_SEARCH_SERVICE_URL` is reserved for AI2; `/ai-search/*` is not exposed in
+this merge because AI2 ownership checks are deferred. See
+[the integration decision](../docs/adr/ADR-015-separate-ai-services.md).
+Existing local `.env` files are preserved; an existing `PORT=8087` overrides
+the new code default until the developer updates it.

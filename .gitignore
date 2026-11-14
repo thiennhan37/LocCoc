@@ -10,6 +10,7 @@
 .env.production.local
 .env.*.local
 secrets/
+.worktrees/
 *.pem
 *.key
 
@@ -120,3 +121,20 @@ ai-service-2/models/
 *.pth
 .cache/
 **/.cache/
+
+# 10. AI Service Models & HuggingFace Cache
+ai-service-2/models/
+ai-service-2/.venv/
+**/.cache/
+*.safetensors
+*.onnx
+*.onnx_data
+*.bin
+*.pt
+*.pth
+
+# 11. Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/

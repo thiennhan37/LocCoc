@@ -1,4 +1,8 @@
 export const SERVICE_ROUTES = {
+  posts: {
+    prefix: '/posts',
+    urlConfigKey: 'POST_SERVICE_URL',
+  },
   auth: {
     prefix: '/auth',
     urlConfigKey: 'AUTH_SERVICE_URL',
@@ -12,6 +16,14 @@ export const SERVICE_ROUTES = {
     prefix: '/users',
     urlConfigKey: 'USER_SERVICE_URL',
   },
+  ai: {
+    prefix: '/ai',
+    urlConfigKey: 'AI_SERVICE_URL',
+  },
+  chat: {
+    prefix: '/chat',
+    urlConfigKey: 'CHAT_SERVICE_URL',
+  },
   admin: {
     prefix: '/admin',
     urlConfigKey: 'ADMIN_SERVICE_URL',
@@ -23,10 +35,6 @@ export const SERVICE_ROUTES = {
   subscriptions: {
     prefix: '/subscriptions',
     urlConfigKey: 'PAYMENT_SERVICE_URL',
-  },
-  ai: {
-    prefix: '/ai',
-    urlConfigKey: 'AI_SERVICE_URL',
   },
 } as const;
 

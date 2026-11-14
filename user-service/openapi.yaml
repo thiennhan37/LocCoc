@@ -1,0 +1,887 @@
+openapi: 3.0.3
+info:
+  title: LocCoc User Service
+  version: 1.0.0
+  description: >-
+    Profile, username, tìm kiếm và quan hệ bạn bè. Mọi operation cần Bearer account/session thật, kể cả gọi
+    trực tiếp. User Service gọi Auth authority và giữ projection account qua Kafka; API quan hệ yêu cầu
+    username đã được chọn. Không có GET /health riêng. Input từ chối field ngoài DTO; không gửi role/userId
+    giả trong body.
+servers:
+  - url: http://localhost:8080
+    description: Nest gateway
+  - url: http://localhost:8081
+    description: Service trực tiếp (local)
+security:
+  - bearerAuth: []
+paths:
+  /users:
+    get:
+      operationId: usersList
+      summary: Liệt kê profile (moderator/admin)
+      tags:
+        - Administration
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - total
+                  - page
+                  - limit
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  total:
+                    type: integer
+                    minimum: 0
+                  page:
+                    type: integer
+                    minimum: 1
+                  limit:
+                    type: integer
+                    minimum: 1
+        default:
+          $ref: '#/components/responses/Error'
+  /users/me:
+    get:
+      operationId: usersMe
+      summary: Profile của account hiện tại
+      tags:
+        - Profiles
+      description: Đồng bộ snapshot account từ Auth trước khi đọc profile.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: usersUpdateMe
+      summary: Cập nhật profile cá nhân
+      tags:
+        - Profiles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUser'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: usersDeleteMe
+      summary: Soft delete account của mình
+      tags:
+        - Profiles
+      description: >-
+        200 với body rỗng (không phải204). Thay đổi dữ liệu thật qua Auth authority; các session không còn
+        được phép truy cập.
+      responses:
+        '200':
+          description: Thành công
+        default:
+          $ref: '#/components/responses/Error'
+  /users/{id}:
+    get:
+      operationId: usersGetById
+      summary: Đọc profile riêng tư theo quyền sở hữu
+      tags:
+        - Profiles
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      description: >-
+        Chỉ self; admin/moderator có bypass. Xem người dùng khác bằng /users/profiles/{id} để nhận safe
+        profile.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: usersAdminUpdate
+      summary: Admin cập nhật profile
+      tags:
+        - Administration
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUser'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: usersAdminDelete
+      summary: Admin soft delete account
+      tags:
+        - Administration
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      description: 200 với body rỗng; thay đổi dữ liệu thật qua Auth authority.
+      responses:
+        '200':
+          description: Thành công
+        default:
+          $ref: '#/components/responses/Error'
+  /users/me/username:
+    post:
+      operationId: usersClaimUsername
+      summary: Chọn username duy nhất một lần
+      tags:
+        - Social
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimUsername'
+      description: 409 USERNAME_TAKEN hoặc USERNAME_ALREADY_SET. Username được trim/lowercase.
+      responses:
+        '201':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - username
+                properties:
+                  username:
+                    type: string
+        default:
+          $ref: '#/components/responses/Error'
+  /users/search:
+    get:
+      operationId: usersSearch
+      summary: Tìm prefix username
+      tags:
+        - Social
+      parameters:
+        - name: username
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: ^[a-z0-9_]{2,30}$
+          description: Trim/lowercase; tìm prefix, escape ký tự underscore
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      description: Ẩn self, blocked hai chiều, deleted/inactive và account chưa có username.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfilesPage'
+        default:
+          $ref: '#/components/responses/Error'
+  /users/profiles/{id}:
+    get:
+      operationId: usersSafeProfile
+      summary: Safe profile của người dùng khác
+      tags:
+        - Social
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      description: Không lộ email/phone/accountVersion. Self, blocked/inactive/deleted/không có username trả404.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SafeProfile'
+        default:
+          $ref: '#/components/responses/Error'
+  /users/profiles/by-username/{username}:
+    get:
+      operationId: usersProfileByUsername
+      summary: Safe profile theo username chính xác
+      tags:
+        - Social
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^[a-z0-9_]{2,30}$
+          description: Lowercase trước validation
+      description: Có thể trả SELF; tài khoản bị block hai chiều/ẩn trả404.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SafeProfile'
+        default:
+          $ref: '#/components/responses/Error'
+  /users/friends:
+    get:
+      operationId: usersFriends
+      summary: Danh sách bạn bè được phép hiển thị
+      tags:
+        - Social
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfilesPage'
+        default:
+          $ref: '#/components/responses/Error'
+  /users/me/social-summary:
+    get:
+      operationId: usersSocialSummary
+      summary: Số bạn bè đang hiển thị
+      tags:
+        - Social
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - friendCount
+                properties:
+                  friendCount:
+                    type: integer
+                    minimum: 0
+        default:
+          $ref: '#/components/responses/Error'
+  /users/friend-requests:
+    get:
+      operationId: usersFriendRequests
+      summary: Lời mời kết bạn pending
+      tags:
+        - Social
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: direction
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - incoming
+              - outgoing
+            default: incoming
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestsPage'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: usersSendFriendRequest
+      summary: Gửi lời mời kết bạn
+      tags:
+        - Social
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - receiverId
+              properties:
+                receiverId:
+                  type: string
+                  format: uuid
+              additionalProperties: false
+      description: 409 khi self, đã là bạn hoặc đã có pending;404 nếu target không hiển thị/blocked.
+      responses:
+        '201':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        default:
+          $ref: '#/components/responses/Error'
+  /users/friend-requests/{id}:
+    get:
+      operationId: usersFriendRequest
+      summary: Đọc lời mời thuộc một trong hai phía
+      tags:
+        - Social
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        default:
+          $ref: '#/components/responses/Error'
+  /users/friend-requests/{id}/accept:
+    post:
+      operationId: usersRequestaccept
+      summary: Người nhận chấp nhận lời mời
+      tags:
+        - Social
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      description: >-
+        id là friend request ID, không phải peer/account ID. Chỉ chuyển trạng thái từ PENDING;409 nếu trạng
+        thái đã đổi.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        default:
+          $ref: '#/components/responses/Error'
+  /users/friend-requests/{id}/reject:
+    post:
+      operationId: usersRequestreject
+      summary: Người nhận từ chối lời mời
+      tags:
+        - Social
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      description: >-
+        id là friend request ID, không phải peer/account ID. Chỉ chuyển trạng thái từ PENDING;409 nếu trạng
+        thái đã đổi.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        default:
+          $ref: '#/components/responses/Error'
+  /users/friend-requests/{id}/cancel:
+    post:
+      operationId: usersRequestcancel
+      summary: Người gửi hủy lời mời
+      tags:
+        - Social
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      description: >-
+        id là friend request ID, không phải peer/account ID. Chỉ chuyển trạng thái từ PENDING;409 nếu trạng
+        thái đã đổi.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        default:
+          $ref: '#/components/responses/Error'
+  /users/friends/{id}:
+    delete:
+      operationId: usersUnfriend
+      summary: Hủy kết bạn
+      tags:
+        - Social
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      description: id là account ID của người bạn; không có body phản hồi.
+      responses:
+        '204':
+          description: Thành công
+        default:
+          $ref: '#/components/responses/Error'
+  /users/blocks/{id}:
+    put:
+      operationId: usersBlock
+      summary: Chặn account và hủy quan hệ/lời mời pending
+      tags:
+        - Social
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      description: id là account ID của target; không có body phản hồi.
+      responses:
+        '204':
+          description: Thành công
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: usersUnblock
+      summary: Bỏ chặn account
+      tags:
+        - Social
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      description: Không tự khôi phục tình bạn/lời mời cũ; không có body phản hồi.
+      responses:
+        '204':
+          description: Thành công
+        default:
+          $ref: '#/components/responses/Error'
+  /users/blocks:
+    get:
+      operationId: usersBlocks
+      summary: Danh sách account mình đã chặn
+      tags:
+        - Social
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlocksPage'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Error:
+      description: >-
+        400 validation/cursor; 401 token/credentials; 403 role/account; 404 missing/hidden resource; 409
+        conflict; 429 rate limit; 500 internal; 502/503 upstream unavailable. Shape có thể khác giữa service
+        trực tiếp và gateway.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+        error:
+          type: string
+        code:
+          type: string
+        message:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        errors:
+          type: array
+          items:
+            type: string
+        requestId:
+          type: string
+    User:
+      type: object
+      required:
+        - id
+        - username
+        - accountStatus
+        - accountVersion
+        - email
+        - displayName
+        - avatarUrl
+        - phone
+        - createdAt
+        - updatedAt
+        - deletedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          nullable: true
+        accountStatus:
+          type: string
+        accountVersion:
+          type: string
+          pattern: ^[0-9]+$
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+    UpdateUser:
+      type: object
+      properties:
+        displayName:
+          type: string
+          maxLength: 255
+          nullable: true
+        avatarUrl:
+          type: string
+          maxLength: 1024
+          nullable: true
+        phone:
+          type: string
+          maxLength: 32
+          nullable: true
+      additionalProperties: false
+    ClaimUsername:
+      type: object
+      required:
+        - username
+      properties:
+        username:
+          type: string
+          pattern: ^[a-z0-9_]{2,30}$
+          description: Trim/lowercase trước validation; chỉ đặt một lần
+        displayName:
+          type: string
+          maxLength: 255
+          nullable: true
+      additionalProperties: false
+    Peer:
+      type: object
+      required:
+        - id
+        - username
+        - displayName
+        - avatarUrl
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          nullable: true
+        displayName:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+    SafeProfile:
+      type: object
+      required:
+        - id
+        - username
+        - displayName
+        - avatarUrl
+        - relationshipStatus
+        - friendRequestId
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+        relationshipStatus:
+          type: string
+          enum:
+            - SELF
+            - NONE
+            - FRIENDS
+            - OUTGOING_PENDING
+            - INCOMING_PENDING
+        friendRequestId:
+          type: string
+          format: uuid
+          nullable: true
+    FriendRequest:
+      type: object
+      required:
+        - id
+        - senderId
+        - receiverId
+        - status
+        - createdAt
+        - resolvedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        senderId:
+          type: string
+          format: uuid
+        receiverId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - PENDING
+            - ACCEPTED
+            - REJECTED
+            - CANCELLED
+        createdAt:
+          type: string
+          format: date-time
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+    PendingRequest:
+      allOf:
+        - $ref: '#/components/schemas/FriendRequest'
+        - type: object
+          required:
+            - peer
+          properties:
+            peer:
+              $ref: '#/components/schemas/Peer'
+    ProfilesPage:
+      type: object
+      required:
+        - data
+        - page
+        - limit
+        - hasMore
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SafeProfile'
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+        hasMore:
+          type: boolean
+    RequestsPage:
+      type: object
+      required:
+        - data
+        - page
+        - limit
+        - hasMore
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PendingRequest'
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+        hasMore:
+          type: boolean
+    BlocksPage:
+      type: object
+      required:
+        - data
+        - page
+        - limit
+        - hasMore
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Peer'
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+        hasMore:
+          type: boolean
+tags:
+  - name: Profiles
+  - name: Social
+  - name: Administration

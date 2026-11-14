@@ -183,6 +183,175 @@
 - Documentation only: no runtime code/configuration, schema/data, services or
   secrets changed. This feature is not implemented; no runtime tests were run.
 
+### 2026-11-13: Publish chat-service for review against main
+
+- User reported satisfactory local testing and explicitly requested commit,
+  remote push and a pull request into main. The branch also contains the AI
+  implementation inherited from filter_service; main does not yet include it,
+  and the AI-only PR9 is still open. The new PR must describe this overlap.
+- Fresh pre-push verification: root Nest build passes; Flutter analyze is clean
+  and all131 tests pass; Chat5 unit +27 PostgreSQL/HTTP/socket integration,
+  gateway3 unit +26 e2e, AI60 unit +13 e2e all pass. Chat database validation
+  uses a disposable PostgreSQL container; existing project data is untouched
+  by these verification suites. All9 OpenAPI specs/83 operations pass schema,
+  reference and concrete-route checks.
+- Android debug APK was built and installed on both local emulators earlier.
+  User manual testing is reported by the user; automated tests do not establish
+  every manual checklist item. The known native iOS dependency conflict and
+  unrelated Notification/MySQL/PayOS setup limits remain documented.
+- Service env credentials, JWT/FCM files, local test-account passwords and build
+  outputs are excluded. The pre-existing local Flutter analyzer exclusions remain
+  outside this delivery commit.
+
+### 2026-11-13: Two local chat test accounts
+
+- At the user's request, created `chat.a@loccoc.test` / `chat_test_a` and
+  `chat.b@loccoc.test` / `chat_test_b`, with local test phone fields
+  `+84900000001` and `+84900000002`. Both accounts completed the normal
+  development console OTP verification and password login through the gateway.
+  Passwords were supplied only in the conversation, not written into the repo.
+- Claimed usernames, sent/accepted their friend request through the actual User
+  APIs, and verified the friendship from both accounts. Created an empty direct
+  chat and confirmed the recipient can interact. No chat messages were seeded;
+  verification sessions were logged out after setup.
+- Current login API accepts email/password; the mobile label suggesting phone
+  login does not establish backend phone-login support. Use email on each emulator.
+
+### 2026-11-13: Two-emulator Android build collision
+
+- Recovered the exact reported64s failure from Gradle daemon89382: task
+  `:app:copyFlutterAssetsDebug` failed with `NoSuchFileException` for generated
+  `flutter_assets/FontManifest.json`. Two Gradle daemons started builds in the
+  same MobileApp/android checkout at20:59:06 and20:59:10; the other build produced
+  an APK at21:00:14. Both emulators are ARM64, so the failure does not establish
+  an emulator ABI incompatibility or a missing source font asset.
+- Installed the successfully built APK onto emulator-5554 with `adb install -r`
+  and launched MainActivity. Install returned Success; app PIDs were verified on
+  both5554 and5556. Existing5556 Flutter run was preserved. No account login or
+  two-account chat exchange was performed by this recovery.
+- Updated the [runbook](docs/guides/chat-two-emulators.md) to build once and install
+  the same APK on both emulators. If debugging with separate Flutter run sessions,
+  wait until the first build/install completes before starting the second; avoid
+  clean/cache deletion during builds. No Gradle tracking workaround or dependency
+  upgrade is needed for this observed output collision.
+
+### 2026-11-13: Local backend configuration audit
+
+- Verified PostgreSQL5433, Redis6379 and Kafka9092 healthy. Existing project
+  databases use `auth`, `user` and `chat`; service defaults `accounts`/`users`
+  do not match this volume. Auth/User local env credentials were aligned with
+  read-only verified credentials from the running PostgreSQL container; no role
+  password rotation or volume removal. Their migration commands completed.
+- Auth/User/Chat/Notification/Gateway internal tokens match; User/Notification
+  public keys match Auth. Base URLs currently omit trailing slashes; a direct
+  probe demonstrated `/internal/access`401 versus `//internal/access`404 with
+  the clients' existing path concatenation. Running services need restart after
+  env changes; Gateway health200 does not establish Auth availability.
+- Built AI/Chat/Notification; smoke-started Auth, User, Chat, AI and Nest gateway
+  on temporary ports55810–55814 and stopped only those test processes afterward.
+  Auth/User/gateway returned expected401 for invalid/missing auth; AI/Chat health
+  returned200. Chat DB contains its migration and conversation/message tables.
+- Remaining local blockers: Notification role/database not provisioned; its env
+  enables FCM but configured credential file is absent. Admin/Payment MySQL3307
+  is not listening and current Compose does not supply MySQL; PayOS credentials
+  are unset. Spring gateway runtime was not started (alternative default8080).
+  No Gemini/PayOS/FCM provider calls or real payment/push delivery were performed.
+  Setup notes added to the [OpenAPI/Bruno guide](docs/guides/services-openapi-bruno.md).
+
+### 2026-11-13: OpenAPI catalog for all backend services
+
+- Added standalone OpenAPI3.0.3 files for Auth, User, Notification, Admin,
+  Payment, Nest gateway and Spring gateway. Existing AI/Chat specs remain the
+  contracts for those services. The [catalog and Bruno guide](docs/guides/services-openapi-bruno.md)
+  links all nine specs, default ports, auth setup and a real-account test flow.
+- Specs follow implemented controller/DTO/service returns and guard behavior,
+  including Auth internal-only routes, session rotation, social request IDs,
+  notification cursors/devices, actual Java envelopes and webhook status handling.
+  Gateway specs describe their owned health/probe operations and link downstream
+  specs; import each downstream file to obtain its Bruno requests.
+- Documented existing integration limits: both gateways default8080, Spring lacks
+  AI/chat/notification routes; Java Admin/Payment trust numeric identity headers,
+  while current Nest IAM injects UUIDs. No new JWT/RBAC compatibility guarantee
+  or payment idempotency behavior was introduced. Java payment/admin databases
+  remain separate; callback acknowledgement does not prove payment verification.
+- Validation: all nine specs pass the official OpenAPI3.0 schema, internal refs,
+  operation IDs, required path parameters and implemented concrete-route coverage.
+  The seven new specs contain74 operations; including AI/Chat there are83.
+  Input/response schema spot checks and documentation links pass. No business code,
+  secrets, databases or external providers were changed/called; Bruno GUI import
+  and live endpoint execution were not performed for this documentation task.
+
+### 2026-11-13: Deliver authenticated realtime chat on local chat-service
+
+- User approved the [chat design](docs/specs/chat/realtime-chat-design.md).
+  Added Nest Chat Service on 8083 with its own PostgreSQL database/role and
+  additive migration CLI. Auth/User authority from main authenticates every
+  HTTP request and socket operation/delivery; only active friends can interact.
+  Participant history remains readable after block/unfriend, while fresh profile
+  exposure and new interactions fail closed.
+- REST conversation/message/read operations route through the Nest gateway.
+  Transactional sequences, monotonic read cursors and sender/client UUID
+  idempotency persist across restarts; UUID case is normalized before locking.
+  Socket.IO namespace `/chat` uses the direct service origin, emits after commit,
+  rechecks receiving sessions and supports bounded typing. REST recovers missed
+  events; no exactly-once transport or multiple-replica claim.
+- Flutter adds inbox, friend chooser and conversation screens under the existing
+  authenticated Home entry. Shared refresh, account disposal, uncertain-send retry,
+  POST/socket merge, paged recovery and read receipts are covered. Socket policy
+  denial preserves other history/drafts; queued inbox invalidations survive slow
+  requests; typing transitions share a throttle. User-Service outages disable
+  interaction while authenticated participant history still loads.
+- Verification: Chat build, 5 unit + 27 integration tests (7 PostgreSQL,
+  6 HTTP, 14 real Socket.IO); gateway build, 3 unit + 26 e2e; Auth 77 unit +
+  25 HTTP passed (18 opt-in PostgreSQL cases skipped). Flutter analyze clean,
+  full 131 tests passed, Android debug APK built. Database helper/migration CLI
+  passed twice on a disposable database with the dedicated chat role; compiled
+  service health200 and missing-auth401 verified. OpenAPI passes the official
+  3.0 schema plus nullable conversation response checks; documentation links and
+  shell syntax pass. Independent review findings were reproduced and fixed.
+- [Runbook](docs/guides/chat-two-emulators.md), [service/API setup](chat-service/README.md),
+  [Bruno OpenAPI](chat-service/openapi.yaml) and
+  [completed checklist](docs/superpowers/plans/2026-11-13-realtime-chat.md) are ready.
+  Two real accounts on two emulator UIs have **not** been exercised; automation
+  uses real PostgreSQL/socket clients with IAM/profile fixtures. Native iOS build
+  remains blocked by main's Firebase/AppCheck versus GoogleSignIn dependency
+  conflict. The runbook therefore uses two Android AVDs.
+- Foreground realtime requires the Tin nhắn flow open; returning Home disposes
+  chat state/socket, and reopening loads history. No background push, app-wide
+  chat badge, groups/media or distributed quotas. Existing analysis exclusions
+  remain uncommitted; existing Flutter lock pins are preserved alongside new
+  socket dependencies. No real secrets or project database volumes changed.
+  This chat feature stays on the local branch; no new push/PR was requested.
+
+### 2026-11-13: Prepare chat-service with real main authentication
+
+- User selected real login integration from `main` on local `chat-service`.
+  Main's Auth/User/Notification, Flutter session/refresh/friends and gateway
+  account authority are retained. AI multipart streaming, cancellation and
+  its rate limiter are integrated with the authenticated gateway rather than
+  removing main's account access checks. Client identity/internal/forwarding
+  headers are filtered before upstream calls.
+- Main integration reconciles workspace/package/lockfile/config differences.
+  Gateway/Auth/User keep main's per-service environment loading. AI still uses
+  its existing root environment; direct AI access is unauthenticated while
+  gateway access now requires a real Bearer token. AI OpenAPI/Bruno instructions
+  document that distinction.
+- Verified: common/gateway/auth/user/AI build; gateway 3 unit + 23 e2e,
+  Auth 77 unit + 25 e2e, User 37 unit + 18 e2e, AI 60 unit + 13 e2e,
+  Flutter analyze clean + 99 tests. Auth/User database integration suites
+  skipped 48 cases because their opt-in database configuration was not enabled.
+  Updated AI OpenAPI passes the official OpenAPI 3.0 schema.
+- Chat itself is not implemented or approved yet. Proposed scope/design and
+  implementation milestones: [chat design](docs/specs/chat/realtime-chat-design.md)
+  and [ADR-012](docs/adr/ADR-012-realtime-chat.md). The
+  [two-emulator guide](docs/guides/chat-two-emulators.md) distinguishes current
+  login setup from future chat commands/checks. Design review precedes feature code.
+- Two original local Flutter edits (analysis exclusions and four SDK-related
+  transitive lockfile updates) remain outside the integration commit. A named
+  stash `chat-service: preserve local Flutter changes before main integration`
+  retains their pre-merge form as a backup. No local secrets or database volumes
+  were changed. No live two-device login/chat was performed.
+
 ### 2026-11-04: Merge custom/identity into main
 
 - Merge source: local custom/identity at 425d157, including its rate-limit update.
@@ -231,6 +400,21 @@
 > **Tài liệu lưu trữ toàn bộ ngữ cảnh phát triển (Context Snapshot)** dùng để nạp vào các phiên làm việc (Conversation) mới của AI Assistant hoặc bàn giao giữa các developer.
 
 ---
+
+## Cập nhật 2026-10-21: NestJS shared guard dependency resolution
+
+- Fixed `npm run start:user` failing to inject `Reflector` into `JwtAuthGuard`: the service and `libs/common` loaded distinct instances of `@nestjs/core` under pnpm peer contexts.
+- `@loccoc/common` declares Nest common/config/core as peer dependencies; all three Nest services inject the workspace package through `dependenciesMeta`. Workspace builds synchronize injected dependencies.
+- Regression check: `npm --prefix user-service run test:guards` verifies actual compiled guard injection with Node package resolution, without database access or environment secrets.
+- Verified: user-service build, 3 unit tests, guard smoke test, and startup with PostgreSQL (`Nest application successfully started`). Existing peer-range warnings for Nest 12 integrations remain a separate compatibility concern.
+
+## Cập nhật 2026-10-21: LocCoc mobile camera home
+
+- Added a coral/cream camera-first home screen with black pill navigation, photo review/retake and local session memories. No photo upload or friend delivery is implemented.
+- Camera plugin uses photo-only access (`enableAudio: false`), Android CAMERA and iOS usage description; lifecycle and route visibility control camera ownership.
+- Login behavior is unchanged. Preview with `flutter run --dart-define=PREVIEW_HOME=true`; `/home` is reserved for future successful-login navigation.
+- Architecture and scope: `docs/adr/ADR-006-mobile-camera-home.md`, `docs/specs/mobile-home.md`. Run `flutter analyze` and `flutter test` in `MobileApp`.
+- Verification: analyzer clean, 2 existing login tests and 4 home tests pass; home rendering inspected. Android debug APK builds with PREVIEW_HOME enabled. Kotlin incremental compilation is disabled for the Windows cross-drive Pub cache layout.
 
 ## 1. Tổng Quan Kiến Trúc Dự Án (Monorepo Layout)
 
@@ -345,6 +529,12 @@ npm run start:admin
 npm run webhook:register https://<your-tunnel-url>/payments/webhook/payos
 ```
 
+## Post service (2026-10-21)
+
+Spring post-service (8087) provides POST /posts for existing media metadata and DELETE /posts/{id}?ownerId=UUID for idempotent soft deletion. Controller/DTO -> transactional service -> JPA repository; own database with persistent local H2 and optional PostgreSQL. Both gateways route /posts via POST_SERVICE_URL. No JWT yet: client ownerId is development-only and must become authenticated principal identity before public deployment. No uploads, recipients or feed fan-out yet. See post-service/README.md, docs/specs/post-service.md and ADR-007.
+
+Verification: post-service Maven tests 6/6 passed with H2; Spring gateway tests 20/20 passed with loopback upstream and mocked Redis; Nest gateway build passed and new post proxy tests 2/2 passed. PostgreSQL deployment and a live mobile upload flow have not been tested.
+
 ## Spring MVC Gateway Alternative
 
 `api-gateway-spring` implements the same five route prefixes as the Nest gateway on port 8080, using Controller -> Service -> Repository, Redis atomic IP quotas, CORS, request IDs and standard gateway errors. No business database, automatic retries or redirects. Configuration and startup: `api-gateway-spring/README.md`. Stop Nest gateway before starting the Spring alternative. Spec: `docs/specs/gateway/spring-mvc-gateway.md`; decision: ADR-005. Verification uses a loopback HTTP upstream and mocked quota repository; real-service/Redis deployment smoke tests remain environment-dependent.
@@ -360,6 +550,12 @@ Bootstrap verification (2026-10-19): applied all three auth migrations and the u
 ## Spring gateway error envelope (WebAppBusTicket pattern)
 
 api-gateway-spring uses ErrorCode + AppException + GlobalExceptionHandler and ApiResponse(code,message,result). Both gateway failures and upstream HTTP 4xx/5xx errors are normalized; messages are catalog-based to avoid exposing SQL/secrets. HTTP status, auth/retry headers and x-request-id remain available. Successful upstream bodies are unchanged, including verified=false on HTTP 200. Direct service responses and Nest gateway are unchanged. This supersedes the earlier transparent-error contract for Spring gateway.
+
+Post-service exceptions now use the Spring gateway AppException/ErrorCode/ApiResponse contract, including framework errors and validation; success responses remain unchanged.
+
+Mobile login now calls POST /auth/login using core/constants/api_constants.dart (Android emulator gateway 10.0.2.2:8080; API_BASE_URL override for phone). Success requires authenticated=true and both tokens; tokens remain in memory. Android debug allows HTTP. Refresh and persistent sessions remain pending.
+
+Mobile API layer now includes all existing Auth endpoints and Post create/delete, centralized endpoint constants, shared HTTP errors/timeouts, explicit refresh coalescing and token rotation. UI beyond login is not connected yet; media upload is still absent from backend.
 ## 7. IAM Social Login (2026-10-23)
 
 - `auth-service` implements `POST /auth/social/google` and `POST /auth/social/apple`, public through the existing gateway `/auth/*` route; rate limit: 5 requests/IP/minute/provider.
@@ -879,3 +1075,78 @@ api-gateway-spring uses ErrorCode + AppException + GlobalExceptionHandler and Ap
   workload benchmarks and super-node policy are outside this follow-up.
 - Evidence: docs/specs/user/smart-discovery-hardening-report.md; updated ADR-012,
   smart-friend-discovery.md and smart-discovery-operations.md.
+
+### 2026-11-13: Merge Home mới với camera/editor và local photo publishing
+
+- Giữ Google login, ProfileLinkScope, hồ sơ, bạn bè, thông báo và quản lý tài khoản khi giải quyết merge conflict.
+- Home mới mở CaptureMomentScreen → PhotoEditorScreen; chủ bài lấy từ AuthSession.
+- 5 filter và caption được vẽ vào PNG 1080 px; POST /posts/photos có requestId để retry không tạo trùng.
+- Spring lưu PNG tại Downloads/LocCoc/posts và metadata vào posts.moments; GET /posts/media/{id}.
+- Cả gateway hỗ trợ JSON ảnh tới 8 MiB; route bài đăng tiếp tục chưa yêu cầu token theo scope phát triển đã thống nhất.
+- Postman hai collection có publish/read photo. Bài local chưa gửi tới danh sách bạn bè.
+- Kiểm chứng: Flutter analyzer sạch; suite 114 test qua, thêm test transport PostApi qua; regression retry filter/caption không đổi qua; post-service 15 test; Spring gateway 20 test; Nest proxy 3 test và build qua.
+- Smoke PostgreSQL thật: c83fa5a8-4111-4936-8c43-6beb784df418.png, GET 200, retry cùng ID, bản ghi tồn tại trong moments. Post-service thử nghiệm 18087 đã dừng.
+
+- Android debug APK build thành công; Gradle lần đầu khoảng 12 phút. Review độc lập phát hiện no-op filter/caption làm đổi requestId; đã sửa và regression test qua.
+
+### 2026-11-14: Resolve main merge into filter_service
+
+- Resolved all 9 merge conflicts while retaining AI multipart upload/response streaming,
+  client disconnect cancellation, IP rate limiting and all routes from main.
+- AI MVP remains public as specified by UC-07; existing account checks remain on
+  protected routes. Both JSON and raw proxy paths strip spoofed service/user headers
+  and replace forwarding headers with the gateway-derived client IP.
+- Preserved main's service-scoped environment validation and Redis lifecycle handling;
+  restored AI upstream URL and numeric limiter validation/defaults to gatewayKeys.
+- Combined workspace packages/scripts and lockfile dependency graphs. Aligned shared
+  AI NestJS dependency resolutions with libs/common to avoid duplicate HttpException
+  classes turning validation/provider errors into HTTP 500 responses.
+- Verification: common plus Gateway/Auth/User/Notification/AI builds passed; Gateway
+  unit 6/6 and E2E 32/32; AI unit 60/60 and E2E 13/13. Gemini provider is mocked in
+  tests; no paid generation or live webhook/tunnel changes were performed.
+
+### 2026-11-14: Merge main into chat-service
+
+- Merged main at 3570d0d (also the fetched origin/main) into chat-service;
+  resolved all 9 conflicting files while preserving chat REST/Socket.IO and the
+  camera/photo publishing/AI features from main.
+- Kept CHAT_SERVICE_URL validation/defaults and chat workspace build/start/migration
+  scripts. Combined both dependency graphs and retained matching NestJS runtime
+  resolutions for shared libraries. Flutter retains both camera and socket_io_client.
+- Chat REST still requires verified Bearer identity. Regression tests verify missing
+  and invalid credentials are rejected and forged user/service headers are stripped.
+  AI retains main's public MVP contract and five-request IP limit; client-supplied
+  forwarded IP headers cannot bypass the limiter when the gateway is accessed directly.
+- Verification: common plus Gateway/Auth/User/Notification/AI/Chat builds passed.
+  Gateway: 6 unit + 36 E2E; Chat: 5 unit + 27 E2E, including real PostgreSQL in a
+  disposable container and Socket.IO clients; AI: 60 unit + 13 E2E with mocked Gemini.
+  Flutter analyzer clean and all 147 Flutter tests passed. Android emulator/device
+  interaction and a paid Gemini generation were not part of these automated checks.
+
+### 2026-11-14: Merge main into feature/friend-suggestions
+
+- Resolved nine conflicts against main at 97f7181 while retaining friend discovery,
+  privacy/feedback, profile avatar/cover uploads and the branch's session boundaries.
+  Integrated main's chat, camera/photo publishing and Gemini image filtering.
+- Combined both raw media upload paths (5/10 MiB limits, quota, 60-second upstream
+  deadline) and AI streaming/cancellation. Preserved all gateway routes and added
+  regression checks that Python AI2 is not exposed through /ai-search.
+- User-approved final decision: Gemini remains /ai at 8082; posts remain at 8087;
+  Python AI2 code/examples/scripts default to 8088 with separate reserved
+  AI_SEARCH_SERVICE_URL. AI2 Gateway integration is deferred until verified identity
+  and user_id ownership checks exist. ADR-015 and ai-services-coexistence.md record
+  the decision. Existing .env files, secrets and live deployments were preserved.
+- Kept both Spring Gateway regression cases and the 8 MiB body default required
+  by photo posts. Retained upload-specific limits, timeouts and multipart settings.
+  Home keeps friend-tab state, avatar viewing and session replacement cleanup;
+  chat controllers are disposed before an account replacement.
+- Verification: all seven Node workspace packages built; Flutter analyzer clean,
+  322 Flutter tests passed. UserService: 125 unit, 94 discovery/social E2E plus
+  9 media E2E (separate PostgreSQL/S3 run), clean type-aware lint and one real Node
+  shared-guard smoke test. AuthService: 77 unit; Gateway: 6 unit + 45 E2E;
+  Gemini AI: 60 unit + 13 E2E; Spring Gateway: 21 tests. Python configuration and
+  search helper parsed successfully without loading models or using provider APIs.
+- PostgreSQL, Neo4j, Redis, Kafka and S3 verification used disposable containers;
+  all were removed. No live user data, emulator interaction or AI model inference
+  was used for these checks. Small existing Dart lint issues and the incoming
+  shared-guard test's unawaited test registration were corrected.

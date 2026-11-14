@@ -7,7 +7,7 @@ from typing import List
 class Settings(BaseSettings):
     APP_NAME: str = "LocCoc AI Service 2"
     APP_ENV: str = "development"
-    PORT: int = 8087
+    PORT: int = 8088
     HOST: str = "0.0.0.0"
 
     # Jina CLIP v2 Model Configuration

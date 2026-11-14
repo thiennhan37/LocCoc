@@ -1,7 +1,7 @@
 """
 Script kiểm thử nhanh end-to-end cho AI Service 2.
 Cách chạy:
-    python scripts/test_search.py [--base-url http://localhost:8087]
+    python scripts/test_search.py [--base-url http://localhost:8088]
 """
 
 import argparse
@@ -100,6 +100,6 @@ def run_tests(base_url: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test AI Service 2")
-    parser.add_argument("--base-url", default="http://localhost:8087", help="Base URL của AI Service 2")
+    parser.add_argument("--base-url", default="http://localhost:8088", help="Base URL của AI Service 2")
     args = parser.parse_args()
     run_tests(args.base_url)
