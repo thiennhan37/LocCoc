@@ -1,4 +1,5 @@
-import { All, Controller, Req, Res } from '@nestjs/common';
+import { All, Controller, Req, Res, Put, PayloadTooLargeException, BadRequestException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -37,6 +38,12 @@ export class ServiceProxyController {
     @Res() response: Response,
   ): Promise<void> {
     return this.forwardJson('notifications', request, response);
+  }
+
+  @Put('users/me/media/:kind')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  forwardMedia(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forwardJson('users', request, response);
   }
 
   @All('users/*path')
@@ -86,12 +93,55 @@ export class ServiceProxyController {
     const target = this.buildTarget(service, request);
     const headers = this.buildRequestHeaders(request);
 
-    const hasBody = !['GET', 'HEAD'].includes(request.method);
-    const body = hasBody && request.body !== undefined ? JSON.stringify(request.body) : undefined;
-    if (body && !headers.has('content-type')) headers.set('content-type', 'application/json');
+    const hasBody = !["GET", "HEAD"].includes(request.method);
+    const mediaUpload =
+      request.method === "PUT" &&
+      /^\/users\/me\/media\/(avatar|cover)$/.test(request.path);
+    let body: string | Buffer | undefined =
+      hasBody && request.body !== undefined
+        ? JSON.stringify(request.body)
+        : undefined;
+    if (mediaUpload) {
+      const mime = request.headers["content-type"];
+      if (
+        !["image/jpeg", "image/png", "image/webp"].includes(mime ?? "") ||
+        request.headers["content-encoding"]
+      )
+        throw new BadRequestException("Use JPEG, PNG or WebP");
+      const limit = (request.path.endsWith("/avatar") ? 5 : 10) * 1024 * 1024;
+      if (Number(request.headers["content-length"]) > limit) {
+        await this.drainRejectedBody(request);
+        throw new PayloadTooLargeException();
+      }
+      const chunks: Buffer[] = [];
+      let length = 0;
+      const timer = setTimeout(() => request.destroy(), 30000);
+      try {
+        for await (const chunk of request.iterator({
+          destroyOnReturn: false,
+        })) {
+          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          length += bytes.length;
+          if (length > limit) {
+            request.resume();
+            throw new PayloadTooLargeException();
+          }
+          chunks.push(bytes);
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+      body = Buffer.concat(chunks);
+    }
+    if (body && !headers.has("content-type"))
+      headers.set("content-type", "application/json");
 
     try {
-      const upstream = await fetch(target, { method: request.method, headers, body, redirect: 'manual' });
+      const upstream = await fetch(target, {
+        method: request.method, headers,
+        body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
+        redirect: 'manual', signal: AbortSignal.timeout(mediaUpload ? 60000 : 15000),
+      });
       response.status(upstream.status);
       this.copyResponseHeaders(upstream.headers, response);
       response.send(Buffer.from(await upstream.arrayBuffer()));
@@ -217,7 +267,27 @@ export class ServiceProxyController {
     });
   }
 
+  private async drainRejectedBody(request: RequestWithId): Promise<void> {
+    // Drain without buffering so clients receive a 413 instead of a socket reset.
+    await new Promise<void>((resolve) => {
+      const finish = () => {
+        clearTimeout(timer);
+        request.off("end", finish);
+        request.off("error", finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, 2000);
+      request.once("end", finish);
+      request.once("error", finish);
+      request.resume();
+    });
+  }
+
   private getPath(request: RequestWithId): string {
+    // Named media routes have :kind instead of the wildcard parameter.
+    if (request.method === 'PUT' && request.params?.kind !== undefined) {
+      return request.path.slice('/users/'.length);
+    }
     const wildcard = request.params?.path;
     return Array.isArray(wildcard) ? wildcard.join('/') : String(wildcard ?? '').replace(/^\//, '');
   }

@@ -95,6 +95,7 @@ class _LoginFormState extends State<LoginForm> {
                     session: session,
                     onSessionChanged: _googleAuthService.updateSession,
                     refreshSession: _googleAuthService.refreshSession,
+                    coordinator: _googleAuthService,
                   ),
                 ),
         ),
@@ -102,12 +103,9 @@ class _LoginFormState extends State<LoginForm> {
     }
   }
 
-  void _enterDemoSession([String? email]) {
-    final effectiveEmail = (email != null && email.isNotEmpty)
-        ? email
-        : 'minhanh@loccoc.vn';
+  void _enterDemoSession() {
     final demoSession = AuthSession(
-      authenticated: true,
+      authenticated: false,
       accessToken: 'demo-access-token-jwt-loccoc-preview',
       refreshToken: 'demo-refresh-token-preview',
       tokenType: 'Bearer',
@@ -115,10 +113,9 @@ class _LoginFormState extends State<LoginForm> {
       refreshExpiresIn: 86400,
       user: AuthUser(
         id: 'acc-demo-minhanh',
-        email: effectiveEmail,
-        role: 'user',
-        status: 'active',
-        emailVerifiedAt: '2026-10-27T08:00:00Z',
+        email: 'demo@loccoc.example',
+        role: 'demo',
+        status: 'demo',
       ),
     );
     _onSuccess(demoSession, 'Chào mừng đến với LocCoc!');
@@ -146,28 +143,15 @@ class _LoginFormState extends State<LoginForm> {
           break;
         case AuthFailure(:final message):
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: AppColors.error,
-              content: Text(message),
-              action: SnackBarAction(
-                label: 'Vào Demo',
-                textColor: Colors.white,
-                onPressed: () => _enterDemoSession(email),
-              ),
-            ),
+            SnackBar(backgroundColor: AppColors.error, content: Text(message)),
           );
       }
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Không thể kết nối máy chủ: ${e.toString()}'),
-          action: SnackBarAction(
-            label: 'Vào Demo',
-            textColor: Colors.white,
-            onPressed: () => _enterDemoSession(email),
-          ),
+          content: const Text('Chưa thể đăng nhập. Vui lòng thử lại.'),
         ),
       );
     } finally {
@@ -196,12 +180,12 @@ class _LoginFormState extends State<LoginForm> {
             SnackBar(backgroundColor: AppColors.error, content: Text(message)),
           );
       }
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('${AppStrings.googleLoginFailed}: ${e.toString()}'),
+          content: const Text(AppStrings.googleLoginFailed),
         ),
       );
     } finally {
@@ -220,14 +204,19 @@ class _LoginFormState extends State<LoginForm> {
         children: [
           CustomTextField(
             label: 'Email',
-            hint: 'Nhập email',
+            hint: 'Nhập email của bạn',
             controller: _identifierController,
             keyboardType: TextInputType.emailAddress,
             prefixIcon: Icons.alternate_email_rounded,
             nextFocusNode: _passwordFocusNode,
-            validator: (value) => value == null || value.trim().isEmpty
-                ? AppStrings.requiredField
-                : null,
+            validator: (value) {
+              final email = value?.trim() ?? '';
+              if (email.isEmpty) return AppStrings.requiredField;
+              if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+                return 'Vui lòng nhập email hợp lệ.';
+              }
+              return null;
+            },
           ),
           const SizedBox(height: 16),
           CustomTextField(
@@ -241,9 +230,6 @@ class _LoginFormState extends State<LoginForm> {
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return AppStrings.requiredField;
-              }
-              if (value.length < 6) {
-                return AppStrings.passwordTooShort;
               }
               return null;
             },
@@ -265,23 +251,19 @@ class _LoginFormState extends State<LoginForm> {
           ),
           const SizedBox(height: 16),
           Center(
-            child: TextButton.icon(
-              icon: const Icon(
-                Icons.play_circle_outline_rounded,
-                size: 16,
-                color: AppColors.primary,
-              ),
-              label: const Text(
+            child: TextButton(
+              onPressed: (_isLoading || _isGoogleLoading)
+                  ? null
+                  : _enterDemoSession,
+              child: const Text(
                 'Khám phá ngay (Tài khoản thử nghiệm)',
+                textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: AppColors.primary,
                 ),
               ),
-              onPressed: (_isLoading || _isGoogleLoading)
-                  ? null
-                  : () => _enterDemoSession(_identifierController.text.trim()),
             ),
           ),
         ],

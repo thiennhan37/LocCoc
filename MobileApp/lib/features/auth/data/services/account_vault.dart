@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/constants/api_constants.dart';
+import '../../../../core/utils/avatar_url.dart';
 import '../../domain/models/auth_session.dart';
 
 class SavedAccount {
@@ -11,12 +12,16 @@ class SavedAccount {
   final String email;
   final String? name;
   final String? username;
+  final String? avatarUrl;
+  final String? coverUrl;
   final bool canContinue;
   const SavedAccount({
     required this.id,
     required this.email,
     this.name,
     this.username,
+    this.avatarUrl,
+    this.coverUrl,
     required this.canContinue,
   });
 }
@@ -117,7 +122,19 @@ class AccountVault {
         email: row['email'] as String,
         name: row['name'] as String?,
         username: row['username'] as String?,
+        avatarUrl: row['avatarUrl'] is String
+            ? avatarUri(
+                row['avatarUrl'] as String,
+                allowHttp: kDebugMode,
+              )?.toString()
+            : null,
         canContinue: _valid(row),
+        coverUrl: row['coverUrl'] is String
+            ? avatarUri(
+                row['coverUrl'] as String,
+                allowHttp: kDebugMode,
+              )?.toString()
+            : null,
       );
     }).toList();
   });
@@ -125,9 +142,13 @@ class AccountVault {
   Future<String?> activeId() =>
       _locked(() async => (await _load())['active'] as String?);
 
-  Future<void> rememberIdentity(AuthSession session) => _locked(() async {
+  Future<void> rememberIdentity(
+    AuthSession session, {
+    bool Function()? isCurrent,
+  }) => _locked(() async {
     if (!supported || session.accessToken.startsWith('demo-')) return;
     final data = await _load();
+    if (isCurrent?.call() == false) return;
     final rows = data['accounts'] as Map<String, dynamic>;
     final previous = rows[session.user.id] as Map<String, dynamic>? ?? {};
     rows[session.user.id] = {
@@ -144,9 +165,11 @@ class AccountVault {
     required bool remember,
     required bool retain,
     bool active = true,
+    bool Function()? isCurrent,
   }) => _locked(() async {
     if (!supported || session.accessToken.startsWith('demo-')) return;
     final data = await _load();
+    if (isCurrent?.call() == false) return;
     final rows = data['accounts'] as Map<String, dynamic>;
     if (!remember) {
       rows.remove(session.user.id);
@@ -193,68 +216,94 @@ class AccountVault {
     return session;
   });
 
-  Future<void> beginRotation(String id) => _locked(() async {
-    if (!supported) return;
-    final data = await _load();
-    final row =
-        (data['accounts'] as Map<String, dynamic>)[id] as Map<String, dynamic>?;
-    if (row == null || row['retain'] != true) return;
-    row['refreshToken'] = null;
-    await _save(data);
-  });
-
-  Future<void> rotated(AuthSession session) => _locked(() async {
-    if (!supported) return;
-    final data = await _load();
-    final row =
-        (data['accounts'] as Map<String, dynamic>)[session.user.id]
-            as Map<String, dynamic>?;
-    if (row == null || row['retain'] != true) return;
-    row['refreshToken'] = session.refreshToken;
-    row['user'] = session.user.toJson();
-    row['expiresAt'] = _now()
-        .add(Duration(seconds: session.refreshExpiresIn))
-        .toUtc()
-        .toIso8601String();
-    await _save(data);
-  });
-
-  Future<void> select(String? id) => _locked(() async {
-    if (!supported) return;
-    final data = await _load();
-    data['active'] = id;
-    await _save(data);
-  });
-
-  Future<void> profile(String id, Map<String, dynamic> profile) =>
+  Future<void> beginRotation(String id, {bool Function()? isCurrent}) =>
       _locked(() async {
         if (!supported) return;
         final data = await _load();
+        if (isCurrent?.call() == false) return;
         final row =
             (data['accounts'] as Map<String, dynamic>)[id]
                 as Map<String, dynamic>?;
-        if (row == null) return;
-        row['name'] = profile['displayName'];
-        row['username'] = profile['username'];
+        if (row == null || row['retain'] != true) return;
+        row['refreshToken'] = null;
         await _save(data);
       });
 
-  Future<void> clearCredential(String id, {bool forget = false}) =>
+  Future<void> rotated(AuthSession session, {bool Function()? isCurrent}) =>
+      _locked(() async {
+        if (!supported || isCurrent?.call() == false) return;
+        final data = await _load();
+        final row =
+            (data['accounts'] as Map<String, dynamic>)[session.user.id]
+                as Map<String, dynamic>?;
+        if (row == null || row['retain'] != true) return;
+        if (isCurrent?.call() == false) return;
+        row['refreshToken'] = session.refreshToken;
+        row['user'] = session.user.toJson();
+        row['expiresAt'] = _now()
+            .add(Duration(seconds: session.refreshExpiresIn))
+            .toUtc()
+            .toIso8601String();
+        await _save(data);
+      });
+
+  Future<void> select(String? id, {bool Function()? isCurrent}) =>
       _locked(() async {
         if (!supported) return;
         final data = await _load();
-        final rows = data['accounts'] as Map<String, dynamic>;
-        if (forget) {
-          rows.remove(id);
-        } else {
-          final row = rows[id] as Map<String, dynamic>?;
-          if (row != null) {
-            row['refreshToken'] = null;
-            row['retain'] = false;
-            row['expiresAt'] = null;
-          }
-        }
-        if (data['active'] == id) data['active'] = null;
+        if (isCurrent?.call() == false) return;
+        data['active'] = id;
         await _save(data);
       });
+
+  Future<void> profile(
+    String id,
+    Map<String, dynamic> profile, {
+    bool Function()? isCurrent,
+  }) => _locked(() async {
+    if (!supported) return;
+    final data = await _load();
+    if (isCurrent?.call() == false) return;
+    final row =
+        (data['accounts'] as Map<String, dynamic>)[id] as Map<String, dynamic>?;
+    if (row == null) return;
+    row['name'] = profile['displayName'];
+    row['coverUrl'] = profile['coverUrl'] is String
+        ? avatarUri(
+            profile['coverUrl'] as String,
+            allowHttp: kDebugMode,
+          )?.toString()
+        : null;
+    row['username'] = profile['username'];
+    row['avatarUrl'] = profile['avatarUrl'] is String
+        ? avatarUri(
+            profile['avatarUrl'] as String,
+            allowHttp: kDebugMode,
+          )?.toString()
+        : null;
+    await _save(data);
+  });
+
+  Future<void> clearCredential(
+    String id, {
+    bool forget = false,
+    bool Function()? isCurrent,
+  }) => _locked(() async {
+    if (!supported) return;
+    final data = await _load();
+    if (isCurrent?.call() == false) return;
+    final rows = data['accounts'] as Map<String, dynamic>;
+    if (forget) {
+      rows.remove(id);
+    } else {
+      final row = rows[id] as Map<String, dynamic>?;
+      if (row != null) {
+        row['refreshToken'] = null;
+        row['retain'] = false;
+        row['expiresAt'] = null;
+      }
+    }
+    if (data['active'] == id) data['active'] = null;
+    await _save(data);
+  });
 }

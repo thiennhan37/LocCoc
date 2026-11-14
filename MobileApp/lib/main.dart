@@ -1,3 +1,4 @@
+import 'features/auth/presentation/widgets/session_boundary.dart';
 import 'package:flutter/material.dart';
 import 'features/notifications/data/push_notifications.dart';
 import 'core/theme/app_theme.dart';
@@ -103,7 +104,11 @@ class _ProfileLinkEntryState extends State<_ProfileLinkEntry> {
     }
     final current = widget.links.api;
     if (current != null) {
-      return UsernameProfileScreen(username: widget.username, api: current);
+      return SessionBoundary(
+        auth: widget.links.auth!,
+        api: current,
+        child: UsernameProfileScreen(username: widget.username, api: current),
+      );
     }
     return AuthScreen(
       googleAuthService: auth,
@@ -123,6 +128,7 @@ class _ProfileLinkEntryState extends State<_ProfileLinkEntry> {
             session: session,
             onSessionChanged: auth.updateSession,
             refreshSession: auth.refreshSession,
+            coordinator: auth,
           );
         });
       },

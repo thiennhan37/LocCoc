@@ -384,6 +384,12 @@ describe('IAM gateway security contract (e2e)', () => {
     await request(app.getHttpServer()).get('/chat/conversations').set('x-user-id', 'forged').expect(401);
   });
 
+  it('does not expose Python AI2 through the Gateway before ownership checks exist', async () => {
+    await request(app.getHttpServer()).post('/ai-search/search/moments')
+      .set('authorization', 'Bearer gateway-test')
+      .send({ user_id: 'another-account', query: 'photos' }).expect(404);
+  });
+
   it('forwards chat with verified identity and strips caller-supplied service credentials', async () => {
     await request(app.getHttpServer()).get('/chat/conversations')
       .set('authorization', 'Bearer gateway-test')

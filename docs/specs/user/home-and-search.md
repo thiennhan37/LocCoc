@@ -1,5 +1,20 @@
 # Social home, friendship count and account search
 
+Flutter wave 2 (2026-11-11): shared avatars, accessible component themes, retained
+social pagination and development-only Debug are documented in
+[the implementation plan/report](mobile-wave-2.md). Existing API/discovery and
+moment-publishing boundaries below remain unchanged.
+
+Flutter correctness/session follow-up (2026-11-11): see the dependency-ordered
+[wave 1 plan and verification](mobile-wave-1.md). Profile friend navigation now
+activates the retained Friends tab, inbox return refreshes both counts, and sample
+content is labeled as preview instead of appearing as real profile statistics.
+
+Smart search/recommendations are documented in
+[smart friend discovery](smart-friend-discovery.md). Product behavior is agreed;
+the extension is implemented in source, including name search and a Friends tab.
+The legacy behavior below remains supported; see the linked spec for deployment.
+
 Implementation: summary repository/service/controller -> Gateway verification ->
 home count/search entry -> profile design -> PostgreSQL/Flutter checks.
 

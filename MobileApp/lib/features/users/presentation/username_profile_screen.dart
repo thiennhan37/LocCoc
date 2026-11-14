@@ -1,3 +1,7 @@
+import '../../../core/widgets/user_avatar.dart';
+import '../../../core/widgets/user_cover.dart';
+import '../../../core/widgets/full_screen_image_viewer.dart';
+import 'mutual_friends.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../auth/data/services/auth_api_client.dart';
@@ -30,12 +34,15 @@ class _UsernameProfileScreenState extends State<UsernameProfileScreen> {
 
   Future<void> load() async {
     final version = ++loadVersion;
+    final epoch = widget.api.discoveryEpoch;
     try {
       final result = await widget.api.request(
         'GET',
         'profiles/by-username/${Uri.encodeComponent(widget.username)}',
       );
-      if (mounted && version == loadVersion) {
+      if (mounted &&
+          version == loadVersion &&
+          epoch == widget.api.discoveryEpoch) {
         setState(() {
           profile = result;
           loading = false;
@@ -43,7 +50,9 @@ class _UsernameProfileScreenState extends State<UsernameProfileScreen> {
         });
       }
     } catch (e) {
-      if (mounted && version == loadVersion) {
+      if (mounted &&
+          version == loadVersion &&
+          epoch == widget.api.discoveryEpoch) {
         setState(() {
           profile = null;
           loading = false;
@@ -88,16 +97,97 @@ class _UsernameProfileScreenState extends State<UsernameProfileScreen> {
     }
   }
 
+  Future<void> _confirmAndAct(String type) async {
+    if (busy || profile == null) return;
+    final targetId = profile!['id'];
+    if (targetId is! String) return;
+    final isBlock = type == 'block';
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isBlock ? 'Chặn người dùng?' : 'Hủy kết bạn?'),
+        content: Text(
+          isBlock
+              ? 'Quan hệ bạn bè và lời mời đang chờ sẽ bị hủy.'
+              : 'Bạn có thể gửi lời mời mới sau này.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Quay lại'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Xác nhận'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !mounted || busy) return;
+    loadVersion++;
+    setState(() => busy = true);
+    if (isBlock) {
+      try {
+        await widget.api.request(
+          'PUT',
+          'blocks/${Uri.encodeComponent(targetId)}',
+        );
+        if (!mounted) return;
+        final messenger = ScaffoldMessenger.maybeOf(context);
+        final navigator = Navigator.of(context);
+        if (navigator.canPop()) {
+          navigator.pop(true);
+          messenger?.showSnackBar(
+            const SnackBar(content: Text('Đã chặn người dùng.')),
+          );
+          return;
+        }
+        setState(() {
+          profile = null;
+          busy = false;
+          error = 'Bạn đã chặn người dùng này.';
+        });
+      } catch (e) {
+        await load();
+        if (!mounted) return;
+        setState(() => busy = false);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(userError(e))));
+      }
+      return;
+    }
+    String? message;
+    try {
+      await widget.api.request(
+        'DELETE',
+        'friends/${Uri.encodeComponent(targetId)}',
+      );
+    } catch (e) {
+      message = e is AuthApiException && e.statusCode == 409
+          ? 'Trạng thái đã thay đổi. Hồ sơ đã được làm mới.'
+          : userError(e);
+    }
+    await load();
+    if (!mounted) return;
+    setState(() => busy = false);
+    if (message != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
   Widget actions() {
     final state = profile!['relationshipStatus'];
     if (state == 'SELF') return const Text('Đây là hồ sơ của bạn');
     if (state == 'FRIENDS') {
-      return const FilledButton(onPressed: null, child: Text('Friends'));
+      return const FilledButton(onPressed: null, child: Text('Bạn bè'));
     }
     if (state == 'OUTGOING_PENDING') {
       return Column(
         children: [
-          const Text('Request Sent'),
+          const Text('Đã gửi lời mời'),
           TextButton(
             onPressed: busy ? null : () => act('cancel'),
             child: const Text('Thu hồi lời mời'),
@@ -129,36 +219,41 @@ class _UsernameProfileScreenState extends State<UsernameProfileScreen> {
     return const Text('Hãy tải lại hồ sơ để xem trạng thái hiện tại.');
   }
 
-  Widget avatar() {
-    final url = profile?['avatarUrl'] as String?;
-    final uri = url == null ? null : Uri.tryParse(url);
-    final fallback = Container(
-      color: Colors.white,
-      child: const Icon(
-        Icons.person_outline_rounded,
-        size: 48,
-        color: AppColors.primary,
-      ),
-    );
-    return Container(
-      width: 96,
-      height: 96,
-      padding: const EdgeInsets.all(4),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-      ),
-      child: ClipOval(
-        child: uri != null && ['https', 'http'].contains(uri.scheme)
-            ? Image.network(
-                url!,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => fallback,
-              )
-            : fallback,
-      ),
+  void _viewPeerAvatar() {
+    final name =
+        profile?['displayName'] as String? ?? profile?['username'] as String?;
+    FullScreenImageViewer.open(
+      context,
+      imageUrl: profile?['avatarUrl'] as String?,
+      title: 'Ảnh đại diện',
+      subtitle: name,
+      emptyMessage: 'Người dùng chưa cập nhật ảnh đại diện.',
     );
   }
+
+  void _viewPeerCover() {
+    final name =
+        profile?['displayName'] as String? ?? profile?['username'] as String?;
+    FullScreenImageViewer.open(
+      context,
+      imageUrl: profile?['coverUrl'] as String?,
+      title: 'Ảnh bìa',
+      subtitle: name,
+      emptyMessage: 'Người dùng chưa cập nhật ảnh bìa.',
+    );
+  }
+
+  Widget avatar() => GestureDetector(
+    key: const Key('view_peer_avatar'),
+    onTap: _viewPeerAvatar,
+    child: UserAvatar(
+      avatarUrl: profile?['avatarUrl'] as String?,
+      displayName:
+          profile?['displayName'] as String? ?? profile?['username'] as String?,
+      size: 96,
+      onTap: _viewPeerAvatar,
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -171,6 +266,26 @@ class _UsernameProfileScreenState extends State<UsernameProfileScreen> {
           onPressed: loading || busy ? null : load,
           icon: const Icon(Icons.refresh_rounded),
         ),
+        if (profile != null && profile!['relationshipStatus'] != 'SELF')
+          PopupMenuButton<String>(
+            key: const Key('profile_more_actions'),
+            tooltip: 'Tùy chọn',
+            enabled: !busy,
+            onSelected: _confirmAndAct,
+            itemBuilder: (_) => [
+              if (profile!['relationshipStatus'] == 'FRIENDS')
+                const PopupMenuItem(
+                  key: Key('profile_unfriend_action'),
+                  value: 'unfriend',
+                  child: Text('Hủy kết bạn'),
+                ),
+              const PopupMenuItem(
+                key: Key('profile_block_action'),
+                value: 'block',
+                child: Text('Chặn'),
+              ),
+            ],
+          ),
       ],
     ),
     body: loading
@@ -211,6 +326,15 @@ class _UsernameProfileScreenState extends State<UsernameProfileScreen> {
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              GestureDetector(
+                                key: const Key('view_peer_cover'),
+                                onTap: _viewPeerCover,
+                                child: UserCover(
+                                  coverUrl: profile!['coverUrl'] as String?,
+                                  onTap: _viewPeerCover,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
                               Container(
                                 padding: const EdgeInsets.all(28),
                                 decoration: BoxDecoration(
@@ -254,6 +378,14 @@ class _UsernameProfileScreenState extends State<UsernameProfileScreen> {
                                 ),
                               ),
                               const SizedBox(height: 20),
+                              if (profile!['mutual'] is Map)
+                                MutualFriendsSummary(
+                                  api: widget.api,
+                                  targetId: profile!['id'] as String,
+                                  evidence: Map<String, dynamic>.from(
+                                    profile!['mutual'] as Map,
+                                  ),
+                                ),
                               Container(
                                 padding: const EdgeInsets.all(20),
                                 decoration: BoxDecoration(

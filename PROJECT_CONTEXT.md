@@ -1,5 +1,188 @@
 # LocCoc Project Context & Knowledge Base (Admin & Payment Module)
 
+### 2026-11-14: Full-screen avatar and cover viewing for self and peer profiles
+
+- Added `FullScreenImageViewer` (`core/widgets/full_screen_image_viewer.dart`) supporting pinch-to-zoom (`InteractiveViewer`), safe URL handling via `avatarUri`, dark theme backdrop, close/back controls, and descriptive empty states.
+- Enhanced `UserAvatar` and `UserCover` with optional `onTap` callbacks and accessibility semantics.
+- Connected own profile in `HomeScreen` (profile tab) allowing users to tap and inspect their own avatar and cover image in full resolution, while preserving the avatar edit action button.
+- Connected peer profile in `UsernameProfileScreen` allowing users to tap and view other users' avatars and cover photos in full screen.
+- Enhanced `EditProfileScreen` to allow quick preview of avatar and cover images while editing profile.
+- Automated verification: Added 9 widget tests in `test/view_profile_images_test.dart` covering both own and peer profiles, standalone viewer mechanics, invalid URLs, and descriptive feedback when images are unset. All 274 Flutter tests pass.
+
+### 2026-11-14: Local avatar save configuration fix
+
+- Diagnosed preview/save failure: service-local MEDIA_ENABLED was false and
+  the Compose media-store container had not been created.
+- Enabled local uploads, started media-store, provisioned the configured bucket
+  with anonymous object reads only, ran pending migrations and restarted the
+  UserService development watcher. Existing secrets were preserved.
+- Forwarded Android emulator port 9000 alongside Gateway port 8080 for the
+  configured loopback media URL. Forwarding needs reapplying after reconnect.
+- Verification: 9/9 isolated PostgreSQL/S3/Gateway media tests passed; local
+  bucket upload/public byte-identical read passed and anonymous listing was
+  denied (403). Temporary verification object removed; no user photo changed.
+- No mobile code/APK change required. Saving the selected photo in the running
+  app remains a manual device check. Details: docs/specs/user/profile-media.md.
+
+### 2026-11-12: Avatar and cover upload
+
+- Recorded ADR-014 and `docs/specs/user/profile-media.md` before implementation;
+  preserved existing dirty work. `.agents` rules/skills are absent locally.
+- Added nullable cover_url and an object lifecycle ledger with a transactional
+  retirement trigger. Raw authenticated own-account avatar/cover PUT/DELETE goes
+  through Controller -> Service -> Repository/Storage. New accounts are projected
+  before upload; administrator routes cannot change another account's images.
+- JPEG/PNG/WebP magic/MIME/decode checks, 5/10 MiB limits, 40 MP / 12000 axis,
+  animation rejection, ten-second decode deadline, bounded concurrency, rotation,
+  resize/WebP and metadata removal protect uploads. Redis enforces 10/min/account.
+  Approved HTTPS URL compatibility cannot attach managed objects or unsafe schemes.
+  Old media deletion is durable, retried and follows profile commit; failed
+  storage/transactions preserve the old reference. Name cooldown is unchanged.
+- Added optional Compose media-store with digest-pinned SeaweedFS 4.53, loopback S3
+  only and explicit credentials. MinIO pulls failed at both official registries;
+  S3-compatible SeaweedFS was verified with real storage. Explicit bucket setup
+  grants anonymous object reads, without anonymous listing/writing. No real .env,
+  secrets, live project data or deployments were changed.
+- Both Gateways forward bounded raw image bodies under existing /users routing
+  with upload quotas and 60s deadlines. Normal body limits remain. Flutter adds
+  library/camera selection, preview, upload/clear, progress/errors and generation
+  fences, plus shared safe cover rendering on own/peer profiles. Independent media
+  commits preserve unsaved name edits. Vault v1 adds optional cover URL metadata.
+- Actual verification: shared/User/Nest builds PASS; User 125 unit PASS and clean
+  type-aware lint; isolated real PostgreSQL/S3 E2E 87 PASS / 16 existing optional
+  infrastructure SKIP (all 9 media cases PASS); Nest Gateway 23 PASS; Spring
+  Gateway 20 PASS; Flutter format 75 files/0 changed, analyze clean, 265 tests PASS.
+  Android debug APK, Compose config and diff whitespace checks PASS. Artifact/hash
+  and repeatable commands are in the media spec.
+- Production S3/CDN/TLS configuration, live migration, device camera/gallery and
+  permission UX, lost-activity recovery and iOS build remain unverified. Uploads
+  stay disabled until real media configuration is supplied and schema applied.
+
+### 2026-11-11: Flutter wave 3 — supported account actions and honest readiness
+
+- Dependency-ordered plan and source evidence were written before implementation
+  in `docs/specs/user/mobile-wave-3.md`. Existing dirty work was preserved. No
+  backend, secrets/.env, live data, Kafka or discovery policy changes in this wave;
+  no new architectural decision/ADR is required for the supported client behavior.
+- EditProfile combines display name/avatar URL validation, preview and clearing.
+  Avatar-only PATCH omits name; combined updates respect the existing server-atomic
+  30-day name policy. Phone remains read-only: Auth owns accounts.phone and User
+  projects it, so profile phone edits can be overwritten. No upload claim is added.
+- Password form follows the actual DTO plus known server policy (10–128 characters,
+  common-password/prefix/email exclusions, no invented composition rule). Wrong
+  current password stays a form error after session probing; unavailable probes,
+  403, throttling and network errors are not presumed revocation. Retry-After is
+  shown safely. Public account has no hasPassword/provider capability, so a Google
+  login cannot establish password absence; first-password setup remains unsupported.
+- Extended the existing coordinator for exclusive password/logout-all operations
+  alongside single-flight refresh. Strict replacement pairs preserve current
+  identity and retention consent, advance generation, invalidate old reads and
+  replace authenticated navigation once. Home stops old work and drains known
+  pending push registration before new Home. Late server writes after HTTP timeout
+  still need a backend ordering contract; native push integration is unverified.
+- Lost/malformed password responses never fabricate success or automatically retry
+  the password mutation/old RT. Explicit reauthentication is offered. Acknowledged
+  changes with persistence failure continue using the new in-memory session and
+  warn honestly; other saved accounts are preserved. Storage failure cannot promise
+  durable erasure. Logout-all requires confirmation/server acknowledgement, blocks
+  repeat actions and reuses revocation teardown without retaining revoked sessions.
+- Signup/OTP remains closed: AuthModule binds ConsoleOtpSender unconditionally and
+  it performs no delivery in production. Real sender/verified delivery, generic
+  enumeration-safe outcomes and structured throttling are prerequisites. Future
+  UI must read verified:true, create no session from tokenless verification, then
+  return to login. No OTP success or production readiness is claimed.
+- Actual verification: baseline 202 tests rerun; final default 245 PASS, opt-in
+  Debug 248 PASS, no failures/skips. Added 43 account-security/UI tests covering
+  races, stale results, storage/push ordering, forms, confirmation and 360px/200%
+  text with keyboard. Format check 71 files/0 changed, analyzer no issues; scoped
+  diff whitespace check PASS. Android release built with dev flag true; AOT marker
+  inspection passes across three ABIs. Artifact/hash are recorded in the wave-3
+  spec. Existing local signing is not store signing. Android/iOS device UX, live
+  Auth/push/secure-storage integration, OTP delivery and iOS build remain unverified.
+
+### 2026-11-11: Flutter wave 2 — shared avatar, accessible theme and gated Debug
+
+- Plan and detailed evidence: `docs/specs/user/mobile-wave-2.md`, recorded before
+  implementation. Preserved the existing dirty worktree; no backend, secrets/.env,
+  live data, Kafka or Smart Discovery policy changes. Wave 3 remains separate.
+- Shared UserAvatar now handles all person-image API URLs with host/scheme checks,
+  HTTPS in release, bounded decoding, no application auth headers and initials/icon
+  fallback. SavedAccount/vault adds optional sanitized avatarUrl while reading old
+  v1 rows. The edit badge opens an explicitly URL-only preview/editor through the
+  existing avatarUrl PATCH contract; name cooldown/phone/upload are unchanged.
+- Theme covers common surfaces/forms/buttons/chips/dialogs/SnackBars. Original
+  coral stays as brand; dark coral with white reaches 5.74:1, secondary text on
+  main background 5.74:1 and input hint text 4.80:1. Narrow/large-text layouts grow
+  or wrap, including keyboard checks. Navigation/header/Debug were extracted from
+  Home; internal HomeTab mapping preserves existing initialTab:2 behavior.
+- Social labels are Vietnamese, search clears quickly, card bodies open profiles,
+  embedded blocked chips are hidden while Settings initialTab:4 remains. Friends,
+  mutuals and inbox dedupe within/across pages; single-card actions and unchanged
+  returns retain pages/cursors/scroll. Server-hidden/unavailable mutual responses
+  remove previous identities. Inbox shows local times and trimmed actor fallback
+  from payload without profile-enrichment queries.
+- Debug requires kDebugMode AND LOCCOC_DEV_TOOLS=true, independent of roles. Home
+  and profile no longer show technical account/token data. Debug masks AT, never
+  renders RT, bounds/redacts observational JWT claims and shares the coordinator
+  for Force Refresh. Busy/stale-session guards protect reloads. Firebase setup,
+  permission and server registration diagnostics are distinct; push disposal is
+  idempotent and strict retained-logout detach remains intact.
+- Actual checks: format 66 files/0 changed, analyzer no issues, default full suite
+  202 PASS and opt-in development full suite 205 PASS (no skipped cases). Baseline
+  was actually rerun: 171 PASS. Widget tests cover 360px/200% text/long names and
+  keyboard. Final Android release with dev flag intentionally true built; AOT APK
+  inspection found no Debug markers across three ABIs. Artifact/hash and repeatable
+  verification command are recorded in the wave-2 spec.
+- Native Android/iOS UI, live push/images/secure storage and iOS signing remain
+  unverified. APK uses existing local signing, not store signing. Java native-access
+  and firebase_core Kotlin migration advisories remain; no upgrade was attempted.
+
+### 2026-11-11: Flutter wave 1 — correctness and shared session lifecycle
+
+- Recorded the dependency-ordered plan before implementation in
+  `docs/specs/user/mobile-wave-1.md`. Preserved preexisting uncommitted discovery,
+  profile and backend work. The referenced `.agents` directory is absent locally.
+- Own-profile Share now opens a real QR/link/copy/native-share sheet using the
+  existing username/domain. Failed clipboard writes do not report success; Demo
+  and invalid/missing usernames cannot fabricate public links.
+- Real profiles use API avatars and friendCount, omit sample 128/24 statistics
+  and biography, and label moments/feed/gallery as previews. Profile friends opens
+  the retained tab, preserving loaded pages/cursors/subtab/scroll; returning from
+  inbox or push-open refreshes both notification and friendship counts.
+- Email login now matches LoginDto, classifies errors without message matching,
+  safely displays Retry-After and removes Demo failure actions. Standalone Demo
+  remains explicit without asserting real authentication/email verification.
+- Extended the existing GoogleAuthService coordinator: single-flight rotation,
+  generation-guarded requests/vault writes, no replay/retention of ambiguous RTs,
+  coalesced revocation and one shared AuthScreen transition. Old read/refresh/logout
+  results cannot overwrite a newer login, including the same account. Identity and
+  other accounts' credentials are preserved. Push detach cannot trigger refresh.
+- Backend change-password's ambiguous 401 is checked through GET /auth/sessions
+  before rotation; wrong current password remains a form error. Ordinary 403,
+  transport/timeouts/5xx and a second generic access 401 are nonterminal.
+- Actual final verification: dart format check (53 files, 0 changed), flutter
+  analyze (no issues), flutter test (171 passed, no failures/skips), scoped diff
+  whitespace check PASS. Tests include 360px/200% text with keyboard. Formatting
+  normalized a few existing Flutter files without changing their behavior.
+- No backend, .env/secrets, live data, Kafka/Smart Discovery decisions or deployment
+  changes in this wave. Native Android/iOS sharing, push, secure storage and device
+  UX remain unverified; no APK/release/iOS build or release-debug exclusion claim.
+  Wave 2/3 remain deferred; no new architectural/product approval is needed for
+  the implemented wave 1 fallback. See the linked spec for evidence and limits.
+
+### 2026-11-10: Smart friend discovery design preparation
+
+- Recorded the supplied PostgreSQL + outbox/Kafka + Neo4j + Redis clarification
+  verbatim in `docs/specs/user/smart-discovery-input-2026-11-10.txt`.
+- Added ADR-012 and `docs/specs/user/smart-friend-discovery.md`: baseline decisions,
+  repository gaps, privacy/cache consistency boundaries, proposed APIs, rollout
+  sequence, verification checklist and Q1–Q10 awaiting product confirmation.
+- Discovery accepts account-status projection lag and third-party ranking staleness
+  until cache refresh; synchronous PostgreSQL block checks remain mandatory.
+  Existing caller/target authority checks under ADR-006 remain unchanged.
+- Documentation only: no runtime code/configuration, schema/data, services or
+  secrets changed. This feature is not implemented; no runtime tests were run.
+
 ### 2026-11-13: Publish chat-service for review against main
 
 - User reported satisfactory local testing and explicitly requested commit,
@@ -752,6 +935,147 @@ Mobile API layer now includes all existing Auth endpoints and Post create/delete
 - Architecture compliance: soft delete is preserved (`deleted_at = now()` in PostgreSQL `accounts` table, broadcast via Kafka `account.events` outbox to `user-service` projection); no hard deletion performed.
 - Verification: 54 / 54 Flutter tests passing (including 7 new tests in `test/account_deletion_test.dart`), `flutter analyze` clean (0 warnings), `flutter build bundle` clean. Backend test suites (`user-service`: 25 passed, `auth-service`: 75 passed) all green.
 
+### 2026-11-10: Rolling display-name cooldown (Q2)
+
+- Implemented the approved rolling 30-day policy for display names. Initial
+  nonempty naming and saving an identical trimmed/NFC name do not count. Blank/null
+  profile names cannot reset the allowance. Immutable usernames are unchanged.
+- Profile updates and username onboarding share a PostgreSQL row-locked writer.
+  Counted timestamps use database time; concurrent renames cannot consume the same
+  allowance. Rejected names roll back the entire profile/username request.
+- Admin overrides require the admin role, preserve the user's cooldown timestamp
+  (including database precision), and atomically log actor/target/old/new/time.
+  Admin-only GET /users/:id/display-name-history provides paginated audit records.
+- GET/PATCH profiles and cooldown conflicts expose nextDisplayNameChangeAt.
+  The existing Gateway /users mapping was verified without adding a redundant route.
+- Flutter's Profile > Edit profile now edits display names, shows the policy/next
+  date, prevents repeated submissions and refreshes displayed/cached profile names.
+- Migration DisplayNameCooldown1794268800000 preserves names, adds a nullable
+  last counted-change timestamp and a durable audit table. It is registered for
+  startup/explicit migrations; no historical changes are inferred for existing users.
+- Verified: all four NestJS services build; UserService 62 unit tests and 56 E2E
+  tests passed (real PostgreSQL, JWT authority and Gateway). Six unrelated Kafka/
+  outbox integration cases were skipped by their existing environment gates.
+  Gateway 16 E2E tests and 17 focused Flutter tests passed; UserService lint,
+  Flutter analyze and diff whitespace checks are clean.
+- Decision/spec: docs/adr/ADR-013-display-name-cooldown.md and
+  docs/specs/user/display-name-cooldown.md. Smart-discovery decisions were
+  subsequently confirmed as recorded below.
+
+### 2026-11-10: Smart friend discovery product decisions confirmed
+
+- Updated ADR-012 and the discovery specification with the user's follow-up
+  design and approval of review questions 1/2/4/5; question 3 selects a 30-day
+  bilateral suggestion cooldown after unfriend. Other cooldowns: dismiss 90 days
+  one-way, reject 30 days bilateral, cancel 7 days bilateral. These do not block
+  manual search/invitations; pending excludes recommendations.
+- Privacy flags default true. Hidden intermediaries lose identity/count at the
+  final PostgreSQL check. A hidden target's entire mutual section is suppressed
+  across profile/search/suggestion cards; the target can still view permitted
+  mutuals elsewhere. Stale third-party ranking influence remains accepted.
+- Search: exact @username, name relevance, graph proximity. Suggestions prioritize
+  2-hop then 3-hop fill, with connection score within groups. Keep Home search;
+  add a Friends tab, privacy settings and cold-start link sharing/QR guidance.
+- Cache TTL starts at 10 minutes, graph-lag budget at 30 seconds, both configurable.
+  Neo4j failure allows unexpired Redis suggestions within the freshness budget
+  after final filtering; Redis failure/excessive lag shows maintenance. Text search
+  continues through PostgreSQL without mutual data during either dependency failure.
+- Preserve notification-only social.events and existing account.events; add
+  social.graph.events, canonical pair versions/durable watermarks and independent
+  profile versions. Accept rare stale Redis publication without cross-store
+  generation coordination; PostgreSQL eligibility checks remain mandatory.
+- Local Neo4j Compose setup is part of the design; super-node handling is deferred.
+  This update changes documentation only. No runtime feature, migration, Docker
+  configuration or production data was changed; implementation checks remain pending.
+
+### 2026-11-10: Smart friend discovery implemented and verified
+
+- Added SmartDiscovery1794355200000, preserving existing users/relationships:
+  unaccent/trigram normalized-name search, true/true privacy defaults, independent
+  profile/pair versions, durable cooldown feedback, separate graph outbox,
+  projection offsets, refresh queue and viewer-bound expiring cursor sessions.
+- Existing SERIALIZABLE social mutations now lock canonical pair rows. Source
+  triggers write full pair/profile snapshots transactionally, including admin,
+  onboarding and deletion of graph relationships. Notification-only social.events
+  and its publisher remain unchanged. Independent social.graph.events/account.events
+  consumption applies account/profile versions separately and retains pair watermarks.
+- Added private authenticated Neo4j 5.26.33 Community Compose service and HTTP
+  adapter, persistent volume, health check and three-second transaction timeout.
+  Runtime bootstraps/reconciles from source snapshots, monitors progress/backlog,
+  periodically refreshes Top-500 Redis lists and uses generation-checked Lua with
+  ownership-token locks. TTL 600 seconds and conservative lag budget 30 seconds
+  are configurable. Source eligibility checks remain authoritative after stale
+  graph reads or Redis generation loss; no neighbor invalidation/super-node policy.
+- Added Vietnamese q/cursor search alongside preserved username/page search,
+  recommendations/dismiss, privacy and mutual-detail APIs. All routes use existing
+  Gateway users mapping. Final PostgreSQL reads recheck relations/privacy/feedback;
+  mutual count is exact and candidate lists identify projection gaps with partial.
+  Hidden/unavailable evidence has no numeric count. Dependency outages preserve
+  text search; unexpired suggestions serve only within the freshness policy.
+- Flutter has Home name/username search, a separate Friends tab with suggestions,
+  dismiss, privacy settings, profile/card mutual summaries/detail, cold-start
+  link copy/share plus QR and stale-response suppression after local block.
+- Verified: UserService build, 73 unit tests and 87 E2E/integration tests passed
+  without skipped cases, including real PostgreSQL/Neo4j/Redis/Kafka and Gateway
+  authentication/ownership checks. Flutter analyzer clean, 114 tests passed and
+  Android debug APK built at MobileApp/build/app/outputs/flutter-apk/app-debug.apk.
+  Compose config and documentation links/whitespace verified. Existing Firebase
+  Android plugin emits a future Kotlin migration advisory; current APK build passes.
+- Tests used a dedicated disposable database/schema, isolated Neo4j container,
+  unique Kafka topics/group and UUID-scoped Redis keys; temporary resources were
+  removed. Existing local .env secrets and live business tables were untouched.
+  Existing-environment activation requires matching new NEO4J_PASSWORD values in
+  root/UserService local .env, Neo4j startup, the registered migration and a
+  UserService restart. iOS/device interaction and workload benchmarks remain
+  unverified. Full API/deployment/rebuild/rollback guide:
+  docs/specs/user/smart-discovery-operations.md; product decisions: ADR-012.
+
+
+### 2026-11-10: Smart discovery hardening [1]–[8]
+
+- Replaced destructive pair cache invalidation with generation-incrementing Lua
+  pruning that preserves remaining PTTL/IDs, including delayed Kafka pair events.
+  Dismiss touches only its viewer. Flutter changes only affected cards/search
+  relationship state and retains loaded pages/cursors. Block acknowledgement also
+  advances the response epoch to reject reads begun while the write was in flight.
+- Search retrieves global PostgreSQL candidates once, parallel with Neo4j, then
+  ranks a bounded ID union with current PostgreSQL visibility/text checks. Query
+  normalization strips @, NFC-normalizes and collapses whitespace before minimum
+  length validation in both DTO/repository and Flutter.
+- Added DiscoveryRefreshLeases1794441600000 after SmartDiscovery: priority 0/1/2,
+  request revisions, token/30-second leases and retry availability. On-demand
+  upserts promote work while preserving its original queue position. Atomic
+  SKIP LOCKED claims commit before up to three concurrent computations; only
+  matching completed leases/revisions are acknowledged. Locked/failed/stale work
+  is retained and newer requests survive old worker completion. Monitoring and
+  refresh loops run independently to prevent graph work delaying health checks.
+- Two-hop candidates now score only distinct eligible common bridges. Three-hop
+  traversal runs only to fill remaining Top-500 slots, excluding two-hop IDs.
+  Bootstrap uses UUID tuple keyset; Kafka checks listTopics before creating the
+  graph topic. Typed discovery environment validation requires URL/password when
+  enabled outside tests. Blocking an existing friend writes bilateral UNFRIEND
+  30-day feedback transactionally; repeated block does not extend it.
+- Home retains FriendsScreen/subtab state in IndexedStack with lazy first load.
+  Unchanged profile return keeps pagination; changed peers refresh individually.
+  Profile buttons moved below names; zero/hidden/unavailable mutual chips omitted.
+- Verified required checks: shared/common and all four Node service builds PASS;
+  UserService lint clean and 91 unit tests PASS; AuthService 77 unit tests PASS;
+  Gateway 16 E2E PASS; UserService full-stack 94 E2E PASS with 0 skipped; Flutter
+  analyzer 0 issues and all 121 tests PASS. git diff whitespace check is clean.
+- Reusable scripts/verify-discovery-e2e.mjs generates process-only credentials,
+  starts UUID-named disposable PostgreSQL 17/authenticated Neo4j 5.26.33 on random
+  loopback ports, sets all test URLs, invokes npm test:e2e and removes containers
+  in finally. Tests use UUID-scoped Redis keys/Kafka topics and isolated schemas.
+  Real Gateway tests verify both search branches, exact username/graph ranking,
+  actual mutuals, preparing->ready, maintenance and preserved remaining cards
+  after send/dismiss; queue tests cover claims/ownership/revisions/lock contention.
+- Existing .env/secrets/live business data were not changed. Current local Neo4j
+  password/URL are not configured; activation requires local configuration and
+  both registered migrations. Physical-device/iOS checks, a new APK build,
+  workload benchmarks and super-node policy are outside this follow-up.
+- Evidence: docs/specs/user/smart-discovery-hardening-report.md; updated ADR-012,
+  smart-friend-discovery.md and smart-discovery-operations.md.
+
 ### 2026-11-13: Merge Home mới với camera/editor và local photo publishing
 
 - Giữ Google login, ProfileLinkScope, hồ sơ, bạn bè, thông báo và quản lý tài khoản khi giải quyết merge conflict.
@@ -798,3 +1122,31 @@ Mobile API layer now includes all existing Auth endpoints and Post create/delete
   disposable container and Socket.IO clients; AI: 60 unit + 13 E2E with mocked Gemini.
   Flutter analyzer clean and all 147 Flutter tests passed. Android emulator/device
   interaction and a paid Gemini generation were not part of these automated checks.
+
+### 2026-11-14: Merge main into feature/friend-suggestions
+
+- Resolved nine conflicts against main at 97f7181 while retaining friend discovery,
+  privacy/feedback, profile avatar/cover uploads and the branch's session boundaries.
+  Integrated main's chat, camera/photo publishing and Gemini image filtering.
+- Combined both raw media upload paths (5/10 MiB limits, quota, 60-second upstream
+  deadline) and AI streaming/cancellation. Preserved all gateway routes and added
+  regression checks that Python AI2 is not exposed through /ai-search.
+- User-approved final decision: Gemini remains /ai at 8082; posts remain at 8087;
+  Python AI2 code/examples/scripts default to 8088 with separate reserved
+  AI_SEARCH_SERVICE_URL. AI2 Gateway integration is deferred until verified identity
+  and user_id ownership checks exist. ADR-015 and ai-services-coexistence.md record
+  the decision. Existing .env files, secrets and live deployments were preserved.
+- Kept both Spring Gateway regression cases and the 8 MiB body default required
+  by photo posts. Retained upload-specific limits, timeouts and multipart settings.
+  Home keeps friend-tab state, avatar viewing and session replacement cleanup;
+  chat controllers are disposed before an account replacement.
+- Verification: all seven Node workspace packages built; Flutter analyzer clean,
+  322 Flutter tests passed. UserService: 125 unit, 94 discovery/social E2E plus
+  9 media E2E (separate PostgreSQL/S3 run), clean type-aware lint and one real Node
+  shared-guard smoke test. AuthService: 77 unit; Gateway: 6 unit + 45 E2E;
+  Gemini AI: 60 unit + 13 E2E; Spring Gateway: 21 tests. Python configuration and
+  search helper parsed successfully without loading models or using provider APIs.
+- PostgreSQL, Neo4j, Redis, Kafka and S3 verification used disposable containers;
+  all were removed. No live user data, emulator interaction or AI model inference
+  was used for these checks. Small existing Dart lint issues and the incoming
+  shared-guard test's unawaited test registration were corrected.

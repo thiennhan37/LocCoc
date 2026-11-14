@@ -76,6 +76,17 @@ describe('AI gateway configuration after merging main', () => {
     });
   });
 
+  it('keeps Gemini, photo posts and reserved Python search upstreams separate', () => {
+    expect(validateGatewayEnvironment(gatewayInput)).toMatchObject({
+      AI_SERVICE_URL: 'http://127.0.0.1:8082',
+      POST_SERVICE_URL: 'http://127.0.0.1:8087',
+      AI_SEARCH_SERVICE_URL: 'http://127.0.0.1:8088',
+    });
+    expect(() => validateGatewayEnvironment({
+      ...gatewayInput, AI_SEARCH_SERVICE_URL: 'file:///tmp/search',
+    })).toThrow('AI_SEARCH_SERVICE_URL');
+  });
+
   it('validates and converts explicit AI settings', () => {
     expect(validateGatewayEnvironment({
       ...gatewayInput, AI_SERVICE_URL: 'https://ai.example',

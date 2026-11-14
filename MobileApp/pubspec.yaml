@@ -44,6 +44,9 @@ dependencies:
   firebase_messaging: ^17.0.1
   shared_preferences: ^2.5.6
   flutter_secure_storage: ^10.3.4
+  qr_flutter: ^4.1.0
+  share_plus: ^13.3.1
+  image_picker: ^1.2.4
 
 dev_dependencies:
   flutter_test:

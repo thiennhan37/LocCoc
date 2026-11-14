@@ -104,6 +104,24 @@ logs/
 .agents/
 node_modules
 
+# 10. Python & AI Service (Virtual Environments & Large Models)
+**/__pycache__/
+*.py[cod]
+*$py.class
+**/.venv/
+**/venv/
+**/env/
+ai-service-2/.venv/
+ai-service-2/models/
+**/models/
+*.safetensors
+*.bin
+*.onnx
+*.pt
+*.pth
+.cache/
+**/.cache/
+
 # 10. AI Service Models & HuggingFace Cache
 ai-service-2/models/
 ai-service-2/.venv/

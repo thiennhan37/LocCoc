@@ -127,6 +127,23 @@ class ApiGatewayApplicationTests {
   }
 
   @Test
+  void binaryMediaUsesDedicatedLimitsAndPreservesBytes() throws Exception {
+    String body = "image-bytes-".repeat(30);
+    mvc.perform(put("/users/me/media/cover").contentType("image/png").content(body))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().contains(body));
+    mvc.perform(put("/users/me/media/avatar").contentType("image/png")
+        .content(new byte[5 * 1024 * 1024 + 1])).andExpect(status().isPayloadTooLarge());
+    mvc.perform(put("/users/me/media/cover").contentType("image/png")
+        .content(new byte[10 * 1024 * 1024 + 1])).andExpect(status().isPayloadTooLarge());
+    mvc.perform(put("/users/me/media/cover").contentType("image/svg+xml").content("<svg/>"))
+        .andExpect(status().isUnsupportedMediaType());
+    mvc.perform(put("/users/me/media/cover").contentType("image/png").header("Content-Encoding", "gzip").content("bad"))
+        .andExpect(status().isUnsupportedMediaType());
+    verify(repository, atLeastOnce()).consume(eq("media:127.0.0.1"), eq(10), eq(60000L));
+  }
+
+  @Test
   void forwardsPostRootAndDeletionWithoutToken() throws Exception {
     mvc.perform(post("/posts/photos").contentType("application/json").content("{\"imageBase64\":\"abc\"}"))
         .andExpect(status().isCreated());

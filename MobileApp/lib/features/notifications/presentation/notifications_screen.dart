@@ -1,17 +1,21 @@
+import '../../../core/widgets/user_avatar.dart';
+import '../../../core/utils/paginated_rows.dart';
+import 'notification_labels.dart';
 import 'package:flutter/material.dart';
 import '../data/notification_api.dart';
 import '../../users/data/user_api_client.dart';
 import '../../users/presentation/username_profile_screen.dart';
 
-Future<void> openNotification(
+Future<Map<String, dynamic>?> openNotification(
   BuildContext context,
   NotificationApi api,
   Map<String, dynamic> item,
 ) async {
+  Map<String, dynamic>? read;
   try {
     final id = item['id'] ?? item['notificationId'];
-    if (id is! String) return;
-    await api.read(id);
+    if (id is! String) return null;
+    read = await api.read(id);
     final actor = item['actor'] as Map<String, dynamic>?;
     final actorId = actor?['id'] ?? item['actorId'];
     final data = item['data'] as Map<String, dynamic>?;
@@ -30,7 +34,7 @@ Future<void> openNotification(
       'GET',
       'profiles/${Uri.encodeComponent(actorId)}',
     );
-    if (!context.mounted) return;
+    if (!context.mounted) return read;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => UsernameProfileScreen(
@@ -50,6 +54,7 @@ Future<void> openNotification(
       );
     }
   }
+  return read;
 }
 
 class NotificationsScreen extends StatefulWidget {
@@ -113,8 +118,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           .toList();
       setState(() {
         if (reset) items.clear();
-        final ids = items.map((e) => e['id']).toSet();
-        items.addAll(incoming.where((e) => !ids.contains(e['id'])));
+        final merged = mergeUniqueRows(items, incoming);
+        items
+          ..clear()
+          ..addAll(merged);
         nextCursor = page['pageInfo']['nextCursor'] as String?;
         hasMore = page['pageInfo']['hasMore'] == true;
       });
@@ -133,10 +140,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> tap(Map<String, dynamic> item) async {
-    await openNotification(context, widget.api, item);
+    final read = await openNotification(context, widget.api, item);
     if (!mounted) return;
-    // Read state is fetched from server, including unavailable-target taps.
-    await load(reset: true, markSeen: false);
+    // Refresh only the tapped read state; retain older pages and their cursor.
+    if (read != null) {
+      setState(() {
+        item['isRead'] = read['isRead'] == true || read['readAt'] != null;
+      });
+    }
     widget.onChanged();
   }
 
@@ -169,23 +180,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   : Theme.of(
                       context,
                     ).colorScheme.primaryContainer.withValues(alpha: 0.3),
-              leading: CircleAvatar(
-                child: item['actor']['avatarUrl'] is String
-                    ? ClipOval(
-                        child: Image.network(
-                          item['actor']['avatarUrl'] as String,
-                          width: 40,
-                          height: 40,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) =>
-                              const Icon(Icons.person_outline),
-                        ),
-                      )
-                    : const Icon(Icons.person_outline),
+              leading: UserAvatar(
+                avatarUrl: item['actor'] is Map
+                    ? item['actor']['avatarUrl'] as String?
+                    : null,
+                displayName: notificationActorLabel(
+                  item['actor'] is Map
+                      ? Map<String, dynamic>.from(item['actor'] as Map)
+                      : null,
+                ),
               ),
               title: Text(
-                '${item['actor']['displayName'] ?? 'Một người dùng'} ${item['type'] == 'FRIEND_REQUEST_RECEIVED' ? 'đã gửi lời mời kết bạn.' : 'đã chấp nhận lời mời kết bạn.'}',
+                '${notificationActorLabel(item['actor'] is Map ? Map<String, dynamic>.from(item['actor'] as Map) : null)} ${item['type'] == 'FRIEND_REQUEST_RECEIVED' ? 'đã gửi lời mời kết bạn.' : 'đã chấp nhận lời mời kết bạn.'}',
               ),
+              subtitle: Text(localNotificationTime(item['createdAt'])),
               trailing: item['isRead'] == true
                   ? null
                   : const Icon(Icons.circle, size: 9),
