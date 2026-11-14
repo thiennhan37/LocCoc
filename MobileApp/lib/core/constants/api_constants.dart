@@ -46,4 +46,15 @@ class ApiConstants {
   /// Social Login endpoint path (proxied by API Gateway to auth-service)
   static const String googleAuthPath = '/auth/social/google';
   static const String appleAuthPath = '/auth/social/apple';
+  static const registerPath = '/auth/register';
+  static const loginPath = '/auth/login';
+  static const verifyOtpPath = '/auth/verify-otp';
+  static const resendOtpPath = '/auth/resend-otp';
+  static const refreshPath = '/auth/refresh';
+  static const logoutPath = '/auth/logout';
+  static const logoutAllPath = '/auth/logout-all';
+  static const changePasswordPath = '/auth/change-password';
+  static const postsPath = '/posts';
+  static const photoPostsPath = '/posts/photos';
+  static Uri get login => Uri.parse(baseUrl).resolve(loginPath);
 }

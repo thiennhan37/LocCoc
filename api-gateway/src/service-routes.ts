@@ -1,4 +1,8 @@
 export const SERVICE_ROUTES = {
+  posts: {
+    prefix: '/posts',
+    urlConfigKey: 'POST_SERVICE_URL',
+  },
   auth: {
     prefix: '/auth',
     urlConfigKey: 'AUTH_SERVICE_URL',

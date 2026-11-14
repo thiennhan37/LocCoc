@@ -1,3 +1,5 @@
+import 'capture_moment_screen.dart';
+import '../../../posts/presentation/photo_editor_screen.dart';
 import 'dart:async';
 import '../../../chat/data/chat_api.dart';
 import '../../../chat/data/chat_socket_client.dart';
@@ -552,11 +554,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ),
   );
 
-  void _postingUnavailable() => ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text('Tính năng thêm tin, ảnh sẽ được phát triển sau.'),
-    ),
-  );
+  bool _openingCamera = false;
+  Future<void> _openCamera() async {
+    if (_openingCamera || _isLoggingOut || _isDeletingAccount) return;
+    if (!_realSession || !session.authenticated || session.user.id.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Hãy đăng nhập để gửi ảnh.')),
+      );
+      return;
+    }
+    _openingCamera = true;
+    try {
+      final result = await Navigator.of(context).push<PublishedPhoto>(
+        MaterialPageRoute(
+          builder: (_) => CaptureMomentScreen(ownerId: session.user.id),
+        ),
+      );
+      if (mounted && result != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã đăng khoảnh khắc của bạn.')),
+        );
+      }
+    } finally {
+      _openingCamera = false;
+    }
+  }
 
   Widget _buildTopStatusHeader(String email) {
     return Container(
@@ -785,7 +807,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Padding(
             padding: const EdgeInsets.only(right: 14),
             child: GestureDetector(
-              onTap: _postingUnavailable,
+              onTap: _openCamera,
               child: Column(
                 children: [
                   Container(
@@ -1099,15 +1121,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Tính năng chia sẻ khoảnh khắc với camera đang sẵn sàng!',
-                ),
-              ),
-            );
-          },
+          onTap: _openCamera,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(

@@ -103,3 +103,20 @@ logs/
 # 9. AI Agent Local Files (if not committed)
 .agents/
 node_modules
+
+# 10. AI Service Models & HuggingFace Cache
+ai-service-2/models/
+ai-service-2/.venv/
+**/.cache/
+*.safetensors
+*.onnx
+*.onnx_data
+*.bin
+*.pt
+*.pth
+
+# 11. Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/

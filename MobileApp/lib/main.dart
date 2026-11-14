@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'features/notifications/data/push_notifications.dart';
 import 'core/theme/app_theme.dart';
+import 'core/navigation/app_route_observer.dart';
 import 'features/auth/presentation/screens/auth_screen.dart';
 import 'features/auth/data/services/google_sign_in_service.dart';
 import 'features/auth/domain/models/auth_session.dart';
@@ -36,6 +37,7 @@ class _LocCocAppState extends State<LocCocApp> {
     return ProfileLinkScope(
       session: links,
       child: MaterialApp(
+        navigatorObservers: [appRouteObserver],
         title: 'LocCoc',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,

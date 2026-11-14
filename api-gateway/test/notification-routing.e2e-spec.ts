@@ -35,7 +35,7 @@ describe('notification gateway routing', () => {
         .set('x-user-id', 'spoof')
         .expect(200);
       expect(String(upstream.mock.calls[0][0])).toBe(
-        'http://notification:8084/notifications/?limit=20&cursor=test',
+        'http://notification:8084/notifications?limit=20&cursor=test',
       );
       expect(upstream.mock.calls[0][1].headers.get('x-user-id')).toBeNull();
       await request(app.getHttpServer())

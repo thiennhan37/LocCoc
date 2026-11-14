@@ -66,3 +66,28 @@ describe('business upstream configuration validation', () => {
     expect(() => validateGatewayEnvironment({ ...gatewayInput, [key]: 'ftp://upstream.example' })).toThrow(key);
   });
 });
+
+describe('AI gateway configuration after merging main', () => {
+  it('retains the default AI upstream and numeric rate limits', () => {
+    expect(validateGatewayEnvironment(gatewayInput)).toMatchObject({
+      AI_SERVICE_URL: 'http://127.0.0.1:8082',
+      AI_RATE_LIMIT_MAX: 5,
+      AI_RATE_LIMIT_WINDOW_MS: 60000,
+    });
+  });
+
+  it('validates and converts explicit AI settings', () => {
+    expect(validateGatewayEnvironment({
+      ...gatewayInput, AI_SERVICE_URL: 'https://ai.example',
+      AI_RATE_LIMIT_MAX: '3', AI_RATE_LIMIT_WINDOW_MS: '120000',
+    })).toMatchObject({ AI_RATE_LIMIT_MAX: 3, AI_RATE_LIMIT_WINDOW_MS: 120000 });
+  });
+
+  it.each([
+    ['AI_SERVICE_URL', 'ftp://ai.example'],
+    ['AI_RATE_LIMIT_MAX', '0'],
+    ['AI_RATE_LIMIT_WINDOW_MS', '-1'],
+  ])('rejects invalid %s', (key, value) => {
+    expect(() => validateGatewayEnvironment({ ...gatewayInput, [key]: value })).toThrow(key);
+  });
+});

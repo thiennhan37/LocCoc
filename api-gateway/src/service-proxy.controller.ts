@@ -3,8 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Response } from 'express';
-import type { RequestWithId } from '@loccoc/common';
-import type { AuthenticatedUser } from '@loccoc/common';
+import { Public, type AuthenticatedUser, type RequestWithId } from '@loccoc/common';
 import { SERVICE_ROUTES, type ServiceName } from './service-routes.js';
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -18,37 +17,62 @@ const REQUEST_ONLY_HEADERS = new Set(['host', 'content-length', 'expect']);
 export class ServiceProxyController {
   constructor(private readonly config: ConfigService) {}
 
+  @All(['posts', 'posts/*path'])
+  @Public()
+  forwardToPosts(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forwardJson('posts', request, response);
+  }
+
   @All('auth/*path')
-  forwardToAuth(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+  forwardToAuth(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
     return this.forwardJson('auth', request, response);
   }
 
-  @All('users/*path')
-  forwardToUsers(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
-    return this.forwardJson('users', request, response);
-  }
-
   @All(['notifications', 'notifications/*path'])
-  forwardNotifications(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+  forwardNotifications(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
     return this.forwardJson('notifications', request, response);
   }
 
+  @All('users/*path')
+  forwardToUsers(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
+    return this.forwardJson('users', request, response);
+  }
+
   @All('admin/*path')
-  forwardToAdmin(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+  forwardToAdmin(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
     return this.forwardJson('admin', request, response);
   }
 
   @All('payments/*path')
-  forwardToPayments(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+  forwardToPayments(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
     return this.forwardJson('payments', request, response);
   }
 
   @All('subscriptions/*path')
-  forwardToSubscriptions(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+  forwardToSubscriptions(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
     return this.forwardJson('subscriptions', request, response);
   }
 
   @All('ai/*path')
+  @Public()
   forwardToAi(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
     return this.forwardRaw('ai', request, response);
   }
@@ -132,7 +156,8 @@ export class ServiceProxyController {
   private buildTarget(service: ServiceName, request: RequestWithId): URL {
     const route = SERVICE_ROUTES[service];
     const baseUrl = this.config.getOrThrow<string>(route.urlConfigKey).replace(/\/$/, '');
-    const target = new URL(`${baseUrl}${route.prefix}/${this.getPath(request)}`);
+    const path = this.getPath(request);
+    const target = new URL(`${baseUrl}${route.prefix}${path ? `/${path}` : ''}`);
     target.search = new URL(request.originalUrl, 'http://gateway.internal').search;
     return target;
   }
@@ -140,10 +165,15 @@ export class ServiceProxyController {
   private buildRequestHeaders(request: RequestWithId): Headers {
     const headers = new Headers();
     const blocked = new Set([
-      ...HOP_BY_HOP_HEADERS, ...REQUEST_ONLY_HEADERS,
+      ...HOP_BY_HOP_HEADERS,
+      ...REQUEST_ONLY_HEADERS,
+      'x-service-token',
+      'x-user-id',
+      'x-user-role',
+      'x-user-roles',
+      'x-forwarded-for',
+      'x-real-ip',
       ...this.connectionHeaderNames(request.headers.connection),
-      'x-service-token', 'x-user-id', 'x-user-role', 'x-user-roles',
-      'x-forwarded-for', 'x-real-ip',
     ]);
     for (const [name, value] of Object.entries(request.headers)) {
       if (blocked.has(name.toLowerCase()) || Array.isArray(value) || value === undefined) continue;

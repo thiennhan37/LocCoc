@@ -2,8 +2,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { createServer, request as httpRequest, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Test } from '@nestjs/testing';
-import { type INestApplication, UnauthorizedException } from '@nestjs/common';
-import { AccountAuthorityClient } from '@loccoc/common';
+import { type INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { configureGateway } from '../src/bootstrap.js';
@@ -59,9 +58,8 @@ describe('IAM gateway security contract (e2e)', () => {
     requestId: string;
     expectHeader: string | undefined;
     proxyConnection: string | undefined;
-    userId: string | undefined;
-    userRole: string | undefined;
-    serviceToken: string | undefined;
+    identityHeaders: (string | string[] | undefined)[];
+    clientIp: string | undefined;
   }>();
   let jsonCapture = deferred<Buffer>();
   let releaseStream = deferred<void>();
@@ -83,6 +81,16 @@ describe('IAM gateway security contract (e2e)', () => {
     const image = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, 0x03]);
     upstream = createServer((requestMessage, responseMessage) => {
       void (async () => {
+        if (requestMessage.url === '/internal/access') {
+          if (requestMessage.headers.authorization !== 'Bearer gateway-test') {
+            responseMessage.writeHead(401).end();
+            return;
+          }
+          responseMessage.writeHead(200, { 'content-type': 'application/json' });
+          responseMessage.end(JSON.stringify({ user: { userId: 'verified-user', role: 'user' } }));
+          return;
+        }
+
         if (requestMessage.url === '/ai/enhance') {
           const body = await readBody(requestMessage);
           multipartCapture.resolve({
@@ -91,9 +99,9 @@ describe('IAM gateway security contract (e2e)', () => {
             requestId: String(requestMessage.headers['x-request-id']),
             expectHeader: requestMessage.headers.expect,
             proxyConnection: requestMessage.headers['proxy-connection'],
-            userId: requestMessage.headers['x-user-id'] as string | undefined,
-            userRole: requestMessage.headers['x-user-role'] as string | undefined,
-            serviceToken: requestMessage.headers['x-service-token'] as string | undefined,
+            identityHeaders: ['x-service-token', 'x-user-id', 'x-user-role', 'x-user-roles']
+              .map((name) => requestMessage.headers[name]),
+            clientIp: requestMessage.headers['x-real-ip'],
           });
           responseMessage.writeHead(200, {
             'content-type': 'image/png',
@@ -138,6 +146,17 @@ describe('IAM gateway security contract (e2e)', () => {
           return;
         }
 
+        if (requestMessage.url === '/chat/conversations') {
+          responseMessage.writeHead(200, { 'content-type': 'application/json' });
+          responseMessage.end(JSON.stringify({
+            userId: requestMessage.headers['x-user-id'],
+            role: requestMessage.headers['x-user-role'],
+            serviceToken: requestMessage.headers['x-service-token'] ?? null,
+            authorization: requestMessage.headers.authorization,
+          }));
+          return;
+        }
+
         responseMessage.writeHead(404).end();
       })().catch((error: unknown) => {
         responseMessage.destroy(error instanceof Error ? error : new Error(String(error)));
@@ -149,9 +168,11 @@ describe('IAM gateway security contract (e2e)', () => {
     const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
     Object.assign(process.env, {
       NODE_ENV: 'test',
+      INTERNAL_SERVICE_TOKEN: 'gateway-internal-test-token-32-characters',
       AUTH_SERVICE_URL: upstreamUrl,
       USER_SERVICE_URL: upstreamUrl,
       AI_SERVICE_URL: upstreamUrl,
+      CHAT_SERVICE_URL: upstreamUrl,
       DB_HOST: '127.0.0.1',
       AUTH_DB_NAME: 'auth_test',
       AUTH_DB_USER: 'test',
@@ -173,13 +194,6 @@ describe('IAM gateway security contract (e2e)', () => {
 
     const { AppModule } = await import('../src/app.module.js');
     const module = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(AccountAuthorityClient)
-      .useValue({
-        access: async (authorization: string) => {
-          if (authorization !== 'Bearer gateway-test-token') throw new UnauthorizedException('Authentication required');
-          return { user: { userId: 'authenticated-account', role: 'user' } };
-        },
-      })
       .overrideProvider(RedisThrottlerStorage)
       .useValue({ increment: storageIncrement })
       .compile();
@@ -227,13 +241,14 @@ describe('IAM gateway security contract (e2e)', () => {
 
     const response = await request(app.getHttpServer())
       .post('/ai/enhance')
-      .set('authorization', 'Bearer gateway-test-token')
-      .set('x-user-id', 'forged-account')
-      .set('x-user-role', 'admin')
-      .set('x-service-token', 'client-supplied-secret')
       .set('x-forwarded-for', '198.51.100.20')
       .set('content-type', `multipart/form-data; boundary=${boundary}`)
       .set('proxy-connection', 'keep-alive')
+      .set('x-service-token', 'spoofed')
+      .set('x-user-id', 'spoofed')
+      .set('x-user-role', 'admin')
+      .set('x-user-roles', 'admin')
+      .set('x-real-ip', '203.0.113.99')
       .send(body)
       .buffer(true)
       .parse(binaryParser)
@@ -244,9 +259,8 @@ describe('IAM gateway security contract (e2e)', () => {
     expect(captured.contentType).toBe(`multipart/form-data; boundary=${boundary}`);
     expect(captured.requestId).toBe(response.headers['x-request-id']);
     expect(captured.proxyConnection).toBeUndefined();
-    expect(captured.userId).toBe('authenticated-account');
-    expect(captured.userRole).toBe('user');
-    expect(captured.serviceToken).toBeUndefined();
+    expect(captured.identityHeaders).toEqual([undefined, undefined, undefined, undefined]);
+    expect(captured.clientIp).toBe('127.0.0.1');
     expect(response.headers['content-type']).toMatch(/^image\/png/);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.headers['x-upstream-safe']).toBe('kept');
@@ -263,7 +277,6 @@ describe('IAM gateway security contract (e2e)', () => {
       path: '/ai/enhance',
       method: 'POST',
       headers: {
-        authorization: 'Bearer gateway-test-token',
         'content-type': 'application/octet-stream',
         'content-length': String(body.length),
         expect: '100-continue',
@@ -296,7 +309,7 @@ describe('IAM gateway security contract (e2e)', () => {
       port: gatewayPort,
       path: '/ai/stream',
       method: 'GET',
-      headers: { authorization: 'Bearer gateway-test-token', 'x-forwarded-for': '198.51.100.21' },
+      headers: { 'x-forwarded-for': '198.51.100.21' },
     }, (responseMessage) => {
       responseMessage.on('data', (chunk: Buffer) => {
         chunks.push(Buffer.from(chunk));
@@ -323,7 +336,7 @@ describe('IAM gateway security contract (e2e)', () => {
       port: gatewayPort,
       path: '/ai/abort',
       method: 'GET',
-      headers: { authorization: 'Bearer gateway-test-token', 'x-forwarded-for': '198.51.100.22' },
+      headers: { 'x-forwarded-for': '198.51.100.22' },
     }, (responseMessage) => {
       responseMessage.once('data', () => responseMessage.destroy());
     });
@@ -337,7 +350,7 @@ describe('IAM gateway security contract (e2e)', () => {
     const payload = { email: 'person@example.com', nested: { enabled: true } };
     const response = await request(app.getHttpServer())
       .post('/auth/echo')
-      .set('authorization', 'Bearer gateway-test-token')
+      .set('authorization', 'Bearer gateway-test')
       .set('x-forwarded-for', '198.51.100.23')
       .send(payload)
       .expect(200);
@@ -352,7 +365,6 @@ describe('IAM gateway security contract (e2e)', () => {
   it('sanitizes an unavailable AI upstream response', async () => {
     const response = await request(app.getHttpServer())
       .get('/ai/failure')
-      .set('authorization', 'Bearer gateway-test-token')
       .set('x-forwarded-for', '198.51.100.24')
       .expect(502);
 
@@ -366,12 +378,38 @@ describe('IAM gateway security contract (e2e)', () => {
     expect(response.body).not.toHaveProperty('stack');
   });
 
-  it('rejects unauthenticated AI requests before forwarding image content', async () => {
-    const response = await request(app.getHttpServer())
-      .post('/ai/enhance')
-      .send({ filterId: 'handwritten_diary' })
-      .expect(401);
-    expect(response.body.message).toBe('Authentication required');
+  it('keeps account routes protected while the AI MVP remains public', async () => {
+    await request(app.getHttpServer()).get('/users/me').expect(401);
+    await request(app.getHttpServer()).post('/auth/echo').send({ value: 'private' }).expect(401);
+    await request(app.getHttpServer()).get('/chat/conversations').set('x-user-id', 'forged').expect(401);
+  });
+
+  it('forwards chat with verified identity and strips caller-supplied service credentials', async () => {
+    await request(app.getHttpServer()).get('/chat/conversations')
+      .set('authorization', 'Bearer gateway-test')
+      .set('x-user-id', 'forged')
+      .set('x-user-role', 'admin')
+      .set('x-service-token', 'forged')
+      .expect(200, {
+        userId: 'verified-user', role: 'user', serviceToken: null,
+        authorization: 'Bearer gateway-test',
+      });
+    await request(app.getHttpServer()).get('/chat/conversations')
+      .set('authorization', 'Bearer invalid').expect(401);
+  });
+
+  it('applies the AI limit even when the client rotates forwarded IP headers', async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await request(app.getHttpServer()).post('/ai/enhance')
+        .set('x-forwarded-for', `198.51.100.${30 + attempt}`)
+        .set('content-type', 'application/octet-stream')
+        .send(Buffer.from('test-image')).expect(200);
+    }
+    const response = await request(app.getHttpServer()).post('/ai/enhance')
+      .set('x-forwarded-for', '198.51.100.30')
+      .set('content-type', 'application/octet-stream')
+      .send(Buffer.from('test-image')).expect(429);
+    expect(response.headers['cache-control']).toBe('no-store');
   });
 
   afterAll(async () => {

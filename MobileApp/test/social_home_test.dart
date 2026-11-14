@@ -131,14 +131,6 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Thêm tin'));
-      await tester.tap(find.text('Thêm tin'));
-      await tester.pumpAndSettle();
-      expect(find.byType(FriendsScreen), findsNothing);
-      expect(
-        find.text('Tính năng thêm tin, ảnh sẽ được phát triển sau.'),
-        findsOneWidget,
-      );
       await tester.ensureVisible(find.byKey(const Key('home_account_search')));
       await tester.tap(find.byKey(const Key('home_account_search')));
       await tester.pumpAndSettle();

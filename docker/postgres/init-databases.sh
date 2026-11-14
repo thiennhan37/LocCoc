@@ -25,6 +25,18 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'auth_service') \gexec
 SELECT format('CREATE DATABASE %I OWNER auth_service', :'auth_database')
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'auth_database') \gexec
 SQL
+
+psql -v ON_ERROR_STOP=1 \
+  --username "$POSTGRES_USER" \
+  --dbname "$POSTGRES_DB" \
+  --set="post_password=${POST_DB_PASSWORD:-$POSTGRES_PASSWORD}" \
+  --set="post_database=${POST_DB_NAME:-posts}" <<'SQL'
+SELECT format('CREATE ROLE post_service LOGIN PASSWORD %L', :'post_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'post_service') \gexec
+
+SELECT format('CREATE DATABASE %I OWNER post_service', :'post_database')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'post_database') \gexec
+SQL
 # Optional until NotificationService is configured. Uses a separate role/database.
 if [ -n "${NOTIFICATION_DB_PASSWORD:-}" ]; then
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \

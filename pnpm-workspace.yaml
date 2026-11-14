@@ -7,6 +7,8 @@ packages:
   - notification-service
   - admin-dashboard
   - libs/common
+syncInjectedDepsAfterScripts:
+  - build
 allowBuilds:
   '@google/genai': false
   '@firebase/util': true

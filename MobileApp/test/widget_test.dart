@@ -8,7 +8,7 @@ void main() {
     await tester.pumpWidget(const LocCocApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Email hoặc Số điện thoại'), findsOneWidget);
+    expect(find.text('Email'), findsOneWidget);
     expect(find.text('Mật khẩu'), findsOneWidget);
     expect(find.text('Đăng ký'), findsNothing);
     expect(find.text('HOẶC'), findsOneWidget);

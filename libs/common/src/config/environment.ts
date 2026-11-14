@@ -10,14 +10,7 @@ const fields = {
   GATEWAY_PORT: Joi.number().port().default(8080),
   AUTH_PORT: Joi.number().port().default(8000),
   USER_PORT: Joi.number().port().default(8081),
-  CHAT_SERVICE_URL: Joi.string()
-    .uri({ scheme: ['http', 'https'] })
-    .default('http://127.0.0.1:8083'),
-  AI_SERVICE_URL: Joi.string()
-    .uri({ scheme: ['http', 'https'] })
-    .default('http://127.0.0.1:8082'),
-  AI_RATE_LIMIT_MAX: Joi.number().integer().positive().default(5),
-  AI_RATE_LIMIT_WINDOW_MS: Joi.number().integer().positive().default(60000),
+  POST_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8087'),
   NOTIFICATION_PORT: Joi.number().port().default(8084),
   NOTIFICATION_DB_NAME: Joi.string().default('notifications'),
   NOTIFICATION_DB_USER: Joi.string().required(),
@@ -33,6 +26,14 @@ const fields = {
   USER_SERVICE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .default('http://127.0.0.1:8081'),
+  CHAT_SERVICE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('http://127.0.0.1:8083'),
+  AI_SERVICE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('http://127.0.0.1:8082'),
+  AI_RATE_LIMIT_MAX: Joi.number().integer().positive().default(5),
+  AI_RATE_LIMIT_WINDOW_MS: Joi.number().integer().positive().default(60000),
   INTERNAL_SERVICE_TOKEN: Joi.string().min(32),
   SERVICE_BIND_HOST: Joi.string().default('127.0.0.1'),
   KAFKA_BROKERS: Joi.string().default('127.0.0.1:9092'),
@@ -102,15 +103,16 @@ const fields = {
 const gatewayKeys = [
   'NODE_ENV',
   'GATEWAY_PORT',
+  'POST_SERVICE_URL',
   'AUTH_SERVICE_URL',
   'USER_SERVICE_URL',
+  'NOTIFICATION_SERVICE_URL',
+  'ADMIN_SERVICE_URL',
+  'PAYMENT_SERVICE_URL',
   'CHAT_SERVICE_URL',
   'AI_SERVICE_URL',
   'AI_RATE_LIMIT_MAX',
   'AI_RATE_LIMIT_WINDOW_MS',
-  'NOTIFICATION_SERVICE_URL',
-  'ADMIN_SERVICE_URL',
-  'PAYMENT_SERVICE_URL',
   'REDIS_URL',
   'CORS_ORIGINS',
   'RATE_LIMIT_TTL_MS',

@@ -218,6 +218,21 @@
 
 ---
 
+## Cập nhật 2026-10-21: NestJS shared guard dependency resolution
+
+- Fixed `npm run start:user` failing to inject `Reflector` into `JwtAuthGuard`: the service and `libs/common` loaded distinct instances of `@nestjs/core` under pnpm peer contexts.
+- `@loccoc/common` declares Nest common/config/core as peer dependencies; all three Nest services inject the workspace package through `dependenciesMeta`. Workspace builds synchronize injected dependencies.
+- Regression check: `npm --prefix user-service run test:guards` verifies actual compiled guard injection with Node package resolution, without database access or environment secrets.
+- Verified: user-service build, 3 unit tests, guard smoke test, and startup with PostgreSQL (`Nest application successfully started`). Existing peer-range warnings for Nest 12 integrations remain a separate compatibility concern.
+
+## Cập nhật 2026-10-21: LocCoc mobile camera home
+
+- Added a coral/cream camera-first home screen with black pill navigation, photo review/retake and local session memories. No photo upload or friend delivery is implemented.
+- Camera plugin uses photo-only access (`enableAudio: false`), Android CAMERA and iOS usage description; lifecycle and route visibility control camera ownership.
+- Login behavior is unchanged. Preview with `flutter run --dart-define=PREVIEW_HOME=true`; `/home` is reserved for future successful-login navigation.
+- Architecture and scope: `docs/adr/ADR-006-mobile-camera-home.md`, `docs/specs/mobile-home.md`. Run `flutter analyze` and `flutter test` in `MobileApp`.
+- Verification: analyzer clean, 2 existing login tests and 4 home tests pass; home rendering inspected. Android debug APK builds with PREVIEW_HOME enabled. Kotlin incremental compilation is disabled for the Windows cross-drive Pub cache layout.
+
 ## 1. Tổng Quan Kiến Trúc Dự Án (Monorepo Layout)
 
 * **Repository:** `LocCoc IAM & Subscription Platform`
@@ -331,6 +346,12 @@ npm run start:admin
 npm run webhook:register https://<your-tunnel-url>/payments/webhook/payos
 ```
 
+## Post service (2026-10-21)
+
+Spring post-service (8087) provides POST /posts for existing media metadata and DELETE /posts/{id}?ownerId=UUID for idempotent soft deletion. Controller/DTO -> transactional service -> JPA repository; own database with persistent local H2 and optional PostgreSQL. Both gateways route /posts via POST_SERVICE_URL. No JWT yet: client ownerId is development-only and must become authenticated principal identity before public deployment. No uploads, recipients or feed fan-out yet. See post-service/README.md, docs/specs/post-service.md and ADR-007.
+
+Verification: post-service Maven tests 6/6 passed with H2; Spring gateway tests 20/20 passed with loopback upstream and mocked Redis; Nest gateway build passed and new post proxy tests 2/2 passed. PostgreSQL deployment and a live mobile upload flow have not been tested.
+
 ## Spring MVC Gateway Alternative
 
 `api-gateway-spring` implements the same five route prefixes as the Nest gateway on port 8080, using Controller -> Service -> Repository, Redis atomic IP quotas, CORS, request IDs and standard gateway errors. No business database, automatic retries or redirects. Configuration and startup: `api-gateway-spring/README.md`. Stop Nest gateway before starting the Spring alternative. Spec: `docs/specs/gateway/spring-mvc-gateway.md`; decision: ADR-005. Verification uses a loopback HTTP upstream and mocked quota repository; real-service/Redis deployment smoke tests remain environment-dependent.
@@ -346,6 +367,12 @@ Bootstrap verification (2026-10-19): applied all three auth migrations and the u
 ## Spring gateway error envelope (WebAppBusTicket pattern)
 
 api-gateway-spring uses ErrorCode + AppException + GlobalExceptionHandler and ApiResponse(code,message,result). Both gateway failures and upstream HTTP 4xx/5xx errors are normalized; messages are catalog-based to avoid exposing SQL/secrets. HTTP status, auth/retry headers and x-request-id remain available. Successful upstream bodies are unchanged, including verified=false on HTTP 200. Direct service responses and Nest gateway are unchanged. This supersedes the earlier transparent-error contract for Spring gateway.
+
+Post-service exceptions now use the Spring gateway AppException/ErrorCode/ApiResponse contract, including framework errors and validation; success responses remain unchanged.
+
+Mobile login now calls POST /auth/login using core/constants/api_constants.dart (Android emulator gateway 10.0.2.2:8080; API_BASE_URL override for phone). Success requires authenticated=true and both tokens; tokens remain in memory. Android debug allows HTTP. Refresh and persistent sessions remain pending.
+
+Mobile API layer now includes all existing Auth endpoints and Post create/delete, centralized endpoint constants, shared HTTP errors/timeouts, explicit refresh coalescing and token rotation. UI beyond login is not connected yet; media upload is still absent from backend.
 ## 7. IAM Social Login (2026-10-23)
 
 - `auth-service` implements `POST /auth/social/google` and `POST /auth/social/apple`, public through the existing gateway `/auth/*` route; rate limit: 5 requests/IP/minute/provider.
@@ -724,3 +751,50 @@ api-gateway-spring uses ErrorCode + AppException + GlobalExceptionHandler and Ap
 - Failure flow: session is preserved, user stays on `HomeScreen`, button resets from loading state, and actionable error message is shown via `userError`.
 - Architecture compliance: soft delete is preserved (`deleted_at = now()` in PostgreSQL `accounts` table, broadcast via Kafka `account.events` outbox to `user-service` projection); no hard deletion performed.
 - Verification: 54 / 54 Flutter tests passing (including 7 new tests in `test/account_deletion_test.dart`), `flutter analyze` clean (0 warnings), `flutter build bundle` clean. Backend test suites (`user-service`: 25 passed, `auth-service`: 75 passed) all green.
+
+### 2026-11-13: Merge Home mới với camera/editor và local photo publishing
+
+- Giữ Google login, ProfileLinkScope, hồ sơ, bạn bè, thông báo và quản lý tài khoản khi giải quyết merge conflict.
+- Home mới mở CaptureMomentScreen → PhotoEditorScreen; chủ bài lấy từ AuthSession.
+- 5 filter và caption được vẽ vào PNG 1080 px; POST /posts/photos có requestId để retry không tạo trùng.
+- Spring lưu PNG tại Downloads/LocCoc/posts và metadata vào posts.moments; GET /posts/media/{id}.
+- Cả gateway hỗ trợ JSON ảnh tới 8 MiB; route bài đăng tiếp tục chưa yêu cầu token theo scope phát triển đã thống nhất.
+- Postman hai collection có publish/read photo. Bài local chưa gửi tới danh sách bạn bè.
+- Kiểm chứng: Flutter analyzer sạch; suite 114 test qua, thêm test transport PostApi qua; regression retry filter/caption không đổi qua; post-service 15 test; Spring gateway 20 test; Nest proxy 3 test và build qua.
+- Smoke PostgreSQL thật: c83fa5a8-4111-4936-8c43-6beb784df418.png, GET 200, retry cùng ID, bản ghi tồn tại trong moments. Post-service thử nghiệm 18087 đã dừng.
+
+- Android debug APK build thành công; Gradle lần đầu khoảng 12 phút. Review độc lập phát hiện no-op filter/caption làm đổi requestId; đã sửa và regression test qua.
+
+### 2026-11-14: Resolve main merge into filter_service
+
+- Resolved all 9 merge conflicts while retaining AI multipart upload/response streaming,
+  client disconnect cancellation, IP rate limiting and all routes from main.
+- AI MVP remains public as specified by UC-07; existing account checks remain on
+  protected routes. Both JSON and raw proxy paths strip spoofed service/user headers
+  and replace forwarding headers with the gateway-derived client IP.
+- Preserved main's service-scoped environment validation and Redis lifecycle handling;
+  restored AI upstream URL and numeric limiter validation/defaults to gatewayKeys.
+- Combined workspace packages/scripts and lockfile dependency graphs. Aligned shared
+  AI NestJS dependency resolutions with libs/common to avoid duplicate HttpException
+  classes turning validation/provider errors into HTTP 500 responses.
+- Verification: common plus Gateway/Auth/User/Notification/AI builds passed; Gateway
+  unit 6/6 and E2E 32/32; AI unit 60/60 and E2E 13/13. Gemini provider is mocked in
+  tests; no paid generation or live webhook/tunnel changes were performed.
+
+### 2026-11-14: Merge main into chat-service
+
+- Merged main at 3570d0d (also the fetched origin/main) into chat-service;
+  resolved all 9 conflicting files while preserving chat REST/Socket.IO and the
+  camera/photo publishing/AI features from main.
+- Kept CHAT_SERVICE_URL validation/defaults and chat workspace build/start/migration
+  scripts. Combined both dependency graphs and retained matching NestJS runtime
+  resolutions for shared libraries. Flutter retains both camera and socket_io_client.
+- Chat REST still requires verified Bearer identity. Regression tests verify missing
+  and invalid credentials are rejected and forged user/service headers are stripped.
+  AI retains main's public MVP contract and five-request IP limit; client-supplied
+  forwarded IP headers cannot bypass the limiter when the gateway is accessed directly.
+- Verification: common plus Gateway/Auth/User/Notification/AI/Chat builds passed.
+  Gateway: 6 unit + 36 E2E; Chat: 5 unit + 27 E2E, including real PostgreSQL in a
+  disposable container and Socket.IO clients; AI: 60 unit + 13 E2E with mocked Gemini.
+  Flutter analyzer clean and all 147 Flutter tests passed. Android emulator/device
+  interaction and a paid Gemini generation were not part of these automated checks.
