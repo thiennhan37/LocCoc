@@ -16,6 +16,8 @@ public class GatewayController {
   }
 
   @RequestMapping({
+    "/posts",
+    "/posts/**",
     "/auth",
     "/auth/**",
     "/users",

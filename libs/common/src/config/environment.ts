@@ -10,6 +10,7 @@ const fields = {
   GATEWAY_PORT: Joi.number().port().default(8080),
   AUTH_PORT: Joi.number().port().default(8000),
   USER_PORT: Joi.number().port().default(8081),
+  POST_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8087'),
   NOTIFICATION_PORT: Joi.number().port().default(8084),
   NOTIFICATION_DB_NAME: Joi.string().default('notifications'),
   NOTIFICATION_DB_USER: Joi.string().required(),
@@ -94,6 +95,7 @@ const fields = {
 const gatewayKeys = [
   'NODE_ENV',
   'GATEWAY_PORT',
+  'POST_SERVICE_URL',
   'AUTH_SERVICE_URL',
   'USER_SERVICE_URL',
   'NOTIFICATION_SERVICE_URL',

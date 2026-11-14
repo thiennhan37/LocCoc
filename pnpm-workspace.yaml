@@ -5,6 +5,8 @@ packages:
   - notification-service
   - admin-dashboard
   - libs/common
+syncInjectedDepsAfterScripts:
+  - build
 allowBuilds:
   '@firebase/util': true
   argon2: true

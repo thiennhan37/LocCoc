@@ -26,5 +26,9 @@
     "db:migrate:auth": "npm --prefix auth-service run db:migrate",
     "db:migrate:user": "npm --prefix user-service run db:migrate",
     "start:notification": "pnpm --filter notification-service build && pnpm --filter notification-service start"
+  },
+  "dependencies": {
+    "jose": "^6.2.17",
+    "kafkajs": "^2.2.4"
   }
 }

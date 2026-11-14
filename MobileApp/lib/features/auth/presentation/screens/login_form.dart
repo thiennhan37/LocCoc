@@ -219,8 +219,8 @@ class _LoginFormState extends State<LoginForm> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           CustomTextField(
-            label: AppStrings.emailOrPhone,
-            hint: AppStrings.emailOrPhoneHint,
+            label: 'Email',
+            hint: 'Nhập email',
             controller: _identifierController,
             keyboardType: TextInputType.emailAddress,
             prefixIcon: Icons.alternate_email_rounded,

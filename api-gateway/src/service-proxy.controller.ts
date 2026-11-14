@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import type { RequestWithId } from '@loccoc/common';
 import type { AuthenticatedUser } from '@loccoc/common';
+import { Public } from '@loccoc/common';
 import { SERVICE_ROUTES, type ServiceName } from './service-routes.js';
 
 // Hop-by-hop headers: headers that are not forwarded from the client to the server
@@ -22,6 +23,12 @@ const HOP_BY_HOP_HEADERS = new Set([
 @Controller()
 export class ServiceProxyController {
   constructor(private readonly config: ConfigService) {}
+
+  @All(['posts', 'posts/*path'])
+  @Public()
+  forwardToPosts(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forward('posts', request, response);
+  }
 
   @All('auth/*path')
   forwardToAuth(
@@ -82,7 +89,7 @@ export class ServiceProxyController {
       .getOrThrow<string>(route.urlConfigKey)
       .replace(/\/$/, '');
     const path = this.getPath(request);
-    const target = new URL(`${baseUrl}${route.prefix}/${path}`);
+    const target = new URL(`${baseUrl}${route.prefix}${path ? `/${path}` : ''}`);
     // append query params from originalUrl to targetURL
     target.search = new URL(
       request.originalUrl,
