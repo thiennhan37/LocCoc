@@ -1,5 +1,57 @@
 # LocCoc Project Context & Knowledge Base (Admin & Payment Module)
 
+### 2026-11-14: Gemini API moment-search design and remediation plan
+
+- At the user's request, revised ADR-015/spec from self-hosted SigLIP/Jina to
+  Gemini Embedding 2 API Paid Services, 768 dimensions and Qdrant. Keep
+  ai-service-2 as a CPU-only async provider adapter/index worker; MomentService
+  owns its PostgreSQL metadata, private object lifecycle and authoritative ACL.
+- Added docs/specs/moments/gemini-implementation-and-remediation-plan.md:
+  provider/config/data/event contracts, F01–F16 remediation backlog, M0–M7 tasks
+  with dependencies/DoD, fake/live test separation, budget/quota/retry handling,
+  reindex/blue-green migration and safe metadata-only rollback.
+- Explicitly changed the proposed cache-miss API latency gate to p95 <=1500ms /
+  p99 <=3000ms; cache-hit p95 <=200ms, 100k/C=20 with sufficient actual quota.
+  These are unmeasured design targets; the former <200ms cache-miss gate is
+  superseded for this API design, not reported as achieved or silently retained.
+- Updated AI/root READMEs to distinguish the target plan from legacy Jina code.
+  Historical assessment below is superseded only for provider/runtime/SLO choice.
+- Documented external processing, Paid Services retention limits and current
+  Developer API audience restrictions to resolve before real-data rollout.
+- Documentation only: source vulnerabilities remain open; no API keys/secrets,
+  runtime code, infrastructure, paid API calls or existing mobile edits changed.
+- Documentation verification: relative Markdown links, code fences, new-document
+  whitespace and git diff whitespace checks passed; no feature tests/benchmarks run.
+
+### 2026-11-14: Mobile application display name
+
+- Changed the Android launcher label and iOS CFBundleDisplayName/CFBundleName
+  from Flutter scaffold names to LocCoc, matching the existing in-app branding.
+- This is a display-name configuration change; installed applications receive
+  the new launcher name after rebuilding and installing the updated binary.
+
+### 2026-11-14: Smart moment search architecture assessment and decision
+
+- Reviewed the supplied research/PoC brief against ai-service-2, both Gateways,
+  Compose and existing profile media boundaries. Recorded ADR-015 and
+  docs/specs/moments/smart-moment-search.md with findings, design, test matrix,
+  acceptance gates and dependency-ordered implementation tasks.
+- Direction: own-photo MVP; dedicated NestJS MomentService/moment_db, private
+  S3-compatible bucket, transactional outbox/Kafka indexing, Qdrant as derived
+  index, metadata-assisted retrieval and final authoritative ownership checks.
+- Selected SigLIP 2 Base as the implementation/benchmark default, pending measured
+  Vietnamese quality and load gates. Jina CLIP v2 is an optional comparator only
+  where license permits; its downloaded weights are CC BY-NC 4.0, not the default
+  for unrestricted commercial self-hosting. No production-readiness claim.
+- Existing PoC blockers include unauthenticated client-selected owner, cross-owner
+  point-ID collision, arbitrary URL fetch, blocking inference, misleading health,
+  missing lifecycle/date filtering and mismatched/incomplete Gateway integration.
+- GPU inventory: GTX 1650 / 4096 MiB. The AI .venv reports Python 3.13.5 and lacks
+  package metadata for torch/transformers/qdrant-client/FastAPI. Local model files
+  do not establish runnable readiness. No model/semantic/load benchmark was run.
+- Documentation-only assessment: no runtime, secrets, live data or deployments
+  changed; moments publishing and search remain unimplemented.
+
 ### 2026-11-14: Full-screen avatar and cover viewing for self and peer profiles
 
 - Added `FullScreenImageViewer` (`core/widgets/full_screen_image_viewer.dart`) supporting pinch-to-zoom (`InteractiveViewer`), safe URL handling via `avatarUri`, dark theme backdrop, close/back controls, and descriptive empty states.

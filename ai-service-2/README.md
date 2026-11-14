@@ -1,4 +1,18 @@
-# LocCoc AI Service 2 (Jina CLIP v2 & Qdrant)
+# LocCoc AI Service 2 — kế hoạch chuyển sang Gemini API + Qdrant
+
+**Trạng thái ngày 2026-11-14:** source hiện tại vẫn là PoC Jina CLIP v2, chưa được
+migrate hoặc sửa hết lỗi bảo mật. Kiến trúc mục tiêu đã đổi sang Gemini Embedding 2
+API, 768 chiều, worker CPU-only và Qdrant; không cần self-host GPU.
+
+- [Quyết định kiến trúc ADR-015](../docs/adr/ADR-015-smart-moment-search.md).
+- [Đặc tả và ma trận kiểm thử](../docs/specs/moments/smart-moment-search.md).
+- [Kế hoạch triển khai và backlog sửa lỗi](../docs/specs/moments/gemini-implementation-and-remediation-plan.md).
+
+Các hướng dẫn Jina bên dưới chỉ mô tả PoC legacy. Đừng dùng chúng như hướng dẫn
+triển khai Gemini hoặc căn cứ production readiness; owner filter từ request chưa
+thay thế authentication, và test hiện tại chưa chứng minh chất lượng/tốc độ.
+
+## PoC Jina legacy — chưa phải implementation của kế hoạch mới
 
 Microservice chịu trách nhiệm sinh vector nhúng đa phương tiện (**Multimodal Vector Embeddings**) bằng mô hình **Jina CLIP v2 (`jinaai/jina-clip-v2`)** và lưu trữ/truy vấn khoảnh khắc ảnh/media qua **Vector Database Qdrant** cho nền tảng LocCoc.
 
@@ -8,11 +22,11 @@ Microservice chịu trách nhiệm sinh vector nhúng đa phương tiện (**Mul
 
 *   **Model Jina CLIP v2:**
     *   Hỗ trợ tiếng Việt tự nhiên và 89+ ngôn ngữ bản địa.
-    *   MRL (Matryoshka Representation Learning): Cho phép rút gọn chiều vector (1024 -> 512 hoặc 256) giúp tiết kiệm 50-75% RAM trên Vector DB.
+    *   MRL (Matryoshka Representation Learning): Rút gọn vector 1024 -> 512/256 giảm 50/75% bytes vector cùng dtype; không phải toàn bộ RAM Vector DB.
     *   Cross-modal: Cùng 1 không gian vector cho cả câu chữ (Text) và hình ảnh (Image).
 *   **Vector Database Qdrant:**
     *   Viết bằng Rust, hiệu năng truy vấn cực cao.
-    *   Payload filtering cực mạnh theo `userId`, `albumId`, `capturedAt` (bảo đảm quyền riêng tư từng user).
+    *   PoC lọc theo `userId`/`albumId`; `capturedAt` mới lưu payload, chưa có đầy đủ range filtering. Owner lấy từ request nên chưa bảo đảm cách ly người dùng.
     *   Tự động index HNSW và tối ưu bộ nhớ lưu trên đĩa (mmap).
 
 ---
