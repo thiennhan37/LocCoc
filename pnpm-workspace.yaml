@@ -3,8 +3,14 @@ packages:
   - auth-service
   - user-service
   - ai-service
+  - notification-service
+  - admin-dashboard
   - libs/common
-
+syncInjectedDepsAfterScripts:
+  - build
 allowBuilds:
   '@google/genai': false
-  protobufjs: false
+  '@firebase/util': true
+  argon2: true
+  protobufjs: true
+  unrs-resolver: true

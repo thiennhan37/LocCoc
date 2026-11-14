@@ -1,0 +1,386 @@
+USER SERVICE - QUYẾT ĐỊNH THIẾT KẾ VÀ CÁC ĐIỂM CẦN TRAO ĐỔI
+Cập nhật: 2026-10-28
+Phạm vi: theo dõi thiết kế và triển khai backend/Flutter ngày 2026-10-28.
+Các phần đã thực hiện nằm trong docs/specs/user/social.md và ADR-006.
+Chưa áp migration lên database dự án và không sửa secrets/.env thực tế.
+
+1. CÁC QUYẾT ĐỊNH ĐÃ THỐNG NHẤT
+
+1.1. Hồ sơ và username
+- Thay fullName bằng displayName trong UserService. Khi triển khai cần migration
+  bảo toàn dữ liệu full_name hiện có và cập nhật DTO, API, các bên sử dụng.
+- Thêm username vào bảng users của UserService.
+- Sau khi tạo tài khoản, người dùng tự chọn username và chỉ được đặt thành công
+  một lần. Không cho đổi qua API cập nhật hồ sơ thông thường.
+- Backend ép username về chữ thường trước khi lưu; An và an là cùng một tên.
+- Database phải bảo đảm duy nhất và lưu dạng chuẩn hóa, kể cả khi có nhiều
+  request đăng ký username đồng thời; không chỉ kiểm tra trước ở ứng dụng.
+- Khi triển khai chọn 2–30 ký tự ASCII a–z, 0–9, _ để hỗ trợ ví dụ An.
+  Username NULL là chưa hoàn tất hồ sơ; tài khoản mới/cũ đều phải tự chọn một lần.
+  Flutter yêu cầu hoàn tất trước màn chính; backend yêu cầu trước các API kết bạn.
+  Tên dành riêng và chính sách bổ sung vẫn để trao đổi sau.
+
+1.2. Tìm kiếm
+- Có API riêng cho người dùng đã đăng nhập; không mở quyền API danh sách quản trị.
+- Chỉ trả thông tin cần thiết: id, username, displayName, avatarUrl,
+  trạng thái quan hệ và friendRequestId khi cần thao tác.
+- Không trả email, số điện thoại hoặc thông tin nội bộ nhạy cảm.
+- Loại chính người tìm kiếm, tài khoản không khả dụng và tài khoản có quan hệ
+  chặn ở bất kỳ chiều nào trước khi phân trang.
+- Hỗ trợ phân trang, giới hạn kết quả và debounce Flutter; bỏ qua phản hồi tìm
+  kiếm cũ để tránh ghi đè kết quả của từ khóa mới.
+
+1.3. Lời mời và quan hệ bạn bè
+- Tách riêng friend_requests và friendships.
+- friendships lưu cặp ID chuẩn hóa và UNIQUE(user_low_id, user_high_id).
+  Cần CHECK(user_low_id < user_high_id), NOT NULL và khóa ngoại tới users cục bộ.
+- friend_requests chỉ duy nhất theo cặp không phân biệt chiều khi status=PENDING.
+  Lịch sử ACCEPTED/REJECTED/CANCELLED không ngăn tạo lời mời mới nếu chính sách cho phép.
+- Không tự động kết bạn khi có lời mời ngược chiều. Hai thao tác gửi đồng thời:
+  chỉ một lời mời được tạo thành công; phía còn lại nhận lỗi trạng thái thay đổi.
+- Người gửi lấy từ phiên xác thực, không lấy senderId do client tự khai báo.
+- Từ chối tự gửi, đã là bạn, trùng lời mời đang chờ, tài khoản không khả dụng,
+  hoặc có quan hệ chặn. Kiểm tra lại trạng thái hiện hành khi xử lý.
+- Chỉ người nhận được chấp nhận/từ chối; chỉ người gửi được tự thu hồi.
+- Chấp nhận lời mời và tạo friendship nằm trong cùng transaction, cùng commit
+  hoặc cùng rollback. Không ghi đè lời mời đã được xử lý.
+- Các trạng thái cơ bản: PENDING, ACCEPTED, REJECTED, CANCELLED.
+- Dùng resolved_at thay cho responded_at: NULL khi PENDING, được ghi khi lời mời
+  kết thúc chờ xử lý do chấp nhận, từ chối, thu hồi hoặc hủy bởi nghiệp vụ chặn.
+
+1.4. Chặn
+- Chặn hủy quan hệ bạn bè và hủy lời mời đang PENDING giữa hai người.
+- Bỏ chặn không tự khôi phục quan hệ hoặc lời mời cũ.
+- Kiểm tra chặn ở cả hai chiều khi tìm kiếm, xem hồ sơ và thao tác lời mời.
+- API truy cập trực tiếp dùng thông báo chung như "Không tìm thấy người dùng",
+  không tiết lộ rằng người gọi bị chặn.
+
+1.5. Trạng thái tài khoản
+- AuthService là nguồn sự thật về trạng thái tài khoản.
+- Đồng bộ trạng thái từ AuthService sang UserService bằng sự kiện.
+- Consumer cần xử lý trùng và sai thứ tự, chẳng hạn eventId và phiên bản trạng
+  thái tăng dần theo tài khoản; không dựa riêng vào thời gian nhận sự kiện.
+- Đã thống nhất chặn thao tác mới sau khi khóa tài khoản; không yêu cầu hủy
+  request đã qua bước kiểm tra quyền trước khi khóa.
+- Kiểm tra tập trung theo trạng thái do AuthService quản lý; không đợi sự kiện
+  đồng bộ tới UserService mới chặn được người thao tác. Hướng phân trách nhiệm
+  giữa AuthService và Gateway đã triển khai theo mục 4.
+- Không truy vấn trực tiếp database của service khác.
+
+2. CẦN TRAO ĐỔI: KHÓA THEO CẶP NGƯỜI DÙNG TRONG TRANSACTION POSTGRESQL
+
+Trạng thái: advisory lock theo cặp vẫn để trao đổi sau, chưa triển khai.
+Hiện dùng SERIALIZABLE transaction với retry có giới hạn cho lỗi serialization/
+deadlock, kết hợp unique constraint và partial unique index. Đã kiểm thử cạnh tranh
+trên PostgreSQL thật. Đây không phải việc mặc định duyệt đề xuất advisory lock.
+
+Mục đích:
+- Unique index của friend_requests ngăn hai lời mời PENDING cùng cặp.
+- Unique constraint của friendships ngăn hai quan hệ cùng cặp.
+- Hai ràng buộc này không tự điều phối mọi thay đổi giữa các bảng, chẳng hạn
+  chặn đồng thời với chấp nhận, hoặc gửi mới đồng thời với chấp nhận.
+
+Ý tưởng cần giải thích thêm:
+- A-B và B-A được quy về cùng một cặp chuẩn hóa.
+- Một thao tác lấy quyền xử lý cặp đó trong transaction; thao tác cạnh tranh
+  chờ, sau đó đọc lại trạng thái đã commit rồi quyết định tiếp tục hay báo lỗi.
+- Có thể dùng transaction-level advisory lock với cách tính khóa nhất quán.
+  Khóa kết thúc cùng transaction và dùng chung giữa các instance qua PostgreSQL.
+- SELECT FOR UPDATE trên lời mời chưa tồn tại không tạo ra một hàng để khóa.
+- Khóa theo cặp không giải quyết việc đồng bộ trạng thái giữa hai service.
+
+Cần thống nhất trước triển khai:
+- Cơ chế khóa, cách tạo khóa và các thao tác bắt buộc cùng tuân thủ.
+- Isolation level, thời gian chờ, xử lý lỗi và thứ tự khóa khi có nhiều tài nguyên.
+- Kiểm thử concurrency trên PostgreSQL thật cho gửi chéo, accept/cancel,
+  accept/block và send/accept.
+
+3. ĐÃ CHỐT resolved_at; CẦN TRAO ĐỔI resolution_reason VÀ NGƯỜI THỰC HIỆN
+
+Trạng thái: đã triển khai resolved_at trong schema và các chuyển trạng thái.
+resolution_reason và cách lưu người thực hiện vẫn là đề xuất, chưa chốt.
+
+Ví dụ: A gửi lời mời cho B.
+- B chấp nhận: ACCEPTED; thời điểm kết thúc chờ; người thực hiện B;
+  lý do có thể là ACCEPTED_BY_RECEIVER.
+- B từ chối: REJECTED; người thực hiện B;
+  lý do có thể là REJECTED_BY_RECEIVER.
+- A thu hồi: CANCELLED; người thực hiện A;
+  lý do có thể là CANCELLED_BY_SENDER.
+- A hoặc B chặn: lời mời được chuyển CANCELLED như một phần nghiệp vụ chặn;
+  người khởi tạo là người bấm chặn; lý do có thể là USER_BLOCKED.
+
+resolved_at có nghĩa "lúc lời mời kết thúc chờ xử lý", bao gồm cả thu hồi và chặn.
+responded_at thường gợi nghĩa "lúc người nhận phản hồi", nên khó diễn đạt thu hồi.
+resolution_reason giải thích vì sao kết thúc; không bổ sung trạng thái mới.
+Thông tin người thực hiện phục vụ audit, cần phân biệt thao tác người dùng với
+tác vụ tự động của hệ thống nếu sau này phát sinh.
+Các tên lý do trên chỉ minh họa. Không công khai lý do chặn hoặc dữ liệu audit
+cho phía bị chặn qua API lời mời hay tìm kiếm.
+
+4. ĐÃ TRIỂN KHAI KIỂM TRA QUYỀN TẬP TRUNG
+
+Quyết định nghiệp vụ đã chốt:
+- Chặn thao tác mới sau khi tài khoản bị khóa.
+- Không yêu cầu hủy hoặc rollback request đã được cho phép trước khi khóa.
+- AuthService là nguồn sự thật; kiểm tra tập trung tại lớp xác thực/đầu vào.
+
+Phân trách nhiệm đã được đồng ý và triển khai:
+- AuthService lưu trạng thái và cung cấp quyết định tài khoản/phiên còn được
+  phép thực hiện request hay không, bao gồm tài khoản bị khóa hoặc đã xóa.
+- API Gateway kiểm tra request cần xác thực với AuthService trước khi chuyển
+  tới service nghiệp vụ. Endpoint kiểm tra là nội bộ, có xác thực giữa các service.
+- Không chỉ kiểm tra chữ ký/hạn JWT: token còn hạn không chứng minh tài khoản
+  hiện vẫn được phép thao tác.
+- Bản đầu ưu tiên kiểm tra đồng bộ; không dùng cache kết quả active có thể lỗi
+  thời hoặc sự kiện Kafka làm điều kiện duy nhất để chặn thao tác mới.
+- UserService vẫn xác thực token, kiểm tra phân quyền và quy tắc nghiệp vụ.
+  Chỉ Gateway được làm đầu vào công khai; cần ngăn đường gọi trực tiếp tới service
+  bỏ qua bước kiểm tra trạng thái. Luồng nội bộ phải có kiểm soát tương đương.
+- Request đăng ký, đăng nhập và health check có chính sách riêng; đăng nhập và
+  refresh phải kiểm tra trạng thái trong AuthService. Không áp kiểm tra đăng nhập
+  một cách mù quáng cho mọi đường dẫn hoặc tạo vòng gọi Gateway-AuthService.
+- Khi không xác minh được trạng thái, trả 503 thay vì cho qua. Cho phép tài khoản
+  bị khóa đăng xuất nếu token và phiên vẫn hợp lệ; quy định trong spec/ADR-006.
+
+Mốc bảo đảm cần ghi trong ADR/spec:
+- Sau khi thay đổi khóa đã commit ở nguồn sự thật, một bước kiểm tra quyền mới
+  phải thấy trạng thái khóa và từ chối. Cơ chế đọc không được dùng bản sao/cache
+  active bị trễ để đưa ra quyết định cho phép.
+- Request đã qua bước kiểm tra trước mốc khóa có thể hoàn tất; không cần tạo
+  transaction xuyên database AuthService và UserService để hủy request đó.
+- Bản sao trạng thái trong UserService tiếp tục phục vụ lọc tìm kiếm và có thể
+  cập nhật trễ theo sự kiện. Đây là bảo đảm khác với chặn người thao tác tại Gateway.
+- Chặn người gọi ở Gateway không thay thế kiểm tra tài khoản đích: một tài khoản
+  active vẫn có thể cố gửi lời mời tới tài khoản bị khóa; service nghiệp vụ cần
+  kiểm tra phù hợp, theo hướng xác minh AuthService đã thống nhất cho thao tác nhạy cảm.
+
+Đối chiếu mã hiện tại:
+- Gateway kiểm tra quyền qua AuthService trước khi proxy request cần xác thực.
+- UserService giữ kiểm tra JWT và kiểm tra trực tiếp AuthService để không thể
+  bỏ qua việc khóa tài khoản bằng cách gọi service trực tiếp.
+- AuthService kiểm tra trạng thái tài khoản/phiên từ database; vẫn cho tài khoản
+  bị khóa đăng xuất nếu phiên còn hợp lệ. Lỗi xác minh tạm thời trả 503.
+- AuthService tạo outbox cùng transaction database và phát account.events qua Kafka;
+  UserService chỉ áp snapshot có version mới hơn. Đã kiểm thử truyền sự kiện thật.
+- Chi tiết mức bảo đảm và triển khai nằm trong ADR-006.
+
+5. ĐỂ SAU: CHÍNH SÁCH GỬI LẠI, CHỐNG SPAM VÀ IDEMPOTENCY (Ý 7)
+
+Theo yêu cầu: chưa triển khai mục này trong phạm vi hiện tại.
+- Có cho gửi lại sau REJECTED/CANCELLED không, khoảng chờ bao lâu?
+- Nếu cho gửi lại, tạo bản ghi mới để giữ lịch sử thay vì mở lại bản ghi cũ.
+- Giới hạn số lời mời theo người gửi, theo cặp và theo thời gian.
+- Giới hạn tổng lời mời PENDING, chính sách hết hạn nếu có.
+- Idempotency-Key cho retry do mất mạng: phạm vi khóa, thời gian lưu, xử lý
+  cùng khóa nhưng khác payload và quan hệ với lỗi trạng thái đã thay đổi.
+
+Việc hoãn mục này không hoãn kiểm tra lời mời trùng PENDING, uniqueness ở
+database, phân quyền hoặc transaction nguyên tử đã thống nhất ở mục 1.
+
+6. NOTIFICATION SERVICE - THIẾT KẾ VÀ NỘI DUNG CẦN HỌC (2026-10-30)
+
+Trạng thái hiện tại: đã triển khai mã nguồn theo yêu cầu mới, kiểm chứng ở mục 6.8.
+Các quyết định dưới đây được chốt trước khi code; bước cấu hình thật/deploy còn lại
+được liệt kê riêng. Không sửa .env thực tế hoặc áp migration vào database dự án.
+Các quyết định cũ của UserService phía trên giữ nguyên.
+
+6.1. Đã thống nhất
+- NotificationService sở hữu database PostgreSQL riêng, tài khoản database riêng;
+  có thể dùng chung máy chủ PostgreSQL hiện có. Không đọc/join database service khác.
+- Payload linh hoạt dùng JSONB, có validation và phiên bản cấu trúc dữ liệu.
+- GET /notifications dùng cursor (createdAt DESC, id DESC), limit mặc định 20,
+  tối đa 100, trả items và pageInfo(nextCursor, hasMore).
+- A gửi lời mời cho B: B nhận FRIEND_REQUEST_RECEIVED, actor là A.
+- B chấp nhận: A nhận FRIEND_REQUEST_ACCEPTED, actor là B.
+- Chỉ tạo sự kiện khi nghiệp vụ thành công; chưa gửi thông báo từ chối/hủy.
+- Có hộp thông báo và push khi ứng dụng đóng: hướng triển khai FCM cho Android/
+  iOS, iOS tích hợp APNs. Người dùng muốn học rõ toàn bộ luồng.
+- ĐÃ ĐỔI THEO QUYẾT ĐỊNH MỚI: không lưu seenAt trên từng notification. Lưu mốc
+  mở hộp ở notification_inbox_state, một hàng cho mỗi người nhận, thuộc database
+  NotificationService. readAt vẫn nằm trên từng notification, giữ lần đọc đầu.
+  Trạng thái dùng chung giữa thiết bị. Chi tiết mốc và số đếm ở mục 6.2.
+- Icon chuông dùng unseenCount; từng dòng biểu thị unread. GET không tự cập nhật.
+- Người dùng đã chọn: mở hộp thì coi mọi thông báo có đến mốc mở là đã xem;
+  chuông về 0 nếu không có thông báo mới đến sau mốc, dù chỉ tải trang đầu 20 dòng.
+  Không đánh dấu các dòng là đã đọc chỉ vì mở hộp.
+- GET /notifications/counts trả unseenCount và unreadCount từ database; không
+  lấy độ dài trang hiện tại hoặc tự trừ ở client làm số đếm chính thức.
+- PATCH /notifications/seen nhận mốc do server cấp, chỉ cập nhật inbox_state
+  của người gọi. PATCH /notifications/:id/read kiểm tra quyền tương tự,
+  404 chung cho không tồn tại/không thuộc người gọi; các thao tác gọi lại an toàn.
+- PUT/DELETE /notifications/devices/:installationId đăng ký/cập nhật/gỡ nhận push.
+  Installation ID không phải bằng chứng sở hữu; xác thực và ràng buộc đăng ký với
+  tài khoản/phiên, xử lý đổi tài khoản, nhiều thiết bị và token thay đổi.
+- Kiểm tra JWT, phiên và trạng thái tài khoản theo ADR-006; tích hợp Gateway.
+- Lưu lịch sử dù lời mời bị hủy hoặc hai bên chặn nhau. Khi bấm, UserService là
+  nguồn sự thật: CANCELLED báo lời mời không còn khả dụng; đích ẩn/không tồn tại
+  báo chung không còn khả dụng, không tiết lộ việc bị chặn. Không cho thao tác
+  dựa riêng vào payload cũ. Vẫn đánh dấu read khi người dùng bấm.
+- Lưu snapshot actorId/displayName/avatarUrl từ sự kiện, tại thời điểm nghiệp vụ;
+  không tự đồng bộ tên/ảnh của thông báo cũ khi hồ sơ đổi. Tránh gọi API hồ sơ
+  cho mỗi dòng. Flutter vẫn tải ảnh URL/cached image; URL lỗi dùng ảnh mặc định.
+- TTL hộp: 90 ngày từ createdAt, lưu expiresAt; cả list/count loại hết hạn ngay,
+  tác vụ định kỳ xóa theo lô. Đọc/xem không gia hạn. TTL không hủy lời mời kết bạn.
+- Push có hạn chờ gửi 24 giờ từ thời điểm sự kiện; retry không gia hạn mốc này.
+  Android TTL và iOS apns-expiration dùng thời gian còn lại. Hết push TTL vẫn có
+  thể xem hộp nếu thông báo chưa hết hạn. Không dùng trạng thái gửi push làm read.
+
+6.2. ĐÃ CHỐT UX mở hộp về 0; thiết kế lastSeen và câu hỏi tài khoản xóa
+- Người dùng đề xuất lastSeen để tránh cập nhật nhiều dòng; đã chọn áp dụng mốc
+  chung. Ví dụ có 100 thông báo, mở trang đầu 20 dòng và xác nhận mốc 100:
+  unseenCount=0, unreadCount vẫn 100 nếu chưa bấm dòng nào. Thông báo 101 đến sau
+  mốc: unseenCount=1 và unreadCount=101. Mở hộp không đồng nghĩa đã đọc từng dòng.
+- Ý nghĩa lastSeen là mốc đã mở hộp, không phải bằng chứng đã nhìn từng dòng.
+- Thiết kế đề xuất chi tiết (chưa code): inbox_state có recipient_id (PK),
+  latest_sequence, last_seen_sequence mặc định 0, last_seen_at cho hiển thị/audit.
+  notifications có inbox_sequence duy nhất trong phạm vi recipient_id.
+- Không dùng đồng hồ điện thoại, occurredAt, UUID hoặc timestamp đơn lẻ làm mốc
+  chính: sự kiện tới muộn hoặc transaction commit muộn có thể bị tính nhầm đã xem.
+  Mốc chính đề xuất là số thứ tự nhận vào hộp. Khi tạo thông báo mới, khóa/cập nhật
+  hàng inbox_state của người nhận, tăng latest_sequence và insert notification
+  cùng transaction; giữ khóa tới commit. Các writer cùng người nhận phải tuân thủ
+  thứ tự này. Không thay bằng nextval/global bigserial rồi giả định thứ tự commit.
+  Chống trùng vẫn phải hoạt động khi hai consumer xử lý cùng event; rollback/retry
+  không được phát sinh bản ghi hoặc push job trùng.
+- GET trang đầu trả seenCursor riêng (không phải nextCursor phân trang), chứa mốc
+  latest_sequence đã commit trong cùng snapshot nhất quán với danh sách. Khi màn
+  hình hiển thị thành công, Flutter PATCH /notifications/seen với seenCursor đó.
+  GET không tự mutate, prefetch/mạng lỗi không được coi là đã mở hộp.
+- Mốc do server cấp và kiểm chứng (ví dụ opaque signed token gắn recipient và
+  giới hạn thời gian sử dụng); client không được tùy khai báo số ở tương lai.
+  Chỉ tiến mốc bằng GREATEST(mốc đã lưu, mốc hợp lệ nhận được), không lùi khi request
+  cũ/thiết bị khác tới muộn. Thông báo đến giữa GET và PATCH vẫn mới.
+- isRead = read_at IS NOT NULL; isSeen = inbox_sequence <= last_seen_sequence
+  OR read_at IS NOT NULL. Bấm riêng một push mới chỉ cập nhật readAt của bản ghi
+  đó; không tiến last_seen_sequence làm mất trạng thái mới của các thông báo khác.
+- unseenCount đếm bản ghi của người gọi còn hạn, inbox_sequence > mốc đã xem
+  và read_at IS NULL. unreadCount đếm bản ghi còn hạn có read_at IS NULL.
+  Không lấy latest_sequence - last_seen_sequence vì có bản ghi hết hạn/đã đọc/xóa.
+- Index truy vấn unseen đề xuất (recipient_id, inbox_sequence) WHERE read_at IS NULL;
+  thêm điều kiện expires_at khi đếm; giữ index list và unread theo truy vấn thực tế.
+- List, update seen và counts là các request riêng: có thể lệch tạm thời do
+  thông báo mới hoặc thao tác thiết bị khác. Sau cập nhật, lấy lại số từ server;
+  khi mở/resume hộp thì làm mới. Không hứa các request khác nhau cùng một snapshot.
+- Hai thiết bị cập nhật cùng mốc hoặc cùng readAt vẫn an toàn khi retry; không
+  giảm count thủ công nhiều lần. Cả list/count dùng cùng quyền và expiresAt.
+- CẦN CHỐT BỔ SUNG: tài khoản bị xóa thì xử lý snapshot tên/ảnh trong hộp người
+  khác thế nào? Đề xuất ẩn danh actor, dùng avatar mặc định; dữ liệu của chính
+  người nhận đã xóa và đăng ký push cần dọn theo chính sách xóa tài khoản.
+  Đây là câu hỏi mới; việc giữ lịch sử khi chặn không tự quyết định chính sách xóa.
+
+6.3. Outbox - giải thích để học và yêu cầu triển khai sau
+- Vấn đề ghi đôi: lưu lời mời thành công rồi tiến trình dừng trước khi gửi Kafka
+  sẽ mất thông báo. Gửi Kafka trước commit có thể tạo thông báo cho lời mời rollback.
+- Outbox là bảng sự kiện chờ phát nằm trong database của service nghiệp vụ.
+  UserService ghi thay đổi nghiệp vụ và outbox trong CÙNG transaction PostgreSQL:
+  cùng commit hoặc cùng rollback. Không ghi notification trực tiếp sang DB khác.
+- Worker đọc outbox đã commit, gửi Kafka; chỉ đánh dấu published sau khi broker
+  xác nhận. Kafka lỗi thì giữ pending và retry, không rollback nghiệp vụ đã commit.
+- Nếu gửi xong nhưng dừng trước khi đánh dấu published, worker sẽ gửi lại.
+  Do đó outbox không đồng nghĩa chỉ giao đúng một lần.
+- Event giữ nguyên eventId qua retry; NotificationService chống trùng bằng UNIQUE
+  (event_id, recipient_id, type), ghi notification và công việc gửi push bền vững
+  trong cùng transaction cục bộ. Chỉ xác nhận Kafka offset khi lưu thành công.
+- Không để khoảng trống lưu notification xong nhưng chưa ghi việc gửi push rồi
+  crash. Worker push đọc công việc đã lưu và retry có giới hạn/backoff.
+- Push provider có thể đã nhận nhưng server chưa nhận ACK: retry có thể gây push
+  lặp. Không hứa exactly-once end-to-end; dùng notificationId để đối chiếu và
+  xử lý trùng ở client/platform theo khả năng.
+- Trước triển khai phải thiết kế thời hạn khóa chống trùng, replay và TTL cùng
+  nhau: xóa notification không được khiến replay tái tạo lịch sử đã hết hạn.
+  Giữ dedupe phù hợp cửa sổ replay, có quy tắc bỏ sự kiện lịch sử quá hạn, không
+  kéo dài push TTL khi phát lại. Dọn outbox có chính sách riêng, không vô hạn.
+
+6.4. Kafka - lộ trình học cần tài liệu và bài thực hành
+- Producer (UserService), broker/topic/partition, key, offset, consumer và group:
+  mô tả vai trò từng thành phần bằng chính luồng A mời B, B chấp nhận.
+- Envelope: eventId, eventType, aggregateId, timestamp, version và payload;
+  phân biệt phiên bản trạng thái nghiệp vụ với phiên bản schema payload.
+- Agent tự thiết kế topic/key/group, cấu hình triển khai, retry và bảo mật;
+  giải thích lựa chọn trong ADR/spec trước khi code, không cần hỏi người dùng
+  các tham số hạ tầng thông thường. Thứ tự chỉ được bảo đảm trong partition;
+  không giả định có thứ tự toàn cục giữa topic/partition.
+- Consumer group: các instance cùng group chia công việc; group khác có offset
+  riêng. Giải thích rebalance, commit offset, consumer lag và eventual consistency.
+- At-least-once, idempotency, duplicate/out-of-order; giới hạn exactly-once khi
+  có PostgreSQL và FCM bên ngoài Kafka. So sánh với account.events hiện có.
+- Lỗi tạm thời retry/backoff; payload hỏng không retry vô hạn: DLQ/quarantine,
+  cảnh báo và cách sửa/replay có kiểm soát. Không đưa secrets/FCM token vào log.
+- Thực hành cần ghi hướng dẫn quan sát bằng Kafbat và database: tắt Kafka,
+  tạo lời mời, xem pending outbox, bật lại, thấy notification; dừng consumer trước
+  commit offset rồi khởi động lại để chứng minh không trùng bản ghi; replay,
+  sự kiện sai thứ tự, consumer lag, TTL và dọn dữ liệu.
+
+6.5. Push - lộ trình học và checklist triển khai sau
+- Phân biệt push với polling/WebSocket; giải thích FCM, APNs, quyền thông báo,
+  installation/token, foreground/background/terminated và giới hạn force-stop.
+- Tài liệu setup Firebase project, cấu hình Android/iOS, bật push capability,
+  cấu hình APNs và credentials server; không đưa secrets vào Git/mobile bundle.
+  Chỉ cần người dùng cung cấp thông tin/quyền tài khoản khi thực sự đến bước setup.
+- Thiết kế notification + data payload; notificationId/type/entity ID dùng điều
+  hướng sau đăng nhập và kiểm tra quyền; không nhúng dữ liệu nhạy cảm không cần thiết.
+- Đăng ký khi có phiên, cập nhật khi token đổi, nhiều thiết bị; gỡ khi logout/
+  xóa tài khoản, xử lý đổi tài khoản trên cùng máy và loại registration hết hiệu lực.
+- Flutter xử lý foreground, onMessageOpenedApp, getInitialMessage; bấm push phải
+  kiểm tra đúng tài khoản hiện tại. Khi không cấp quyền push, hộp vẫn hoạt động.
+- Phân biệt provider accepted, delivered, opened và read; không hứa push đến tức
+  thì/chắc chắn. Test thật Android/iOS bên cạnh unit/integration test có mock.
+- Bài thực hành: app đang mở/chạy nền/đóng, offline rồi online trong/ngoài 24 giờ,
+  từ chối quyền, token không hợp lệ, logout/đổi tài khoản, nhiều thiết bị, push lặp.
+- Nguồn học: https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages
+  https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-lifespan
+  https://firebase.google.com/docs/cloud-messaging/manage-tokens
+  https://kafka.apache.org/43/design/design/
+
+6.6. Kế hoạch ban đầu (đã thực hiện phần code, xem kết quả ở 6.8)
+- UX badge đã chốt; còn chính sách tài khoản xóa ở mục 6.2.
+- Viết ADR và technical spec: schema/index, event contract, outbox/consumer/push
+  worker, API/DTO/Gateway, bảo mật, retention/dedupe/replay và hướng dẫn học.
+- Sau đó mới triển khai theo yêu cầu mới của người dùng và kiểm chứng: quyền sở
+  hữu/404, cursor, seen/read retry/concurrency, counts/expiry, outbox crash/retry,
+  Kafka replay, lưu job push nguyên tử, xử lý token và Flutter/device thật.
+
+6.7. BA VÍ DỤ LASTSEEN CẦN XEM LẠI
+- Mốc lúc tải: GET trả mốc 100; thông báo 101 đến trước PATCH. PATCH xác nhận
+  đúng mốc 100 thì chuông vẫn hiện 1. Không lấy mốc hiện tại lúc PATCH chạy.
+- Chỉ tiến: máy A gửi mốc 100 chậm; máy B đã xác nhận 105. A tới sau không được
+  kéo mốc về 100, nếu không 101-105 sẽ bị tính mới trở lại.
+- Đếm thực tế: lastSeen=100; 101/104/105 chưa đọc còn hạn, 102 đã đọc từ push,
+  103 hết hạn. Chuông đúng là 3, không phải 105-100=5.
+
+2026-10-30: người dùng đã yêu cầu bắt đầu triển khai. Các ghi chú CHƯA CODE phía
+trên mô tả giai đoạn trước và được thay thế bởi yêu cầu mới này. ADR-007 và spec
+notification/inbox-and-push.md là thiết kế triển khai; kết quả kiểm chứng cập nhật sau.
+
+6.8. TRIỂN KHAI NGÀY 2026-10-30
+- Đã viết ADR-007, spec inbox-and-push và hướng dẫn setup-and-learning trong
+  docs/specs/notification/. Hướng dẫn có sơ đồ và bài thực hành Kafka/outbox/push.
+- Đã thêm notification-service (NestJS, port 8084), schema/migration, cursor ký,
+  lastSeen một hàng/người nhận, readAt từng dòng, đếm theo bản ghi còn hạn và quyền sở hữu.
+- UserService có migration SocialOutbox1793318400000 dùng trigger trong cùng
+  transaction lời mời; publisher phát social.events, consumer chống trùng và
+  quarantine payload hỏng. Không backfill thông báo từ lời mời cũ.
+- Thông báo và push jobs lưu nguyên tử. Worker retry/backoff, TTL 24h, kiểm tra
+  phiên qua endpoint nội bộ AuthService trước gửi; gỡ token không hợp lệ. Đổi
+  tài khoản/token cùng installation không gửi job của đăng ký cũ.
+- Gateway đã có root /notifications và các route con. UserService thêm GET
+  /users/friend-requests/:id để Flutter kiểm tra trạng thái hiện tại khi bấm.
+- Flutter có chuông/count, hộp cursor, load-more/refresh, acknowledge mốc sau
+  hiển thị, đọc từng dòng, avatar snapshot/fallback và xử lý đích không khả dụng.
+- Đã tích hợp client Firebase tùy chọn, thiết lập native permissions/entitlements,
+  đăng ký thiết bị theo phiên, token refresh, background/terminated tap và logout.
+- Cấu hình Firebase/APNs thật chưa được cung cấp: mặc định FCM_ENABLED=false.
+  Xem hướng dẫn để bật bằng FirebaseOptions công khai + ADC server. Không có
+  secrets/service-account key trong mã nguồn và không sửa .env thực tế.
+- Chưa áp migration vào database dự án; kiểm chứng PostgreSQL dùng container
+  tạm riêng. Test Kafka dùng topic ngẫu nhiên, tự xóa sau kiểm thử.
+- Kiểm thử NotificationService: 27 bài qua, gồm PostgreSQL/Kafka thật, HTTP auth/
+  ownership, lastSeen/concurrency/expiry, outbox/replay/quarantine và push provider mock.
+- Flutter analyze sạch; 58 bài test qua. Backend Auth/User/Gateway build qua;
+  Auth unit 75 bài qua, User unit 25 bài qua, Gateway E2E 16 bài qua.
+- Bản dựng Android debug APK thành công (Firebase tắt mặc định). iOS chưa build
+  trên Windows; push thật chưa kiểm chứng vì thiếu cấu hình Firebase/APNs.
+- Push thật và iOS signing/delivery trên thiết bị cần cấu hình chủ dự án; các
+  bài provider mock không thay thế được bước đó. Chính sách actor tài khoản xóa
+  ở mục 6.2 vẫn để chốt; không tự áp chính sách xóa/ẩn danh mới.

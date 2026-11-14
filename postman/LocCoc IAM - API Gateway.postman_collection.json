@@ -1,0 +1,2314 @@
+{
+  "info": {
+    "_postman_id": "23671109-2ce5-4552-8fa5-d69a95990a32",
+    "name": "LocCoc IAM & Microservices Platform",
+    "description": "Bộ sưu tập Postman toàn diện cho dự án LocCoc. Mọi request đều được định tuyến qua API Gateway (hoặc gatewayUrl) và được phân chia theo từng Service nghiệp vụ.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "51140638",
+    "_collection_link": "https://go.postman.co/collection/51140638-23671109-2ce5-4552-8fa5-d69a95990a32?source=collection_link"
+  },
+  "variable": [
+    {
+      "key": "gatewayUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "value": "user@example.com",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "StrongPassword2026!",
+      "type": "string"
+    },
+    {
+      "key": "phone",
+      "value": "+84901234567",
+      "type": "string"
+    },
+    {
+      "key": "otp",
+      "value": "000000",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sessionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "username",
+      "value": "loccoc_user",
+      "type": "string"
+    },
+    {
+      "key": "targetUserId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "friendId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "requestId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tierId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "reportId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "deviceId",
+      "value": "00000000-0000-0000-0000-000000000001",
+      "type": "string"
+    },
+    {
+      "key": "notificationId",
+      "value": "00000000-0000-0000-0000-000000000001",
+      "type": "string"
+    },
+    {
+      "key": "photoRequestId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "API Gateway",
+      "description": "Các endpoint kiểm tra trạng thái hoạt động của API Gateway.",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/health",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Kiểm tra gateway đang hoạt động. Phản hồi mong đợi: { \"status\": \"ok\" }."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Auth Service",
+      "description": "Các API xác thực, phân quyền, đăng ký, đăng nhập và quản lý phiên (Sessions) qua prefix /auth.",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Register returns 201 or 409', function () {",
+                  "  pm.expect([200, 201, 409, 429]).to.include(pm.response.code);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "if (body.userId) pm.collectionVariables.set('userId', body.userId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"phone\": \"{{phone}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/register",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Đăng ký tài khoản mới. Trạng thái khởi tạo là PENDING_VERIFICATION. Mã OTP được gửi qua email/SMS (in ra console ở môi trường dev)."
+          },
+          "response": []
+        },
+        {
+          "name": "Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Verify OTP returns HTTP 200', function () {",
+                  "  pm.expect([200, 201]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('Response contains verified flag', function () {",
+                  "  pm.expect(pm.response.json()).to.have.property('verified');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"otp\": \"{{otp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/verify-otp",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "verify-otp"
+              ]
+            },
+            "description": "Xác thực mã OTP để kích hoạt tài khoản sang trạng thái ACTIVE."
+          },
+          "response": []
+        },
+        {
+          "name": "Resend OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Resend OTP returns 200 or 429', function () {",
+                  "  pm.expect([200, 201, 429]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"channel\": \"email\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/resend-otp",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "resend-otp"
+              ]
+            },
+            "description": "Yêu cầu phát hành lại mã OTP. Có rate limit cooldown giữa các lần gửi."
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login returns HTTP 200', function () {",
+                  "  pm.expect([200, 201]).to.include(pm.response.code);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "if (body.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "}",
+                  "if (body.refreshToken) {",
+                  "  pm.collectionVariables.set('refreshToken', body.refreshToken);",
+                  "}",
+                  "if (body.user && body.user.id) {",
+                  "  pm.collectionVariables.set('userId', body.user.id);",
+                  "}",
+                  "if (body.session && body.session.id) {",
+                  "  pm.collectionVariables.set('sessionId', body.session.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/login",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Đăng nhập tài khoản bằng email và mật khẩu. Tự động lưu accessToken, refreshToken, userId và sessionId vào Collection Variables."
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refresh Token returns HTTP 200', function () {",
+                  "  pm.expect([200, 201]).to.include(pm.response.code);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "if (body.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "}",
+                  "if (body.refreshToken) {",
+                  "  pm.collectionVariables.set('refreshToken', body.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/refresh",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Cấp mới Access Token bằng Refresh Token (Token Rotation). Tự động cập nhật accessToken mới."
+          },
+          "response": []
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{password}}\",\n  \"newPassword\": \"NewStrongPassword2026!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/change-password",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "change-password"
+              ]
+            },
+            "description": "Đổi mật khẩu tài khoản hiện tại. Yêu cầu Bearer Token."
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/logout",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Đăng xuất phiên hiện tại và vô hiệu hóa Access/Refresh Token tương ứng."
+          },
+          "response": []
+        },
+        {
+          "name": "Logout All Sessions",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/logout-all",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout-all"
+              ]
+            },
+            "description": "Đăng xuất khỏi tất cả thiết bị và vô hiệu hóa mọi phiên đăng nhập của người dùng."
+          },
+          "response": []
+        },
+        {
+          "name": "Session Management",
+          "description": "Các API quản lý danh sách thiết bị và phiên làm việc của người dùng.",
+          "item": [
+            {
+              "name": "List Active Sessions",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/auth/sessions?page=1&limit=20",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "sessions"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Lấy danh sách các phiên đăng nhập đang hoạt động kèm thông tin IP và User-Agent."
+              },
+              "response": []
+            },
+            {
+              "name": "Session History",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/auth/sessions/history?page=1&limit=20",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "sessions",
+                    "history"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Xem lịch sử các phiên đăng nhập trước đây (bao gồm cả phiên đã thu hồi hoặc hết hạn)."
+              },
+              "response": []
+            },
+            {
+              "name": "Revoke Session By ID",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/auth/sessions/{{sessionId}}",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "sessions",
+                    "{{sessionId}}"
+                  ]
+                },
+                "description": "Thu hồi một phiên làm việc cụ thể theo ID."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Social Auth",
+          "description": "Đăng nhập bằng mạng xã hội OAuth2 (Google, Apple).",
+          "item": [
+            {
+              "name": "Google Login",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"idToken\": \"GOOGLE_OIDC_ID_TOKEN\",\n  \"nonce\": \"optional-nonce-string\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/auth/social/google",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "social",
+                    "google"
+                  ]
+                },
+                "description": "Đăng nhập hoặc đăng ký tự động bằng Google OpenID Connect ID Token."
+              },
+              "response": []
+            },
+            {
+              "name": "Apple Login",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"idToken\": \"APPLE_ID_TOKEN\",\n  \"nonce\": \"optional-nonce-string\",\n  \"name\": \"Apple User\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/auth/social/apple",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "social",
+                    "apple"
+                  ]
+                },
+                "description": "Đăng nhập bằng Apple ID Token trên iOS / Web."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Admin Account Controls",
+          "description": "API dành cho quản trị viên thay đổi trạng thái tài khoản.",
+          "item": [
+            {
+              "name": "Update Account Status (Active/Suspended)",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"suspended\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/auth/accounts/{{userId}}/status",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "accounts",
+                    "{{userId}}",
+                    "status"
+                  ]
+                },
+                "description": "Cập nhật trạng thái tài khoản thành 'active' hoặc 'suspended' (Yêu cầu quyền admin)."
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "User Service",
+      "description": "Quản lý hồ sơ người dùng (Profile), định danh (Claim username), bạn bè và mạng xã hội.",
+      "item": [
+        {
+          "name": "Profile & Identity",
+          "description": "Thông tin cá nhân, cập nhật hồ sơ, tra cứu tài khoản.",
+          "item": [
+            {
+              "name": "Get My Profile",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/me",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "me"
+                  ]
+                },
+                "description": "Lấy thông tin hồ sơ của người dùng hiện tại từ user-service."
+              },
+              "response": []
+            },
+            {
+              "name": "Update My Profile",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"displayName\": \"Nguyen Van A\",\n  \"avatarUrl\": \"https://example.com/avatar.jpg\",\n  \"phone\": \"+84901234567\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/me",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "me"
+                  ]
+                },
+                "description": "Cập nhật tên hiển thị, avatar hoặc số điện thoại của người dùng hiện tại."
+              },
+              "response": []
+            },
+            {
+              "name": "Claim Username",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"username\": \"{{username}}\",\n  \"displayName\": \"LocCoc User\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/me/username",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "me",
+                    "username"
+                  ]
+                },
+                "description": "Thiết lập username độc nhất (chỉ được thực hiện khi tài khoản chưa có username)."
+              },
+              "response": []
+            },
+            {
+              "name": "Search Users",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/search?username=user&page=1&limit=20",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "search"
+                  ],
+                  "query": [
+                    {
+                      "key": "username",
+                      "value": "user"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Tìm kiếm người dùng theo username tiền tố."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Profile By Username",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/profiles/by-username/{{username}}",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "profiles",
+                    "by-username",
+                    "{{username}}"
+                  ]
+                },
+                "description": "Lấy thông tin public profile theo username."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Profile By ID",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/profiles/{{userId}}",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "profiles",
+                    "{{userId}}"
+                  ]
+                },
+                "description": "Lấy thông tin hồ sơ theo ID."
+              },
+              "response": []
+            },
+            {
+              "name": "Delete My Account",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/me",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "me"
+                  ]
+                },
+                "description": "Yêu cầu xóa tài khoản của người dùng hiện tại."
+              },
+              "response": []
+            },
+            {
+              "name": "List Users (Admin/Moderator)",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users?page=1&limit=20",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Lấy danh sách người dùng phân trang (Dành cho Admin/Moderator)."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Social & Friends",
+          "description": "Kết bạn, lời mời kết bạn, danh sách bạn bè và chặn người dùng (Block/Unblock).",
+          "item": [
+            {
+              "name": "Get Friends List",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/friends?page=1&limit=20",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "friends"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Lấy danh sách bạn bè đã kết nối của người dùng."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Social Summary",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/me/social-summary",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "me",
+                    "social-summary"
+                  ]
+                },
+                "description": "Xem tổng hợp số lượng bạn bè, lời mời gửi đi và nhận được."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Friend Requests",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/friend-requests?direction=incoming&page=1&limit=20",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "friend-requests"
+                  ],
+                  "query": [
+                    {
+                      "key": "direction",
+                      "value": "incoming"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Xem danh sách lời mời kết bạn (incoming hoặc outgoing)."
+              },
+              "response": []
+            },
+            {
+              "name": "Send Friend Request",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "if (body && body.id) pm.collectionVariables.set('requestId', body.id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"receiverId\": \"{{targetUserId}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/friend-requests",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "friend-requests"
+                  ]
+                },
+                "description": "Gửi lời mời kết bạn đến một user ID."
+              },
+              "response": []
+            },
+            {
+              "name": "Accept Friend Request",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/friend-requests/{{requestId}}/accept",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "friend-requests",
+                    "{{requestId}}",
+                    "accept"
+                  ]
+                },
+                "description": "Chấp nhận lời mời kết bạn."
+              },
+              "response": []
+            },
+            {
+              "name": "Reject Friend Request",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/friend-requests/{{requestId}}/reject",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "friend-requests",
+                    "{{requestId}}",
+                    "reject"
+                  ]
+                },
+                "description": "Từ chối lời mời kết bạn."
+              },
+              "response": []
+            },
+            {
+              "name": "Cancel Friend Request",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/friend-requests/{{requestId}}/cancel",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "friend-requests",
+                    "{{requestId}}",
+                    "cancel"
+                  ]
+                },
+                "description": "Hủy bỏ lời mời kết bạn đã gửi."
+              },
+              "response": []
+            },
+            {
+              "name": "Unfriend",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/friends/{{friendId}}",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "friends",
+                    "{{friendId}}"
+                  ]
+                },
+                "description": "Hủy kết bạn với người dùng khác."
+              },
+              "response": []
+            },
+            {
+              "name": "Block User",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "PUT",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/blocks/{{targetUserId}}",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "blocks",
+                    "{{targetUserId}}"
+                  ]
+                },
+                "description": "Chặn người dùng khác."
+              },
+              "response": []
+            },
+            {
+              "name": "Unblock User",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/blocks/{{targetUserId}}",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "blocks",
+                    "{{targetUserId}}"
+                  ]
+                },
+                "description": "Bỏ chặn người dùng."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Blocked Users List",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/users/blocks?page=1&limit=20",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "users",
+                    "blocks"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Lấy danh sách các tài khoản đang bị chặn."
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin Service",
+      "description": "Quản lý gói dịch vụ (Tiers), phân quyền người dùng, xem nhật ký kiểm toán (Audit Logs) và thống kê báo cáo qua prefix /admin.",
+      "item": [
+        {
+          "name": "Tiers Management",
+          "description": "Các API CRUD gói đăng ký (Subscription Tiers).",
+          "item": [
+            {
+              "name": "Get All Tiers",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/tiers",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "tiers"
+                  ]
+                },
+                "description": "Lấy danh sách toàn bộ các gói dịch vụ (Tier) trong hệ thống."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Tier By ID",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/tiers/{{tierId}}",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "tiers",
+                    "{{tierId}}"
+                  ]
+                },
+                "description": "Lấy thông tin chi tiết một gói theo Tier ID."
+              },
+              "response": []
+            },
+            {
+              "name": "Create Tier",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-user-id",
+                    "value": "1",
+                    "description": "Admin ID mô phỏng từ Gateway"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"TIER_PRO_MONTHLY\",\n  \"name\": \"Gói Pro 1 Tháng\",\n  \"description\": \"Đầy đủ tính năng cao cấp không giới hạn\",\n  \"price\": 99000,\n  \"durationDays\": 30,\n  \"limitsJson\": \"{\\\"maxFriends\\\": 1000, \\\"cloudStorageMb\\\": 5120}\",\n  \"featuresJson\": \"[\\\"AI_ASSISTANT\\\", \\\"NO_ADS\\\", \\\"HD_STREAMING\\\"]\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/tiers",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "tiers"
+                  ]
+                },
+                "description": "Tạo mới một gói dịch vụ thành viên."
+              },
+              "response": []
+            },
+            {
+              "name": "Update Tier",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-user-id",
+                    "value": "1"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Gói Pro 1 Tháng (Khuyến mãi)\",\n  \"description\": \"Ưu đãi đặc biệt nâng cấp trải nghiệm\",\n  \"price\": 79000,\n  \"durationDays\": 30,\n  \"limitsJson\": \"{\\\"maxFriends\\\": 2000, \\\"cloudStorageMb\\\": 10240}\",\n  \"featuresJson\": \"[\\\"AI_ASSISTANT\\\", \\\"NO_ADS\\\", \\\"HD_STREAMING\\\", \\\"PRIORITY_SUPPORT\\\"]\",\n  \"isActive\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/tiers/{{tierId}}",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "tiers",
+                    "{{tierId}}"
+                  ]
+                },
+                "description": "Cập nhật thông tin gói thành viên theo ID."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "User Subscription Admin",
+          "description": "Tra cứu và can thiệp thủ công gói thành viên của người dùng.",
+          "item": [
+            {
+              "name": "Get User Subscriptions",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/users/{{targetUserId}}/subscriptions",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "users",
+                    "{{targetUserId}}",
+                    "subscriptions"
+                  ]
+                },
+                "description": "Xem toàn bộ lịch sử gói đăng ký của một người dùng cụ thể."
+              },
+              "response": []
+            },
+            {
+              "name": "Override User Tier",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-user-id",
+                    "value": "1"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"tierId\": 2,\n  \"durationDays\": 30,\n  \"reason\": \"Đền bù sự cố gián đoạn dịch vụ hoặc tặng thưởng sự kiện\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/users/{{targetUserId}}/override-tier",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "users",
+                    "{{targetUserId}}",
+                    "override-tier"
+                  ]
+                },
+                "description": "Admin gán hoặc gia hạn gói trực tiếp cho người dùng mà không cần thanh toán."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Audit Logs",
+          "description": "Xem nhật ký kiểm toán ghi nhận mọi hành động của quản trị viên.",
+          "item": [
+            {
+              "name": "Get All Audit Logs",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/audit-logs?page=0&size=20",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "audit-logs"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "0"
+                    },
+                    {
+                      "key": "size",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Lấy danh sách nhật ký hành động phân trang."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Audit Logs By Target User",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/audit-logs/user/{{targetUserId}}?page=0&size=20",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "audit-logs",
+                    "user",
+                    "{{targetUserId}}"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "0"
+                    },
+                    {
+                      "key": "size",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Lọc các hành động quản trị tác động lên một người dùng cụ thể."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Reports & Analytics",
+          "description": "Thống kê tổng quan hệ thống và xử lý báo cáo vi phạm.",
+          "item": [
+            {
+              "name": "Dashboard Overview",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/reports/overview",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "reports",
+                    "overview"
+                  ]
+                },
+                "description": "Lấy số liệu tổng quan: tổng user, subscription active, doanh thu ước tính."
+              },
+              "response": []
+            },
+            {
+              "name": "Tiers Distribution",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/reports/tiers-distribution",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "reports",
+                    "tiers-distribution"
+                  ]
+                },
+                "description": "Thống kê tỷ lệ phân bổ người dùng trên từng gói dịch vụ."
+              },
+              "response": []
+            },
+            {
+              "name": "Get System Reports",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/reports?status=PENDING&page=0&size=20",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "reports"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "PENDING"
+                    },
+                    {
+                      "key": "page",
+                      "value": "0"
+                    },
+                    {
+                      "key": "size",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Lấy danh sách các báo cáo vi phạm (reports) từ người dùng gửi lên."
+              },
+              "response": []
+            },
+            {
+              "name": "Get Report By ID",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/reports/{{reportId}}",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "reports",
+                    "{{reportId}}"
+                  ]
+                },
+                "description": "Xem chi tiết một báo cáo vi phạm."
+              },
+              "response": []
+            },
+            {
+              "name": "Submit Report",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reporterId\": 1,\n  \"targetType\": \"USER\",\n  \"targetId\": 2,\n  \"reason\": \"SPAM\",\n  \"description\": \"Người dùng này gửi tin nhắn quảng cáo và spam kết bạn liên tục.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/reports",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "reports"
+                  ]
+                },
+                "description": "Gửi báo cáo vi phạm mới vào hệ thống."
+              },
+              "response": []
+            },
+            {
+              "name": "Resolve Report",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-user-id",
+                    "value": "1"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"RESOLVED\",\n  \"actionTaken\": \"WARNING\",\n  \"adminNote\": \"Đã gửi cảnh cáo đầu tiên đến người dùng vi phạm.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/admin/reports/{{reportId}}/resolve",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "reports",
+                    "{{reportId}}",
+                    "resolve"
+                  ]
+                },
+                "description": "Admin xử lý và đóng báo cáo vi phạm."
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payment & Subscription Service",
+      "description": "Xử lý cổng thanh toán PayOS VietQR, tạo Checkout link, Webhook và tra cứu đăng ký.",
+      "item": [
+        {
+          "name": "PayOS Checkout & Webhook",
+          "description": "Tạo link thanh toán mã QR và webhook callback.",
+          "item": [
+            {
+              "name": "Create Checkout Link (VietQR)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-user-id",
+                    "value": "1",
+                    "description": "User ID thanh toán"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"tierId\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/payments/create-checkout",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "payments",
+                    "create-checkout"
+                  ]
+                },
+                "description": "Tạo đơn hàng thanh toán qua PayOS. Trả về checkoutUrl, qrCode và orderCode."
+              },
+              "response": []
+            },
+            {
+              "name": "PayOS Webhook Health Check",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{gatewayUrl}}/payments/webhook/payos",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "payments",
+                    "webhook",
+                    "payos"
+                  ]
+                },
+                "description": "Kiểm tra endpoint webhook của PayOS có sẵn sàng nhận request."
+              },
+              "response": []
+            },
+            {
+              "name": "PayOS Webhook Handler (Simulate Callback)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"00\",\n  \"desc\": \"success\",\n  \"data\": {\n    \"orderCode\": 12345678,\n    \"amount\": 99000,\n    \"description\": \"Thanh toan LocCoc Pro\",\n    \"accountNumber\": \"1234567890\",\n    \"reference\": \"FT26110001\",\n    \"transactionDateTime\": \"2026-11-04 14:00:00\",\n    \"currency\": \"VND\",\n    \"paymentLinkId\": \"mock-link-id\"\n  },\n  \"signature\": \"MOCK_OR_VALID_HMAC_SHA256_SIGNATURE\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/payments/webhook/payos",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "payments",
+                    "webhook",
+                    "payos"
+                  ]
+                },
+                "description": "Mô phỏng Webhook gọi từ PayOS khi thanh toán thành công (code '00')."
+              },
+              "response": []
+            },
+            {
+              "name": "Confirm PayOS Webhook URL",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"webhookUrl\": \"https://your-public-domain.com/payments/webhook/payos\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{gatewayUrl}}/payments/webhook/confirm",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "payments",
+                    "webhook",
+                    "confirm"
+                  ]
+                },
+                "description": "Gửi xác thực URL webhook lên PayOS dashboard."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "User Subscriptions",
+          "description": "Tra cứu thông tin gói dịch vụ của người dùng.",
+          "item": [
+            {
+              "name": "Get My Active Subscription",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-user-id",
+                    "value": "1"
+                  }
+                ],
+                "url": {
+                  "raw": "{{gatewayUrl}}/subscriptions/me",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "subscriptions",
+                    "me"
+                  ]
+                },
+                "description": "Lấy thông tin gói thành viên đang có hiệu lực của người dùng."
+              },
+              "response": []
+            },
+            {
+              "name": "Get My Subscription History",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "x-user-id",
+                    "value": "1"
+                  }
+                ],
+                "url": {
+                  "raw": "{{gatewayUrl}}/subscriptions/history",
+                  "host": [
+                    "{{gatewayUrl}}"
+                  ],
+                  "path": [
+                    "subscriptions",
+                    "history"
+                  ]
+                },
+                "description": "Xem toàn bộ lịch sử các gói đăng ký trước đây của người dùng."
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Notification Service",
+      "description": "Quản lý hộp thư thông báo (Inbox), số lượng chưa đọc, đánh dấu đã đọc và đăng ký Push Device Token.",
+      "item": [
+        {
+          "name": "List Notifications",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/notifications?limit=20",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Lấy danh sách thông báo của người dùng kèm phân trang bằng cursor."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Unread Counts",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/notifications/counts",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "counts"
+              ]
+            },
+            "description": "Đếm số lượng thông báo chưa đọc của người dùng hiện tại."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Notifications Seen",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seenCursor\": \"2026-11-04T14:00:00.000Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/notifications/seen",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "seen"
+              ]
+            },
+            "description": "Đánh dấu tất cả thông báo trước thời điểm seenCursor là đã xem."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Single Notification As Read",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/notifications/{{notificationId}}/read",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "{{notificationId}}",
+                "read"
+              ]
+            },
+            "description": "Đánh dấu một thông báo cụ thể là đã đọc theo UUID."
+          },
+          "response": []
+        },
+        {
+          "name": "Register Push Device Token",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"fcm_or_apns_device_token_sample_string_min_20_chars\",\n  \"platform\": \"android\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/notifications/devices/{{deviceId}}",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "devices",
+                "{{deviceId}}"
+              ]
+            },
+            "description": "Đăng ký token thiết bị FCM/APNs để nhận thông báo đẩy (Push Notifications)."
+          },
+          "response": []
+        },
+        {
+          "name": "Unregister Push Device Token",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/notifications/devices/{{deviceId}}",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "devices",
+                "{{deviceId}}"
+              ]
+            },
+            "description": "Hủy đăng ký nhận Push Notification trên thiết bị."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Post Service",
+      "item": [
+        {
+          "name": "Publish local photo",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('photoRequestId')) pm.collectionVariables.set('photoRequestId', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Photo created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) pm.collectionVariables.set('postId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{photoRequestId}}\",\n  \"ownerId\": \"11111111-1111-4111-8111-111111111111\",\n  \"imageBase64\": \"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAxSURBVFhH7c4hAQAACMAwItKI6OAJAGbi5mrRlf1Z7HEdAAAAAAAAAAAAAAAAAADAAPlINKZoOLjRAAAAAElFTkSuQmCC\",\n  \"caption\": \"Ảnh thử LocCoc\"\n}"
+            },
+            "url": "{{gatewayUrl}}/posts/photos",
+            "description": "PNG tối đa 5 MiB; caption tối đa 200 ký tự. Giữ photoRequestId khi retry cùng ảnh. Xóa biến photoRequestId trước khi tạo bài mới. File lưu ở Downloads/LocCoc/posts trên máy chạy post-service."
+          }
+        },
+        {
+          "name": "Read local photo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{gatewayUrl}}/posts/media/{{postId}}"
+          }
+        }
+      ]
+    }
+  ]
+}

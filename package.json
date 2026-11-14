@@ -1,19 +1,37 @@
 {
   "name": "loccoc-iam",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@12.4.1",
   "scripts": {
     "start": "npm --prefix api-gateway run start",
     "start:gateway": "npm --prefix api-gateway run start",
     "start:auth": "npm --prefix auth-service run start",
     "start:user": "npm --prefix user-service run start",
-    "start:ai": "npm --prefix ai-service run start",
-    "start:dev": "npm --prefix api-gateway run start:dev",
-    "build": "pnpm --filter @loccoc/common build && pnpm --filter './{api-gateway,auth-service,user-service,ai-service}' build",
+    "start:admin": "mvn -f admin-service/pom.xml spring-boot:run",
+    "start:payment": "mvn -f payment-service/pom.xml spring-boot:run",
+    "build": "pnpm --filter @loccoc/common build && pnpm --filter api-gateway --filter auth-service --filter user-service --filter notification-service --filter ai-service build",
+    "build:admin": "mvn -f admin-service/pom.xml clean package -DskipTests",
+    "build:payment": "mvn -f payment-service/pom.xml clean package -DskipTests",
     "test:e2e": "pnpm --filter api-gateway test:e2e",
+    "dev": "npm --prefix admin-dashboard run dev -- --port 3005",
+    "dev:dashboard": "npm --prefix admin-dashboard run dev -- --port 3005",
+    "start:dashboard": "npm --prefix admin-dashboard run start",
     "dev:gateway": "pnpm --filter @loccoc/common build && pnpm --filter api-gateway start:dev",
     "dev:auth": "pnpm --filter @loccoc/common build && pnpm --filter auth-service start:dev",
     "dev:user": "pnpm --filter @loccoc/common build && pnpm --filter user-service start:dev",
+    "dev:admin": "mvn -f admin-service/pom.xml spring-boot:run",
+    "dev:payment": "mvn -f payment-service/pom.xml spring-boot:run",
+    "webhook:register": "node scripts/register-webhook.js",
+    "db:migrate:auth": "npm --prefix auth-service run db:migrate",
+    "db:migrate:user": "npm --prefix user-service run db:migrate",
+    "start:notification": "pnpm --filter notification-service build && pnpm --filter notification-service start",
+    "start:ai": "npm --prefix ai-service run start",
+    "start:dev": "npm --prefix api-gateway run start:dev",
     "dev:ai": "pnpm --filter ai-service start:dev"
+  },
+  "dependencies": {
+    "jose": "^6.2.17",
+    "kafkajs": "^2.2.4"
   }
 }

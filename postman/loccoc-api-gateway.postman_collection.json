@@ -1,0 +1,397 @@
+{
+  "info": {
+    "_postman_id": "a4c8e3b2-5d9f-4f3f-8b0a-1e7c6f2d9a10",
+    "name": "LocCoc IAM - API Gateway",
+    "description": "Postman collection for testing LocCoc APIs through api-gateway. Auth endpoints are grouped under Auth Service and are sent to the gateway URL.\n\nFirst run: start PostgreSQL/Redis, run npm run db:migrate:auth and npm run db:migrate:user from repository root, then start auth and one gateway. Run Register before Verify OTP. Replace the placeholder otp with the current development code from the auth console. If a database error occurred after verifying a code, obtain a fresh OTP before retrying.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "gatewayUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "value": "person@example.com",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "correct horse battery staple 2026",
+      "type": "string"
+    },
+    {
+      "key": "phone",
+      "value": "+84901234567",
+      "type": "string"
+    },
+    {
+      "key": "otp",
+      "value": "000000",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "postServiceUrl",
+      "value": "http://localhost:8087",
+      "type": "string"
+    },
+    {
+      "key": "postOwnerId",
+      "value": "11111111-1111-4111-8111-111111111111",
+      "type": "string"
+    },
+    {
+      "key": "postId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "photoRequestId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "API Gateway",
+      "description": "Các request kiểm tra gateway dùng trực tiếp gatewayUrl.",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayUrl}}/health",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Kiểm tra gateway đang hoạt động. Kết quả mong đợi: { \"status\": \"ok\" }."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Auth Service",
+      "description": "Các endpoint của auth-service. Tất cả request trong folder này đều đi qua api-gateway và không gọi trực tiếp auth-service.",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"phone\": \"{{phone}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/register",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Tạo tài khoản pending và phát hành OTP. Ở development, mã OTP được in trong console của auth-service."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Register returns an expected status', function () {",
+                  "  pm.expect([201, 409, 429]).to.include(pm.response.code);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "if (body.userId) pm.collectionVariables.set('userId', body.userId);"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Verify OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"otp\": \"{{otp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/verify-otp",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "verify-otp"
+              ]
+            },
+            "description": "Xác thực OTP. Cập nhật collection variable otp bằng mã được log ở auth-service trước khi gửi."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Verify OTP returns HTTP 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Response contains verified flag', function () {",
+                  "  pm.expect(pm.response.json()).to.have.property('verified');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Resend OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"channel\": \"email\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/resend-otp",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "resend-otp"
+              ]
+            },
+            "description": "Gửi lại OTP. Gửi ngay sau Register có thể trả 429 vì cooldown 60 giây; hãy chờ rồi thử lại."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Resend OTP returns an expected status', function () {",
+                  "  pm.expect([200, 429]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/auth/login",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Đăng nhập tài khoản đã được kích hoạt bằng Verify OTP."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login returns an expected status', function () {",
+                  "  pm.expect([200, 401, 429]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "description": "Bật loccoc-postgres và chạy post-service. Mặc định gọi trực tiếp 8087; đổi postServiceUrl thành http://localhost:8080 để đi qua gateway. ownerId chỉ dùng thử khi chưa xác thực.",
+      "name": "Post Service",
+      "item": [
+        {
+          "request": {
+            "url": "{{postServiceUrl}}/posts",
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Tạo bài với media đã upload. Không cần token. Tự lưu postId khi thành công.",
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Content-Type"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ownerId\": \"{{postOwnerId}}\",\n  \"mediaKey\": \"moments/photo.jpg\",\n  \"mediaType\": 0,\n  \"caption\": \"Xin chào từ Postman!\",\n  \"width\": 1080,\n  \"height\": 1920\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "name": "Create Post",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Created\", () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) { pm.collectionVariables.set(\"postId\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "request": {
+            "description": "Chạy Create Post trước. Xóa mềm bài vừa tạo, gọi lại vẫn trả 204.",
+            "url": "{{postServiceUrl}}/posts/{{postId}}?ownerId={{postOwnerId}}",
+            "method": "DELETE",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": []
+          },
+          "name": "Delete Post",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Deleted\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Publish local photo",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('photoRequestId')) pm.collectionVariables.set('photoRequestId', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Photo created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) pm.collectionVariables.set('postId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{photoRequestId}}\",\n  \"ownerId\": \"11111111-1111-4111-8111-111111111111\",\n  \"imageBase64\": \"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAxSURBVFhH7c4hAQAACMAwItKI6OAJAGbi5mrRlf1Z7HEdAAAAAAAAAAAAAAAAAADAAPlINKZoOLjRAAAAAElFTkSuQmCC\",\n  \"caption\": \"Ảnh thử LocCoc\"\n}"
+            },
+            "url": "{{gatewayUrl}}/posts/photos",
+            "description": "PNG tối đa 5 MiB; caption tối đa 200 ký tự. Giữ photoRequestId khi retry cùng ảnh. Xóa biến photoRequestId trước khi tạo bài mới. File lưu ở Downloads/LocCoc/posts trên máy chạy post-service."
+          }
+        },
+        {
+          "name": "Read local photo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{gatewayUrl}}/posts/media/{{postId}}"
+          }
+        }
+      ]
+    }
+  ]
+}

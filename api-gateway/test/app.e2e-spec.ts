@@ -58,6 +58,8 @@ describe('IAM gateway security contract (e2e)', () => {
     requestId: string;
     expectHeader: string | undefined;
     proxyConnection: string | undefined;
+    identityHeaders: (string | string[] | undefined)[];
+    clientIp: string | undefined;
   }>();
   let jsonCapture = deferred<Buffer>();
   let releaseStream = deferred<void>();
@@ -79,6 +81,16 @@ describe('IAM gateway security contract (e2e)', () => {
     const image = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, 0x03]);
     upstream = createServer((requestMessage, responseMessage) => {
       void (async () => {
+        if (requestMessage.url === '/internal/access') {
+          if (requestMessage.headers.authorization !== 'Bearer gateway-test') {
+            responseMessage.writeHead(401).end();
+            return;
+          }
+          responseMessage.writeHead(200, { 'content-type': 'application/json' });
+          responseMessage.end(JSON.stringify({ user: { userId: 'verified-user', role: 'user' } }));
+          return;
+        }
+
         if (requestMessage.url === '/ai/enhance') {
           const body = await readBody(requestMessage);
           multipartCapture.resolve({
@@ -87,6 +99,9 @@ describe('IAM gateway security contract (e2e)', () => {
             requestId: String(requestMessage.headers['x-request-id']),
             expectHeader: requestMessage.headers.expect,
             proxyConnection: requestMessage.headers['proxy-connection'],
+            identityHeaders: ['x-service-token', 'x-user-id', 'x-user-role', 'x-user-roles']
+              .map((name) => requestMessage.headers[name]),
+            clientIp: requestMessage.headers['x-real-ip'],
           });
           responseMessage.writeHead(200, {
             'content-type': 'image/png',
@@ -142,6 +157,7 @@ describe('IAM gateway security contract (e2e)', () => {
     const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
     Object.assign(process.env, {
       NODE_ENV: 'test',
+      INTERNAL_SERVICE_TOKEN: 'gateway-internal-test-token-32-characters',
       AUTH_SERVICE_URL: upstreamUrl,
       USER_SERVICE_URL: upstreamUrl,
       AI_SERVICE_URL: upstreamUrl,
@@ -216,6 +232,11 @@ describe('IAM gateway security contract (e2e)', () => {
       .set('x-forwarded-for', '198.51.100.20')
       .set('content-type', `multipart/form-data; boundary=${boundary}`)
       .set('proxy-connection', 'keep-alive')
+      .set('x-service-token', 'spoofed')
+      .set('x-user-id', 'spoofed')
+      .set('x-user-role', 'admin')
+      .set('x-user-roles', 'admin')
+      .set('x-real-ip', '203.0.113.99')
       .send(body)
       .buffer(true)
       .parse(binaryParser)
@@ -226,6 +247,8 @@ describe('IAM gateway security contract (e2e)', () => {
     expect(captured.contentType).toBe(`multipart/form-data; boundary=${boundary}`);
     expect(captured.requestId).toBe(response.headers['x-request-id']);
     expect(captured.proxyConnection).toBeUndefined();
+    expect(captured.identityHeaders).toEqual([undefined, undefined, undefined, undefined]);
+    expect(captured.clientIp).toBe('198.51.100.20');
     expect(response.headers['content-type']).toMatch(/^image\/png/);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.headers['x-upstream-safe']).toBe('kept');
@@ -315,6 +338,7 @@ describe('IAM gateway security contract (e2e)', () => {
     const payload = { email: 'person@example.com', nested: { enabled: true } };
     const response = await request(app.getHttpServer())
       .post('/auth/echo')
+      .set('authorization', 'Bearer gateway-test')
       .set('x-forwarded-for', '198.51.100.23')
       .send(payload)
       .expect(200);
@@ -340,6 +364,25 @@ describe('IAM gateway security contract (e2e)', () => {
     });
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.body).not.toHaveProperty('stack');
+  });
+
+  it('keeps account routes protected while the AI MVP remains public', async () => {
+    await request(app.getHttpServer()).get('/users/me').expect(401);
+    await request(app.getHttpServer()).post('/auth/echo').send({ value: 'private' }).expect(401);
+  });
+
+  it('applies the AI limit across requests through the merged application', async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await request(app.getHttpServer()).post('/ai/enhance')
+        .set('x-forwarded-for', '198.51.100.30')
+        .set('content-type', 'application/octet-stream')
+        .send(Buffer.from('test-image')).expect(200);
+    }
+    const response = await request(app.getHttpServer()).post('/ai/enhance')
+      .set('x-forwarded-for', '198.51.100.30')
+      .set('content-type', 'application/octet-stream')
+      .send(Buffer.from('test-image')).expect(429);
+    expect(response.headers['cache-control']).toBe('no-store');
   });
 
   afterAll(async () => {
