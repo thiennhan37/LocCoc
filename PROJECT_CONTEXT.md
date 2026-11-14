@@ -595,3 +595,19 @@ Mobile API layer now includes all existing Auth endpoints and Post create/delete
 - Smoke PostgreSQL thật: c83fa5a8-4111-4936-8c43-6beb784df418.png, GET 200, retry cùng ID, bản ghi tồn tại trong moments. Post-service thử nghiệm 18087 đã dừng.
 
 - Android debug APK build thành công; Gradle lần đầu khoảng 12 phút. Review độc lập phát hiện no-op filter/caption làm đổi requestId; đã sửa và regression test qua.
+
+### 2026-11-14: Resolve main merge into filter_service
+
+- Resolved all 9 merge conflicts while retaining AI multipart upload/response streaming,
+  client disconnect cancellation, IP rate limiting and all routes from main.
+- AI MVP remains public as specified by UC-07; existing account checks remain on
+  protected routes. Both JSON and raw proxy paths strip spoofed service/user headers
+  and replace forwarding headers with the gateway-derived client IP.
+- Preserved main's service-scoped environment validation and Redis lifecycle handling;
+  restored AI upstream URL and numeric limiter validation/defaults to gatewayKeys.
+- Combined workspace packages/scripts and lockfile dependency graphs. Aligned shared
+  AI NestJS dependency resolutions with libs/common to avoid duplicate HttpException
+  classes turning validation/provider errors into HTTP 500 responses.
+- Verification: common plus Gateway/Auth/User/Notification/AI builds passed; Gateway
+  unit 6/6 and E2E 32/32; AI unit 60/60 and E2E 13/13. Gemini provider is mocked in
+  tests; no paid generation or live webhook/tunnel changes were performed.

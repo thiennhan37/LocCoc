@@ -1,0 +1,335 @@
+openapi: 3.0.3
+info:
+  title: LocCoc AI Service
+  version: 0.0.1
+  description: |
+    API hiện có của AI Service, dùng để import vào Bruno.
+    Xử lý ảnh đồng bộ, không lưu ảnh hoặc tạo bản ghi nghiệp vụ.
+    Không yêu cầu Authorization/JWT trong implementation hiện tại.
+    GEMINI_API_KEY chỉ cấu hình ở backend, không gửi từ Bruno.
+
+    Server mặc định là AI Service trực tiếp (8082). Có thể đổi sang
+    API Gateway (8080) cho POST /ai/images/enhance với cùng đường dẫn.
+    GET /health trên gateway chỉ kiểm tra gateway, không kiểm tra AI Service.
+servers:
+  - url: http://localhost:8082
+    description: AI Service trực tiếp (mặc định)
+  - url: http://localhost:8080
+    description: API Gateway (chỉ dùng cho endpoint /ai/images/enhance)
+security: []
+tags:
+  - name: Health
+    description: Kiểm tra tiến trình AI Service
+  - name: Images
+    description: Chỉnh sửa ảnh bằng các filter cố định
+paths:
+  /health:
+    get:
+      operationId: getAiServiceHealth
+      tags: [Health]
+      summary: Kiểm tra AI Service đang chạy
+      description: |
+        Liveness check, không gọi Gemini và không xác minh API key/model có hoạt động.
+        Gọi trực tiếp port AI_SERVICE_PORT (mặc định 8082).
+        Không có route /ai/health trên gateway.
+      servers:
+        - url: http://localhost:8082
+          description: AI Service trực tiếp
+      responses:
+        '200':
+          description: Tiến trình đang chạy
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+  /ai/images/enhance:
+    post:
+      operationId: enhanceImage
+      tags: [Images]
+      summary: Chỉnh sửa một ảnh bằng filter AI
+      description: |
+        Gửi đúng một file image và một text field filterId bằng multipart/form-data.
+        Không gửi JSON, base64, URL ảnh, prompt tự do hoặc field bổ sung.
+        File phải là JPEG, PNG hoặc WebP; MIME khai báo phải khớp chữ ký file.
+        Giới hạn hiện được thực thi cố định: đầu vào 10 MiB (10485760 bytes),
+        đầu ra 20 MiB (20971520 bytes).
+
+        handwritten_diary: thêm nét bút trắng và lời ghi chú tiếng Việt ngắn,
+        giữ chủ thể và bố cục. Kết quả có thể là JPEG, PNG hoặc WebP.
+        subject_sticker: tách chủ thể, thêm viền trắng, bắt buộc PNG có pixel trong suốt.
+
+        Thành công trả trực tiếp bytes ảnh, không phải JSON hay base64.
+        Backend timeout mặc định 60000 ms (tối đa cấu hình 60000 ms), bắt đầu
+        sau khi multipart đã được phân tích và DTO đã được xác thực.
+        Nên đặt timeout của Bruno lớn hơn 60000 ms, ví dụ 90000 ms.
+        Đóng kết nối sẽ hủy xử lý; client thường không nhận được response 499.
+
+        Qua gateway, mặc định tối đa 5 request/IP/60000 ms cho các route /ai/*;
+        ngoài ra còn có limiter chung (mặc định 100 request/IP/60000 ms).
+        Gọi trực tiếp AI Service không đi qua các limiter này.
+        Không cần truyền x-request-id: backend tự sinh ID cho từng request.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EnhanceImageRequest'
+            encoding:
+              image:
+                contentType: image/jpeg, image/png, image/webp
+              filterId:
+                contentType: text/plain
+      responses:
+        '200':
+          description: Ảnh đã xử lý; subject_sticker luôn trả image/png
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Content-Length:
+              description: Số byte ảnh đầu ra, tối đa 20971520
+              schema:
+                type: integer
+                minimum: 1
+                maximum: 20971520
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Thiếu ảnh/filter, filter không hợp lệ, field thừa/trùng hoặc multipart không hợp lệ
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                missingImage:
+                  value:
+                    statusCode: 400
+                    error: BAD_REQUEST
+                    message: image is required
+                    requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+                invalidFilter:
+                  value:
+                    statusCode: 400
+                    error: BAD_REQUEST
+                    message:
+                      - 'filterId must be one of the following values: handwritten_diary, subject_sticker'
+                    requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+        '413':
+          description: File đầu vào lớn hơn 10 MiB
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                statusCode: 413
+                error: PAYLOAD_TOO_LARGE
+                message: File too large
+                requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+        '415':
+          description: Định dạng không hỗ trợ, MIME không khớp hoặc không đọc được metadata ảnh
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                statusCode: 415
+                error: UNSUPPORTED_MEDIA_TYPE
+                message: Only JPEG, PNG, and WebP images are supported
+                requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+        '422':
+          description: Gemini trả kết quả không hợp lệ hoặc sticker không phải PNG trong suốt
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                statusCode: 422
+                error: UNPROCESSABLE_ENTITY
+                message: AI did not return a valid image
+                requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+        '429':
+          description: |
+            Vượt rate limit tại gateway; không áp dụng khi gọi service trực tiếp.
+            Limiter AI đặt Cache-Control no-store; nếu limiter chung từ chối trước,
+            header Cache-Control có thể không xuất hiện.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                statusCode: 429
+                error: TOO_MANY_REQUESTS
+                message: Too many requests
+                requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+        '499':
+          description: Xử lý bị hủy khi client ngắt kết nối; thường không thể gửi response tới client
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                statusCode: 499
+                error: Error
+                message: Cancelled
+                requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+        '500':
+          description: Lỗi nội bộ ngoài dự kiến
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                statusCode: 500
+                error: INTERNAL_SERVER_ERROR
+                message: Internal server error
+                requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+        '502':
+          description: Lỗi Gemini, ảnh đầu ra vượt 20 MiB hoặc gateway không kết nối được AI Service
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                providerFailure:
+                  value:
+                    statusCode: 502
+                    error: BAD_GATEWAY
+                    message: Provider failed to process the request
+                    requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+                outputTooLarge:
+                  value:
+                    statusCode: 502
+                    error: BAD_GATEWAY
+                    message: Provider output too large
+                    requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+                upstreamUnavailable:
+                  value:
+                    statusCode: 502
+                    error: Bad Gateway
+                    message: Upstream service unavailable
+                    requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+        '504':
+          description: Quá thời gian xử lý AI_REQUEST_TIMEOUT_MS
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                statusCode: 504
+                error: GATEWAY_TIMEOUT
+                message: Timeout
+                requestId: 2e025cf1-e0df-4bf8-9cf6-b62c965af77c
+components:
+  headers:
+    RequestId:
+      description: UUID do server sinh, trùng requestId trong JSON lỗi nếu có
+      schema:
+        type: string
+        format: uuid
+    NoStore:
+      description: Không cache ảnh hoặc lỗi xử lý ảnh
+      schema:
+        type: string
+        enum: [no-store]
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    EnhanceImageRequest:
+      type: object
+      additionalProperties: false
+      required: [image, filterId]
+      properties:
+        image:
+          type: string
+          format: binary
+          description: Một file JPEG/PNG/WebP, tối đa 10485760 bytes (10 MiB)
+        filterId:
+          type: string
+          enum: [handwritten_diary, subject_sticker]
+          example: handwritten_diary
+          description: Filter cố định; prompt được quản lý phía server
+    ApiError:
+      type: object
+      required: [statusCode, error, message, requestId]
+      properties:
+        statusCode:
+          type: integer
+          minimum: 400
+          maximum: 599
+        error:
+          type: string
+          description: Tên HTTP status; không phải mã lỗi nội bộ ImageEnhancementErrorCode
+        message:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        requestId:
+          type: string
+          format: uuid

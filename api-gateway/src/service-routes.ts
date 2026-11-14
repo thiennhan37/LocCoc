@@ -15,6 +15,10 @@ export const SERVICE_ROUTES = {
     prefix: '/users',
     urlConfigKey: 'USER_SERVICE_URL',
   },
+  ai: {
+    prefix: '/ai',
+    urlConfigKey: 'AI_SERVICE_URL',
+  },
   admin: {
     prefix: '/admin',
     urlConfigKey: 'ADMIN_SERVICE_URL',
