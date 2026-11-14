@@ -41,7 +41,7 @@ Gateway đọc `AI_SERVICE_URL` (mặc định `http://127.0.0.1:8082`). Khi g�
 1. Mở chức năng **Import Collection**, chọn **OpenAPI** và chọn [openapi.yaml](./openapi.yaml).
 2. Chọn server `http://localhost:8082` để gọi trực tiếp. Có thể dùng `http://localhost:8080` cho POST qua gateway. Nếu Bruno tạo biến base URL khi import, đặt biến đó tương ứng.
 3. Với request POST, kiểm tra Body ở dạng **Multipart Form**: `image` là **File** (chọn ảnh trên máy), `filterId` là **Text** với giá trị `handwritten_diary` hoặc `subject_sticker`. Nếu bản Bruno đang dùng không tự tạo đủ field từ schema, thêm hai field này thủ công.
-4. Để Bruno tự tạo header `Content-Type` kèm boundary khi gửi multipart. Đặt Auth là **No Auth** và timeout khoảng **90000 ms**.
+4. Để Bruno tự tạo header `Content-Type` kèm boundary khi gửi multipart. Khi gọi trực tiếp port `8082`, đặt Auth là **No Auth**; khi gọi qua gateway port `8080`, chọn **Bearer Token** với `accessToken` thật do Auth Service cấp. Đặt timeout khoảng **90000 ms**.
 5. Gửi request; response `200` là bytes ảnh. Xem preview hoặc lưu response ra file theo `Content-Type`. JSON chỉ dùng cho health check và lỗi.
 
 Request `GET /health` cần trỏ trực tiếp tới `http://localhost:8082/health` (hoặc port AI đã cấu hình). `/health` trên port `8080` là health của gateway; `/ai/health` không tồn tại. Kiểm tra lại URL health nếu Bruno dùng chung biến base URL và bỏ qua server riêng của operation.
@@ -93,8 +93,8 @@ Kết quả kiểm tra ngày 2026-11-13:
 | AI Service e2e test | 13/13 pass |
 | AI Service build | Pass |
 | Gateway unit test | 3/3 pass |
-| Gateway e2e test | 9/9 pass |
+| Gateway e2e test sau tích hợp main | 23/23 pass, gồm xác thực Bearer và chống giả mạo identity header |
 | Gateway build | Pass |
-| OpenAPI | Pass schema OpenAPI 3.0 chính thức (bản 2024-10-18), 31 tham chiếu nội bộ hợp lệ, 12 ví dụ lỗi khớp schema và tên HTTP status hiện tại |
+| OpenAPI trước tích hợp main | Pass schema OpenAPI 3.0 chính thức (bản 2024-10-18), 31 tham chiếu nội bộ hợp lệ, 12 ví dụ lỗi khớp schema và tên HTTP status hiện tại; hợp đồng sau tích hợp bổ sung lỗi xác thực gateway |
 
 Chưa thực hiện import bằng giao diện Bruno hoặc gọi Gemini thật trong lần rà soát này.

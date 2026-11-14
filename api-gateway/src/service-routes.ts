@@ -19,6 +19,10 @@ export const SERVICE_ROUTES = {
     prefix: '/ai',
     urlConfigKey: 'AI_SERVICE_URL',
   },
+  chat: {
+    prefix: '/chat',
+    urlConfigKey: 'CHAT_SERVICE_URL',
+  },
   admin: {
     prefix: '/admin',
     urlConfigKey: 'ADMIN_SERVICE_URL',

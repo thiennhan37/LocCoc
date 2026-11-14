@@ -146,6 +146,17 @@ describe('IAM gateway security contract (e2e)', () => {
           return;
         }
 
+        if (requestMessage.url === '/chat/conversations') {
+          responseMessage.writeHead(200, { 'content-type': 'application/json' });
+          responseMessage.end(JSON.stringify({
+            userId: requestMessage.headers['x-user-id'],
+            role: requestMessage.headers['x-user-role'],
+            serviceToken: requestMessage.headers['x-service-token'] ?? null,
+            authorization: requestMessage.headers.authorization,
+          }));
+          return;
+        }
+
         responseMessage.writeHead(404).end();
       })().catch((error: unknown) => {
         responseMessage.destroy(error instanceof Error ? error : new Error(String(error)));
@@ -161,6 +172,7 @@ describe('IAM gateway security contract (e2e)', () => {
       AUTH_SERVICE_URL: upstreamUrl,
       USER_SERVICE_URL: upstreamUrl,
       AI_SERVICE_URL: upstreamUrl,
+      CHAT_SERVICE_URL: upstreamUrl,
       DB_HOST: '127.0.0.1',
       AUTH_DB_NAME: 'auth_test',
       AUTH_DB_USER: 'test',
@@ -248,7 +260,7 @@ describe('IAM gateway security contract (e2e)', () => {
     expect(captured.requestId).toBe(response.headers['x-request-id']);
     expect(captured.proxyConnection).toBeUndefined();
     expect(captured.identityHeaders).toEqual([undefined, undefined, undefined, undefined]);
-    expect(captured.clientIp).toBe('198.51.100.20');
+    expect(captured.clientIp).toBe('127.0.0.1');
     expect(response.headers['content-type']).toMatch(/^image\/png/);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.headers['x-upstream-safe']).toBe('kept');
@@ -369,12 +381,27 @@ describe('IAM gateway security contract (e2e)', () => {
   it('keeps account routes protected while the AI MVP remains public', async () => {
     await request(app.getHttpServer()).get('/users/me').expect(401);
     await request(app.getHttpServer()).post('/auth/echo').send({ value: 'private' }).expect(401);
+    await request(app.getHttpServer()).get('/chat/conversations').set('x-user-id', 'forged').expect(401);
   });
 
-  it('applies the AI limit across requests through the merged application', async () => {
+  it('forwards chat with verified identity and strips caller-supplied service credentials', async () => {
+    await request(app.getHttpServer()).get('/chat/conversations')
+      .set('authorization', 'Bearer gateway-test')
+      .set('x-user-id', 'forged')
+      .set('x-user-role', 'admin')
+      .set('x-service-token', 'forged')
+      .expect(200, {
+        userId: 'verified-user', role: 'user', serviceToken: null,
+        authorization: 'Bearer gateway-test',
+      });
+    await request(app.getHttpServer()).get('/chat/conversations')
+      .set('authorization', 'Bearer invalid').expect(401);
+  });
+
+  it('applies the AI limit even when the client rotates forwarded IP headers', async () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await request(app.getHttpServer()).post('/ai/enhance')
-        .set('x-forwarded-for', '198.51.100.30')
+        .set('x-forwarded-for', `198.51.100.${30 + attempt}`)
         .set('content-type', 'application/octet-stream')
         .send(Buffer.from('test-image')).expect(200);
     }

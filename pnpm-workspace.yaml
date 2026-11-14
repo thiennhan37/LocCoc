@@ -3,6 +3,7 @@ packages:
   - auth-service
   - user-service
   - ai-service
+  - chat-service
   - notification-service
   - admin-dashboard
   - libs/common

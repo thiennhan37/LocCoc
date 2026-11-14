@@ -26,6 +26,9 @@ const fields = {
   USER_SERVICE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .default('http://127.0.0.1:8081'),
+  CHAT_SERVICE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('http://127.0.0.1:8083'),
   AI_SERVICE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .default('http://127.0.0.1:8082'),
@@ -106,6 +109,7 @@ const gatewayKeys = [
   'NOTIFICATION_SERVICE_URL',
   'ADMIN_SERVICE_URL',
   'PAYMENT_SERVICE_URL',
+  'CHAT_SERVICE_URL',
   'AI_SERVICE_URL',
   'AI_RATE_LIMIT_MAX',
   'AI_RATE_LIMIT_WINDOW_MS',

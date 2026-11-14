@@ -1,6 +1,10 @@
 import 'capture_moment_screen.dart';
 import '../../../posts/presentation/photo_editor_screen.dart';
 import 'dart:async';
+import '../../../chat/data/chat_api.dart';
+import '../../../chat/data/chat_socket_client.dart';
+import '../../../chat/presentation/chat_controller.dart';
+import '../../../chat/presentation/chat_screens.dart';
 import '../../../notifications/data/notification_api.dart';
 import '../../../notifications/data/push_notifications.dart';
 import '../../../notifications/presentation/notifications_screen.dart';
@@ -47,6 +51,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _friendCountError = false;
   int _socialVersion = 0;
   PushNotifications? _push;
+  ChatController? _chat;
+  Future<void> _openChat() async {
+    if (!_realSession || !session.authenticated || session.accessToken.isEmpty) {
+      return;
+    }
+    final controller = ChatController(
+      api: ChatApi(_effectiveUserApi),
+      socket: ChatSocketClient(),
+    );
+    _chat = controller;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ChatInboxScreen(controller: controller),
+        ),
+      );
+    } finally {
+      controller.dispose();
+      if (identical(_chat, controller)) _chat = null;
+    }
+  }
+
   Timer? _notificationTimer;
   late final UserApiClient _notificationUserApi = _effectiveUserApi;
   late final NotificationApi _notifications = NotificationApi(
@@ -158,6 +184,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _chat?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _notificationTimer?.cancel();
     _push?.dispose();
@@ -449,6 +476,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 _buildBrandHeader(),
                 const SizedBox(height: 14),
                 _buildAccountSearchBar(),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  key: const Key('home_chat'),
+                  onPressed:
+                      _realSession &&
+                          session.authenticated &&
+                          session.accessToken.isNotEmpty
+                      ? _openChat
+                      : null,
+                  icon: const Icon(Icons.chat_bubble_outline_rounded),
+                  label: const Text('Tin nhắn'),
+                ),
                 const SizedBox(height: 18),
 
                 // Title Section
