@@ -10,3 +10,13 @@ Invalid format returns HTTP 400 with code INVALID_PHONE_NUMBER and an example.
 This applies to registration and phone-based OTP flows sharing normalizePhone.
 Duplicate normalized phones retain the generic registration-accepted response to
 avoid account enumeration. No database migration or stored-number rewrite is needed.
+
+## Flutter profile ownership boundary — 2026-11-11
+
+Phone is owned by AuthService `accounts.phone`. UserService projects the account
+snapshot/events into `users.phone` on a newer account version; a profile-level
+edit can therefore be overwritten. There is no separate contactPhone contract.
+The wave-3 profile editor displays account phone read-only and never sends phone
+in its profile PATCH. Format validity is not a verification badge. An IAM phone
+change needs an Auth-owned reauthentication/verification flow, or a separately
+specified User-owned contact field; see [wave 3](../user/mobile-wave-3.md).

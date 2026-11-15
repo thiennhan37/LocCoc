@@ -1,0 +1,216 @@
+openapi: 3.0.3
+info:
+  title: LocCoc API Gateway (NestJS)
+  version: 0.0.1
+  description: |
+    Chỉ liệt kê các operation cụ thể do gateway triển khai để import vào Bruno.
+    Import thêm openapi.yaml của service cần thử, rồi chọn base URL gateway
+    http://localhost:8080 cho các prefix bên dưới. Không thêm prefix /api.
+    GET /health ở gateway chỉ kiểm tra gateway. Gateway NestJS không có GET /.
+    Cổng lấy từ GATEWAY_PORT, mặc định 8080 trong bộ kiểm tra cấu hình hiện tại;
+    cấu hình môi trường có thể thay đổi. Không chạy cùng cổng với Spring gateway.
+
+    Proxy giữ nguyên các prefix /auth, /users, /admin, /payments, /subscriptions,
+    /ai, /chat, /notifications và query string. Các handler wildcard cần đường dẫn
+    con (ví dụ /auth/login); riêng /notifications cũng có handler cho prefix gốc.
+    Upstream mặc định: auth 8000, users 8081, AI 8082, chat 8083, notification 8084,
+    payment/subscriptions 8085, admin 8086. URL có thể đổi bằng biến cấu hình service.
+    /internal không được proxy. AI dùng raw streaming để giữ multipart/binary;
+    các service còn lại dùng JSON request forwarding, giữ status/body từ upstream.
+    Lỗi kết nối upstream trước khi gửi response trả 502 với message Upstream service unavailable.
+
+    Gateway gọi auth-service xác minh tài khoản/phiên cho mọi route proxy trừ
+    POST /auth/register, /auth/verify-otp, /auth/resend-otp, /auth/login,
+    /auth/refresh, /auth/social/google, /auth/social/apple, /payments/webhook/payos,
+    /auth/logout và /auth/logout-all. Hai route logout bỏ qua xác minh ở gateway
+    nhưng downstream vẫn thực thi yêu cầu xác thực riêng. Các route khác cần Bearer
+    access token kể cả khi endpoint downstream vốn public (ví dụ GET /admin/tiers).
+    Các route /health được đánh dấu public. Không gửi x-service-token hoặc x-user-*
+    từ Bruno: gateway loại bỏ chúng và tạo user headers từ tài khoản đã xác minh.
+
+    Limiter Redis theo IP và handler: mặc định RATE_LIMIT_MAX=100 trong
+    RATE_LIMIT_TTL_MS=60000; GET /health được bỏ qua. POST /health/echo có mức riêng
+    2 request/IP/60000 ms. Tất cả /ai/* còn chịu limiter chung cho AI theo IP,
+    mặc định AI_RATE_LIMIT_MAX=5 trong AI_RATE_LIMIT_WINDOW_MS=60000.
+    Vượt giới hạn trả 429. Gateway tự sinh x-request-id cho từng request.
+servers:
+  - url: http://localhost:8080
+    description: NestJS gateway (GATEWAY_PORT mặc định)
+security: []
+x-service-openapi:
+  - service: auth-service
+    file: ../auth-service/openapi.yaml
+    prefixes: [/auth]
+    upstreamDefault: http://127.0.0.1:8000
+    urlEnvironment: AUTH_SERVICE_URL
+  - service: user-service
+    file: ../user-service/openapi.yaml
+    prefixes: [/users]
+    upstreamDefault: http://127.0.0.1:8081
+    urlEnvironment: USER_SERVICE_URL
+  - service: ai-service
+    file: ../ai-service/openapi.yaml
+    prefixes: [/ai]
+    upstreamDefault: http://127.0.0.1:8082
+    urlEnvironment: AI_SERVICE_URL
+  - service: chat-service
+    file: ../chat-service/openapi.yaml
+    prefixes: [/chat]
+    upstreamDefault: http://127.0.0.1:8083
+    urlEnvironment: CHAT_SERVICE_URL
+  - service: notification-service
+    file: ../notification-service/openapi.yaml
+    prefixes: [/notifications]
+    upstreamDefault: http://127.0.0.1:8084
+    urlEnvironment: NOTIFICATION_SERVICE_URL
+  - service: payment-service
+    file: ../payment-service/openapi.yaml
+    prefixes: [/payments, /subscriptions]
+    upstreamDefault: http://127.0.0.1:8085
+    urlEnvironment: PAYMENT_SERVICE_URL
+  - service: admin-service
+    file: ../admin-service/openapi.yaml
+    prefixes: [/admin]
+    upstreamDefault: http://127.0.0.1:8086
+    urlEnvironment: ADMIN_SERVICE_URL
+tags:
+  - name: Gateway probes
+paths:
+  /health:
+    get:
+      operationId: getNestGatewayHealth
+      tags: [Gateway probes]
+      summary: Kiểm tra gateway đang chạy
+      description: Public, bỏ qua limiter; không kiểm tra upstream hoặc Redis.
+      responses:
+        '200':
+          description: Gateway đang chạy
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+              example:
+                status: ok
+  /health/echo:
+    post:
+      operationId: echoNestGatewayValue
+      tags: [Gateway probes]
+      summary: Thử validation và rate limit của gateway
+      description: Public; tối đa 2 request/IP/60000 ms. Chỉ nhận field value dạng string (có thể rỗng).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [value]
+              properties:
+                value:
+                  type: string
+            example:
+              value: Bruno gateway check
+      responses:
+        '201':
+          description: Trả lại body đã xác thực (status mặc định của NestJS POST)
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [value]
+                properties:
+                  value:
+                    type: string
+        '400':
+          description: Thiếu value, value không phải string hoặc có field bổ sung
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /health/error:
+    get:
+      operationId: getNestGatewaySimulatedError
+      tags: [Gateway probes]
+      summary: Thử chuẩn lỗi 500 đã che thông tin
+      description: Public; luôn ném lỗi 500 nếu chưa bị limiter chặn. Chịu limiter chung mặc định 100 request/IP/60000 ms theo handler.
+      responses:
+        '500':
+          description: Lỗi mô phỏng được che thông tin
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                statusCode: 500
+                error: INTERNAL_SERVER_ERROR
+                message: Internal server error
+                requestId: 8e3fb44f-1a44-4bc3-8d48-90f71c59cb3f
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+components:
+  headers:
+    RequestId:
+      description: UUID tự sinh ở gateway; input x-request-id không được dùng lại.
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    ApiError:
+      type: object
+      required: [statusCode, error, message, requestId]
+      properties:
+        statusCode:
+          type: integer
+        error:
+          type: string
+          description: Tên hằng HttpStatus (ví dụ BAD_REQUEST); lỗi proxy 502 dùng Bad Gateway.
+        message:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        code:
+          type: string
+          description: Có thể có ACCOUNT_UNAVAILABLE từ kiểm tra tài khoản.
+        requestId:
+          type: string
+  responses:
+    TooManyRequests:
+      description: Đã vượt giới hạn request theo IP của handler
+      headers:
+        Retry-After:
+          description: Số giây chờ trước khi thử lại.
+          schema:
+            type: integer
+            minimum: 0
+        x-request-id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    InternalError:
+      description: Lỗi nội bộ hoặc limiter không hoạt động; message được che thành Internal server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'

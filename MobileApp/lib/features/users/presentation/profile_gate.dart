@@ -1,3 +1,4 @@
+import '../../auth/presentation/widgets/session_boundary.dart';
 import 'package:flutter/material.dart';
 import '../../auth/data/services/google_sign_in_service.dart';
 import '../../auth/data/services/auth_api_client.dart';
@@ -12,6 +13,7 @@ class ProfileGate extends StatefulWidget {
   final AuthSession session;
   final GoogleAuthService authService;
   final UserApiClient? userApi;
+  final bool allowMetadataCacheFailure;
   final Widget Function(UserApiClient api, Map<String, dynamic> profile)?
   completedBuilder;
   const ProfileGate({
@@ -19,6 +21,7 @@ class ProfileGate extends StatefulWidget {
     required this.session,
     required this.authService,
     this.userApi,
+    this.allowMetadataCacheFailure = false,
     this.completedBuilder,
   });
   @override
@@ -33,6 +36,7 @@ class _ProfileGateState extends State<ProfileGate> {
         session: widget.session,
         onSessionChanged: widget.authService.updateSession,
         refreshSession: widget.authService.refreshSession,
+        coordinator: widget.authService,
       );
   final username = TextEditingController();
   final displayName = TextEditingController();
@@ -65,8 +69,17 @@ class _ProfileGateState extends State<ProfileGate> {
       if (!p.containsKey('username') || p['id'] != widget.session.user.id) {
         throw const FormatException('Invalid profile');
       }
-      await widget.authService.vault.profile(api.session.user.id, p);
-      if (!mounted) return;
+      try {
+        await widget.authService.vault.profile(
+          api.session.user.id,
+          p,
+          isCurrent: () => api.isCurrent,
+        );
+      } catch (_) {
+        if (!widget.allowMetadataCacheFailure) rethrow;
+        // Strictly acknowledged replacement only; SessionBoundary shows a warning.
+      }
+      if (!mounted || !api.isCurrent) return;
       setState(() {
         profile = p;
         displayName.text = p['displayName'] as String? ?? '';
@@ -102,7 +115,13 @@ class _ProfileGateState extends State<ProfileGate> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => SessionBoundary(
+    auth: widget.authService,
+    api: api,
+    child: _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     if (!loading && profile?['username'] != null) {
       if (widget.completedBuilder != null) {
         return widget.completedBuilder!(api, profile!);
@@ -139,6 +158,7 @@ class _ProfileGateState extends State<ProfileGate> {
                       } else {
                         await widget.authService.signOut(session: api.session);
                       }
+                      api.invalidate();
                       if (context.mounted) {
                         ProfileLinkScope.maybeOf(context)?.clear();
                         Navigator.of(context).pushAndRemoveUntil(

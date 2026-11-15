@@ -1,5 +1,10 @@
 # Active sessions and targeted logout
 
+Flutter wave 1 (2026-11-11): shared refresh, generation fencing, one revocation
+navigation and the change-password 401 session probe are documented in
+[the implementation plan/report](../user/mobile-wave-1.md). Backend contracts below
+are unchanged; generic 401/403 or transport errors do not prove revocation.
+
 Implementation: spec -> DTO/repository -> service/controller/module -> Gateway
 verification -> isolated PostgreSQL/concurrency tests -> builds and live smoke.
 
@@ -86,3 +91,23 @@ and isolated PostgreSQL schema. No project tables are truncated by tests.
 - All verification sessions were revoked afterwards (cleanup of already revoked
   sessions returned 401 as expected). Existing application sessions were not
   targeted. No mobile session-management screen was added.
+
+## Flutter account security extension — 2026-11-11
+
+[Wave 3](../user/mobile-wave-3.md) adds password change and confirmed logout-all
+using existing Auth routes. Password change returns a TokenPair without user:
+the shared coordinator strictly validates it, preserves the current identity and
+saved-session consent, advances the request generation, and publishes one session
+replacement to the existing boundary. Home/push cleanup precedes the new route.
+Ambiguous password responses are not replayed and cannot reuse the old refresh
+credential; explicit reauthentication is offered without fabricated success.
+Wrong current password remains a form error after an authoritative session probe;
+an unavailable probe is not treated as confirmed revocation.
+
+Logout-all requires confirmation and a valid server acknowledgement, then reuses
+the revocation teardown without offering to retain a revoked session. Both actions
+serialize with existing single-flight refresh and preserve other saved accounts.
+The account API has no hasPassword/provider capability, so Google-only users are
+informed that setting their first password is not supported by this form. No JWT
+claim is used to infer that capability. See the wave-3 spec for current client
+tests, limitations and the distinct deferred OTP/infrastructure requirements.

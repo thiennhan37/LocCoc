@@ -63,10 +63,18 @@ public class ProxyService {
                 + path
                 + (request.getQueryString() == null ? "" : "?" + request.getQueryString()));
     try {
-      byte[] body = readBounded(request.getInputStream(), 413);
+      boolean mediaUpload = request.getMethod().equals("PUT")
+          && path.matches("/users/me/media/(avatar|cover)");
+      if (mediaUpload && (!Set.of("image/jpeg", "image/png", "image/webp").contains(String.valueOf(request.getContentType()))
+          || request.getHeader("Content-Encoding") != null)) throw new AppException(ErrorCode.UNSUPPORTED_MEDIA_TYPE);
+      int uploadLimit = path.endsWith("/avatar") ? 5 * 1024 * 1024 : 10 * 1024 * 1024;
+      int bodyLimit = mediaUpload ? uploadLimit : properties.maxBodyBytes();
+      long timeout = mediaUpload ? 60000 : properties.requestTimeoutMs();
+      if (request.getContentLengthLong() > bodyLimit) throw new AppException(ErrorCode.REQUEST_TOO_LARGE);
+      byte[] body = readBounded(request.getInputStream(), 413, bodyLimit);
       long started = System.nanoTime();
       var builder =
-          HttpRequest.newBuilder(target).timeout(Duration.ofMillis(properties.requestTimeoutMs()));
+          HttpRequest.newBuilder(target).timeout(Duration.ofMillis(timeout));
       Set<String> excluded = excluded(Collections.list(request.getHeaders("connection")));
       for (String name : Collections.list(request.getHeaderNames())) {
         String lower = name.toLowerCase(Locale.ROOT);
@@ -88,7 +96,7 @@ public class ProxyService {
       var upstream = client.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream());
       var expired = new java.util.concurrent.atomic.AtomicBoolean();
       long remaining =
-          properties.requestTimeoutMs()
+          timeout
               - java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
       var deadline =
           scheduler.schedule(
@@ -151,8 +159,12 @@ public class ProxyService {
   }
 
   private byte[] readBounded(InputStream stream, int status) throws IOException {
-    byte[] bytes = stream.readNBytes(properties.maxBodyBytes() + 1);
-    if (bytes.length > properties.maxBodyBytes())
+    return readBounded(stream, status, properties.maxBodyBytes());
+  }
+
+  private byte[] readBounded(InputStream stream, int status, int limit) throws IOException {
+    byte[] bytes = stream.readNBytes(limit + 1);
+    if (bytes.length > limit)
       throw new AppException(
           status == 413 ? ErrorCode.REQUEST_TOO_LARGE : ErrorCode.UPSTREAM_RESPONSE_TOO_LARGE);
     return bytes;

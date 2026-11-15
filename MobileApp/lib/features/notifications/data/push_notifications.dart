@@ -9,6 +9,26 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'notification_api.dart';
 
 const pushEnabled = bool.fromEnvironment('FCM_ENABLED');
+
+enum DeviceRegistrationState {
+  unknown,
+  registering,
+  registered,
+  failed,
+  detached,
+}
+
+class PushDiagnostics {
+  final bool firebaseInitialized;
+  final AuthorizationStatus? permission;
+  final DeviceRegistrationState registration;
+  const PushDiagnostics({
+    required this.firebaseInitialized,
+    this.permission,
+    this.registration = DeviceRegistrationState.unknown,
+  });
+}
+
 FirebaseOptions get pushOptions => const FirebaseOptions(
   apiKey: String.fromEnvironment('FCM_API_KEY'),
   appId: String.fromEnvironment('FCM_APP_ID'),
@@ -28,6 +48,7 @@ Future<void> backgroundPush(RemoteMessage message) async {
 class PushNotifications {
   static RemoteMessage? pending;
   static bool ready = false;
+  static bool firebaseInitialized = false;
   static Future<void> initialize() async {
     if (!pushEnabled ||
         kIsWeb ||
@@ -39,6 +60,7 @@ class PushNotifications {
     }
     try {
       await Firebase.initializeApp(options: pushOptions);
+      firebaseInitialized = true;
       FirebaseMessaging.onBackgroundMessage(backgroundPush);
       pending = await FirebaseMessaging.instance.getInitialMessage();
       ready = true;
@@ -55,11 +77,29 @@ class PushNotifications {
   bool stopped = false;
   bool _detaching = false;
   Future<void>? _registration;
+  bool _started = false;
+  final ValueNotifier<PushDiagnostics> diagnostics = ValueNotifier(
+    PushDiagnostics(firebaseInitialized: firebaseInitialized),
+  );
+  void _publish({
+    AuthorizationStatus? permission,
+    DeviceRegistrationState? registration,
+  }) {
+    if (stopped) return;
+    diagnostics.value = PushDiagnostics(
+      firebaseInitialized: firebaseInitialized,
+      permission: permission ?? diagnostics.value.permission,
+      registration: registration ?? diagnostics.value.registration,
+    );
+  }
+
   PushNotifications(this.api, this.onOpen, this.onChanged);
   bool accepts(Map<String, dynamic> data) =>
       data['recipientId'] == api.user.session.user.id;
   Future<void> start() async {
-    if (!ready) return;
+    if (!ready || stopped || _started) return;
+    _started = true;
+    _publish();
     subscriptions.add(
       FirebaseMessaging.onMessage.listen((m) {
         if (!stopped && !_detaching && accepts(m.data)) onChanged();
@@ -90,6 +130,7 @@ class PushNotifications {
     }
     final permission = await FirebaseMessaging.instance.requestPermission();
     if (stopped) return;
+    _publish(permission: permission.authorizationStatus);
     if (permission.authorizationStatus == AuthorizationStatus.denied) return;
     // APNs token may not be ready at the first launch; retry on app resume.
     if (defaultTargetPlatform == TargetPlatform.iOS &&
@@ -123,6 +164,7 @@ class PushNotifications {
   }
 
   Future<void> _registerToken(String token) async {
+    _publish(registration: DeviceRegistrationState.registering);
     try {
       await api.request(
         'PUT',
@@ -134,7 +176,11 @@ class PushNotifications {
               : 'android',
         },
       );
+      if (!stopped && !_detaching && api.user.isCurrent) {
+        _publish(registration: DeviceRegistrationState.registered);
+      }
     } catch (e) {
+      _publish(registration: DeviceRegistrationState.failed);
       debugPrint('Push registration pending (${e.runtimeType})');
     }
   }
@@ -143,6 +189,11 @@ class PushNotifications {
     if (!ready || stopped) return;
     _detaching = false;
     try {
+      final settings = await FirebaseMessaging.instance
+          .getNotificationSettings();
+      if (stopped) return;
+      _publish(permission: settings.authorizationStatus);
+      if (settings.authorizationStatus == AuthorizationStatus.denied) return;
       await register(await FirebaseMessaging.instance.getToken());
     } catch (e) {
       debugPrint('Push token pending (${e.runtimeType})');
@@ -154,19 +205,30 @@ class PushNotifications {
     await _registration;
     if (installation == null) return;
     try {
-      await api.request('DELETE', 'devices/$installation');
+      await api.request('DELETE', 'devices/$installation', allowRefresh: false);
+      _publish(registration: DeviceRegistrationState.detached);
     } catch (e) {
+      _publish(registration: DeviceRegistrationState.failed);
       _detaching = false;
       if (strict) rethrow;
       debugPrint('Push deregistration pending (${e.runtimeType})');
     }
   }
 
+  /// Finish the old server PUT before a replacement session registers this device.
+  Future<void> settleRegistration() async {
+    try {
+      await _registration;
+    } catch (_) {}
+  }
+
   void dispose() {
+    if (stopped) return;
     stopped = true;
     for (final s in subscriptions) {
       unawaited(s.cancel());
     }
     subscriptions.clear();
+    diagnostics.dispose();
   }
 }

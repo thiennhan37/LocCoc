@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -9,6 +10,7 @@ import 'package:google_sign_in_platform_interface/google_sign_in_platform_interf
 
 import '../../domain/models/auth_result.dart';
 import '../../domain/models/auth_session.dart';
+import '../../domain/models/account_security.dart';
 import 'auth_api_client.dart';
 import 'account_vault.dart';
 
@@ -179,6 +181,42 @@ class GoogleAuthService {
   Future<AuthSession>? _refreshing;
   bool _leaving = false;
   int _generation = 0;
+  int get generation => _generation;
+  Completer<void>? _securityOperation;
+  final ValueNotifier<SessionReplacement?> sessionReplaced = ValueNotifier(
+    null,
+  );
+  int? _handledReplacement;
+  final Set<Future<void> Function()> _replacementCleanups = {};
+  void addReplacementCleanup(Future<void> Function() cleanup) =>
+      _replacementCleanups.add(cleanup);
+  void removeReplacementCleanup(Future<void> Function() cleanup) =>
+      _replacementCleanups.remove(cleanup);
+  bool claimSessionReplacement() {
+    final event = sessionReplaced.value;
+    if (event == null ||
+        event.generation != _generation ||
+        _handledReplacement == event.generation) {
+      return false;
+    }
+    _handledReplacement = event.generation;
+    return true;
+  }
+
+  final ValueNotifier<int?> sessionEnded = ValueNotifier(null);
+  int? _handledEnd;
+  bool claimSessionEnd() {
+    final event = sessionEnded.value;
+    if (event == null || event != _generation || _handledEnd == event) {
+      return false;
+    }
+    _handledEnd = event;
+    return true;
+  }
+
+  String? _unusableRefreshToken;
+  Future<void>? _ending;
+  int? _endingGeneration;
   final GoogleSignInAdapter signInAdapter;
   final AuthApiClient apiClient;
 
@@ -199,6 +237,18 @@ class GoogleAuthService {
     required bool remember,
     required bool retain,
   }) async {
+    final generation = ++_generation;
+    final previousSecurity = _securityOperation;
+    _securityOperation = null;
+    if (previousSecurity != null && !previousSecurity.isCompleted) {
+      previousSecurity.complete();
+    }
+    sessionReplaced.value = null;
+    _session = null;
+    _leaving = false;
+    _refreshing = null;
+    _unusableRefreshToken = null;
+    sessionEnded.value = null;
     if (session.accessToken.startsWith('demo-')) {
       _session = session;
       return;
@@ -214,12 +264,12 @@ class GoogleAuthService {
       try {
         await apiClient.logout(accessToken: session.accessToken);
       } catch (_) {}
-      _session = null;
+      if (generation == _generation) _session = null;
       throw StateError(
         'Không thể lưu lựa chọn đăng nhập an toàn. Hãy mở khóa thiết bị và thử lại.',
       );
     }
-    _generation++;
+    if (generation != _generation) throw const SessionChangedException();
     _session = session;
   }
 
@@ -227,33 +277,53 @@ class GoogleAuthService {
     if (_leaving || _refreshing != null) {
       throw StateError('Session operation in progress');
     }
+    final beforeConsume = _generation;
     final saved = await vault.consume(id);
+    if (beforeConsume != _generation) throw const SessionChangedException();
     if (saved == null) return null;
     final generation = ++_generation;
     final pending = _rotate(saved, generation);
     _refreshing = pending;
     try {
       final next = await pending;
-      await vault.select(id);
+      if (generation != _generation) throw const SessionChangedException();
+      await vault.select(id, isCurrent: () => generation == _generation);
+      if (generation != _generation) throw const SessionChangedException();
       return next;
     } finally {
       if (identical(_refreshing, pending)) _refreshing = null;
     }
   }
 
-  Future<AuthSession> refreshSession(AuthSession current) async {
-    if (_leaving ||
+  Future<AuthSession> refreshSession(AuthSession current) => _refresh(current);
+
+  Future<AuthSession> _refresh(
+    AuthSession current, {
+    bool whileLeaving = false,
+    bool duringSecurity = false,
+  }) async {
+    final security = _securityOperation;
+    if (!duringSecurity && security != null) {
+      await security.future;
+    }
+    if ((_leaving && !whileLeaving) ||
         (_session == null && _generation > 0) ||
         (_session != null && _session!.user.id != current.user.id)) {
-      throw const AuthApiException(401);
+      throw const SessionChangedException();
     }
     if (_session != null && _session!.refreshToken != current.refreshToken) {
       return _session!;
     }
     if (_refreshing case final pending?) return pending;
+    if (_unusableRefreshToken == current.refreshToken) {
+      // Delivery of the previous rotation was ambiguous. A fresh login is needed;
+      // no second request may reuse that single-use token.
+      throw StateError('Refresh requires reauthentication');
+    }
     final generation = _generation;
     final pending = () async {
       await vault.beginRotation(current.user.id);
+      if (generation != _generation) throw const SessionChangedException();
       return _rotate(current, generation);
     }();
     _refreshing = pending;
@@ -264,40 +334,236 @@ class GoogleAuthService {
     }
   }
 
+  void _ensureGeneration(int expected) {
+    if (expected != _generation || _session == null) {
+      throw const SessionChangedException();
+    }
+  }
+
+  Future<T> _securityAction<T>(
+    AuthSession expected,
+    Future<T> Function(int) action,
+  ) async {
+    if (_leaving || _securityOperation != null) {
+      throw AccountSecurityBusyException();
+    }
+    if (_session?.user.id != expected.user.id ||
+        expected.accessToken.startsWith('demo-')) {
+      throw const SessionChangedException();
+    }
+    final gate = Completer<void>();
+    _securityOperation = gate;
+    final generation = _generation;
+    try {
+      try {
+        await _refreshing;
+      } catch (_) {
+        _ensureGeneration(generation);
+        rethrow;
+      }
+      _ensureGeneration(generation);
+      return await action(generation);
+    } finally {
+      if (identical(_securityOperation, gate)) _securityOperation = null;
+      if (!gate.isCompleted) gate.complete();
+    }
+  }
+
+  Future<Map<String, dynamic>> _securityRequest(
+    String path,
+    int generation, {
+    Map<String, dynamic>? body,
+  }) async {
+    _ensureGeneration(generation);
+    final current = _session!;
+    try {
+      final result = await apiClient.serviceRequest(
+        'POST',
+        'auth',
+        path,
+        current.accessToken,
+        body: body,
+      );
+      _ensureGeneration(generation);
+      return result;
+    } on AuthApiException catch (error) {
+      _ensureGeneration(generation);
+      if (error.statusCode != 401) rethrow;
+      if (path == 'change-password') {
+        var expiredAccess = false;
+        try {
+          await apiClient.serviceRequest(
+            'GET',
+            'auth',
+            'sessions?limit=1',
+            current.accessToken,
+          );
+          _ensureGeneration(generation);
+        } on AuthApiException catch (probe) {
+          _ensureGeneration(generation);
+          if (probe.statusCode == 401) {
+            expiredAccess = true;
+          } else {
+            throw SessionProbeUnavailableException();
+          }
+        } catch (_) {
+          _ensureGeneration(generation);
+          throw SessionProbeUnavailableException();
+        }
+        if (!expiredAccess) rethrow;
+      }
+      await _refresh(current, duringSecurity: true);
+      _ensureGeneration(generation);
+      final result = await apiClient.serviceRequest(
+        'POST',
+        'auth',
+        path,
+        _session!.accessToken,
+        body: body,
+      );
+      _ensureGeneration(generation);
+      return result;
+    }
+  }
+
+  Future<void> _markPasswordUncertain(int generation) async {
+    _ensureGeneration(generation);
+    _unusableRefreshToken = _session!.refreshToken;
+    try {
+      await vault.beginRotation(
+        _session!.user.id,
+        isCurrent: () => generation == _generation,
+      );
+    } catch (_) {
+      /* The in-memory fence still forbids replay; no success is reported. */
+    }
+    _ensureGeneration(generation);
+  }
+
+  Future<SessionReplacement> changePassword(
+    AuthSession expected,
+    String currentPassword,
+    String newPassword,
+  ) => _securityAction(expected, (generation) async {
+    late final AuthSession next;
+    try {
+      final data = await _securityRequest(
+        'change-password',
+        generation,
+        body: {'currentPassword': currentPassword, 'newPassword': newPassword},
+      );
+      next = passwordReplacement(_session!, data);
+    } on SessionProbeUnavailableException {
+      rethrow;
+    } on AuthApiException catch (error) {
+      if (generation != _generation) throw const SessionChangedException();
+      if ([400, 401, 403, 409, 422, 429].contains(error.statusCode)) rethrow;
+      await _markPasswordUncertain(generation);
+      throw PasswordChangeUncertainException();
+    } catch (_) {
+      if (generation != _generation) throw const SessionChangedException();
+      await _markPasswordUncertain(generation);
+      throw PasswordChangeUncertainException();
+    }
+    _ensureGeneration(generation);
+    final replacementGeneration = ++_generation;
+    _session = next;
+    _unusableRefreshToken = null;
+    _refreshing = null;
+    var retentionConfirmed = true;
+    try {
+      await vault.rotated(
+        next,
+        isCurrent: () => replacementGeneration == _generation,
+      );
+    } catch (_) {
+      retentionConfirmed = false;
+      try {
+        await vault.beginRotation(
+          next.user.id,
+          isCurrent: () => replacementGeneration == _generation,
+        );
+      } catch (_) {}
+    }
+    _ensureGeneration(replacementGeneration);
+    for (final cleanup in _replacementCleanups.toList()) {
+      try {
+        await cleanup();
+      } catch (_) {
+        /* Native detach cannot undo a committed password change. */
+      }
+      _ensureGeneration(replacementGeneration);
+    }
+    final event = SessionReplacement(
+      previousGeneration: generation,
+      generation: replacementGeneration,
+      session: next,
+      retentionConfirmed: retentionConfirmed,
+    );
+    sessionReplaced.value = event;
+    return event;
+  });
+
+  Future<void> logoutAll(AuthSession expected) =>
+      _securityAction(expected, (generation) async {
+        final data = await _securityRequest('logout-all', generation);
+        if (data['revokedSessions'] is! int ||
+            (data['revokedSessions'] as int) < 0) {
+          throw const FormatException('Invalid logout-all acknowledgement');
+        }
+        _ensureGeneration(generation);
+        await clearRevokedSession(_session!);
+      });
+
   Future<AuthSession> _rotate(AuthSession current, int generation) async {
     try {
       final next = await apiClient.refreshSession(current);
       if (next.user.id != current.user.id || generation != _generation) {
-        throw const AuthApiException(401);
+        throw const SessionChangedException();
       }
-      await vault.rotated(next);
+      await vault.rotated(next, isCurrent: () => generation == _generation);
+      if (generation != _generation) throw const SessionChangedException();
       _session = next;
       return next;
-    } catch (_) {
-      if (_session?.user.id == current.user.id) _session = null;
-      if (generation == _generation) _generation++;
-      await vault.clearCredential(current.user.id);
+    } catch (error) {
+      if (generation != _generation) rethrow;
+      _unusableRefreshToken = current.refreshToken;
+      if (error is AuthApiException && error.statusCode == 401) {
+        await clearRevokedSession(current);
+      } else {
+        // Keep the usable AT on transport/server errors, but erase the possibly
+        // consumed RT before any future attempt (including after restart).
+        await vault.clearCredential(
+          current.user.id,
+          isCurrent: () => generation == _generation,
+        );
+      }
       rethrow;
     }
   }
 
   Future<void> suspend() async {
+    if (_securityOperation != null) throw AccountSecurityBusyException();
+    final generation = _generation;
     _leaving = true;
     try {
       try {
         await _refreshing;
       } catch (_) {}
+      if (generation != _generation) throw const SessionChangedException();
       final current = _session;
       final retained =
           current != null &&
           (await vault.list()).any(
             (account) => account.id == current.user.id && account.canContinue,
           );
+      if (generation != _generation) throw const SessionChangedException();
       if (current != null && !retained) {
         await _revoke(current);
         return;
       }
-      await vault.select(null);
+      await vault.select(null, isCurrent: () => generation == _generation);
+      if (generation != _generation) throw const SessionChangedException();
       _generation++;
       _session = null;
     } finally {
@@ -333,16 +599,22 @@ class GoogleAuthService {
   }
 
   Future<void> leaveRetainingSession(AuthSession session) async {
+    if (_securityOperation != null) throw AccountSecurityBusyException();
     if (_leaving) throw StateError('Session operation in progress');
     _leaving = true;
+    final generation = _generation;
     try {
       try {
         await _refreshing;
       } catch (_) {}
+      if (generation != _generation) throw const SessionChangedException();
       if (_session == null && _generation > 0) {
         throw const AuthApiException(401);
       }
       final current = _session ?? session;
+      if (_unusableRefreshToken == current.refreshToken) {
+        throw StateError('Refresh requires reauthentication');
+      }
       if (current.user.id != session.user.id) throw const AuthApiException(401);
       if (!vault.supported) {
         throw StateError('Secure session storage unavailable');
@@ -352,7 +624,9 @@ class GoogleAuthService {
         remember: true,
         retain: true,
         active: false,
+        isCurrent: () => generation == _generation,
       );
+      if (generation != _generation) throw const SessionChangedException();
       _generation++;
       _session = null;
     } finally {
@@ -388,12 +662,13 @@ class GoogleAuthService {
         );
       }
       return const AuthFailure('Không thể đăng nhập Google. Vui lòng thử lại.');
-    } catch (e) {
-      return AuthFailure('Lỗi đăng nhập Google: ${e.toString()}');
+    } catch (_) {
+      return const AuthFailure('Không thể đăng nhập Google. Vui lòng thử lại.');
     }
   }
 
   Future<void> signOut({required AuthSession session}) async {
+    if (_securityOperation != null) throw AccountSecurityBusyException();
     if (_leaving) throw StateError('Session operation in progress');
     _leaving = true;
     try {
@@ -404,30 +679,37 @@ class GoogleAuthService {
   }
 
   Future<void> _revoke(AuthSession session) async {
+    final generation = _generation;
     try {
       await _refreshing;
     } catch (_) {}
+    if (sessionEnded.value == _generation) return;
+    if (generation != _generation ||
+        (_session != null && _session!.user.id != session.user.id)) {
+      throw const SessionChangedException();
+    }
     _session ??= session;
     final current = _session ?? session;
     await vault.rememberIdentity(current);
+    if (generation != _generation) throw const SessionChangedException();
     try {
       await apiClient.logout(accessToken: current.accessToken);
     } on AuthApiException catch (error) {
+      if (generation != _generation) throw const SessionChangedException();
       if (error.statusCode != 401) rethrow;
       // Logout requires a valid AT. Preserve rotated credentials if a later
       // logout request fails, so retrying does not reuse the old refresh token.
       try {
-        await vault.beginRotation(current.user.id);
-        _session = await apiClient.refreshSession(current);
-        await vault.rotated(_session!);
+        await _refresh(current, whileLeaving: true);
       } on AuthApiException catch (refreshError) {
         if (refreshError.statusCode != 401) rethrow;
         // Both credentials are rejected: the local session is no longer usable.
-        await _clearLocalSession();
+        if (sessionEnded.value != _generation) await _clearLocalSession();
         return;
       }
       await apiClient.logout(accessToken: _session!.accessToken);
     }
+    if (generation != _generation) throw const SessionChangedException();
     await _clearLocalSession();
   }
 
@@ -446,37 +728,63 @@ class GoogleAuthService {
 
   Future<void> clearSession() => _clearLocalSession(forget: true);
 
-  Future<void> clearRevokedSession(AuthSession current) async {
+  Future<void> clearRevokedSession(AuthSession current) {
+    if (_session != null &&
+        (_session!.user.id != current.user.id ||
+            _session!.refreshToken != current.refreshToken)) {
+      return Future.value();
+    }
+    if (_endingGeneration == _generation && _ending != null) return _ending!;
+    if (_session == null && sessionEnded.value == _generation) {
+      return Future.value();
+    }
+    final ending = ++_generation;
+    _endingGeneration = ending;
+    _session = null;
     _leaving = true;
+    final pending = _clearRevoked(current, ending);
+    _ending = pending;
+    return pending.whenComplete(() {
+      if (identical(_ending, pending)) _ending = null;
+    });
+  }
+
+  Future<void> _clearRevoked(AuthSession current, int ending) async {
     try {
       try {
-        await _refreshing;
-      } catch (_) {}
-      if (_session != null && _session!.user.id != current.user.id) {
-        throw StateError('Account changed');
-      }
-      try {
-        await vault.rememberIdentity(current);
-        await vault.clearCredential(current.user.id);
+        await vault.rememberIdentity(
+          current,
+          isCurrent: () => ending == _generation,
+        );
+        await vault.clearCredential(
+          current.user.id,
+          isCurrent: () => ending == _generation,
+        );
       } finally {
-        _generation++;
-        _session = null;
-        try {
-          await signInAdapter.signOut();
-        } catch (_) {}
+        if (ending == _generation) {
+          try {
+            await signInAdapter.signOut();
+          } catch (_) {}
+          if (ending == _generation) sessionEnded.value = ending;
+        }
       }
     } finally {
-      _leaving = false;
+      if (ending == _generation) _leaving = false;
     }
   }
 
   Future<void> _clearLocalSession({bool forget = false}) async {
     final id = _session?.user.id;
-    if (id != null && !_session!.accessToken.startsWith('demo-')) {
-      await vault.clearCredential(id, forget: forget);
-    }
-    _generation++;
+    final demo = _session?.accessToken.startsWith('demo-') ?? false;
+    final ending = ++_generation;
     _session = null;
+    if (id != null && !demo) {
+      await vault.clearCredential(
+        id,
+        forget: forget,
+        isCurrent: () => ending == _generation,
+      );
+    }
     try {
       await signInAdapter.signOut();
     } catch (_) {

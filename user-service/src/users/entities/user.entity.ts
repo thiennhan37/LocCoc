@@ -40,8 +40,18 @@ export class User {
   })
   displayName!: string | null;
 
+  @Column({
+    name: 'last_display_name_changed_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  lastDisplayNameChangedAt: Date | null = null;
+
   @Column({ name: 'avatar_url', type: 'varchar', length: 1024, nullable: true })
   avatarUrl!: string | null;
+
+  @Column({ name: 'cover_url', type: 'varchar', length: 1024, nullable: true })
+  coverUrl!: string | null;
 
   @Column({ type: 'varchar', length: 32, nullable: true })
   phone!: string | null;

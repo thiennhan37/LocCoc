@@ -29,9 +29,11 @@ class CustomButton extends StatelessWidget {
     final effectiveTextColor =
         textColor ?? (isOutlined ? AppColors.primary : Colors.white);
 
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(
+        minWidth: double.infinity,
+        minHeight: 52,
+      ),
       child: isOutlined
           ? OutlinedButton(
               onPressed: isLoading ? null : onPressed,
@@ -79,12 +81,15 @@ class CustomButton extends StatelessWidget {
         children: [
           Icon(icon, size: 20, color: textColor),
           const SizedBox(width: 8),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: textColor,
+          Flexible(
+            child: Text(
+              text,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: textColor,
+              ),
             ),
           ),
         ],
@@ -93,6 +98,7 @@ class CustomButton extends StatelessWidget {
 
     return Text(
       text,
+      textAlign: TextAlign.center,
       style: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.bold,

@@ -1,24 +1,18 @@
-import { All, Controller, Req, Res } from '@nestjs/common';
+import { All, Controller, Req, Res, Put, PayloadTooLargeException, BadRequestException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { Response } from 'express';
-import type { RequestWithId } from '@loccoc/common';
-import type { AuthenticatedUser } from '@loccoc/common';
-import { Public } from '@loccoc/common';
+import { Public, type AuthenticatedUser, type RequestWithId } from '@loccoc/common';
 import { SERVICE_ROUTES, type ServiceName } from './service-routes.js';
 
-// Hop-by-hop headers: headers that are not forwarded from the client to the server
 const HOP_BY_HOP_HEADERS = new Set([
-  'connection',
-  'keep-alive',
-  'proxy-authenticate',
-  'proxy-authorization',
-  'te',
-  'trailer',
-  'transfer-encoding',
-  'upgrade',
-  'host',
-  'content-length',
+  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+  'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade',
 ]);
+
+const REQUEST_ONLY_HEADERS = new Set(['host', 'content-length', 'expect']);
 
 @Controller()
 export class ServiceProxyController {
@@ -27,7 +21,7 @@ export class ServiceProxyController {
   @All(['posts', 'posts/*path'])
   @Public()
   forwardToPosts(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
-    return this.forward('posts', request, response);
+    return this.forwardJson('posts', request, response);
   }
 
   @All('auth/*path')
@@ -35,7 +29,7 @@ export class ServiceProxyController {
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward('auth', request, response);
+    return this.forwardJson('auth', request, response);
   }
 
   @All(['notifications', 'notifications/*path'])
@@ -43,7 +37,13 @@ export class ServiceProxyController {
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward('notifications', request, response);
+    return this.forwardJson('notifications', request, response);
+  }
+
+  @Put('users/me/media/:kind')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  forwardMedia(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forwardJson('users', request, response);
   }
 
   @All('users/*path')
@@ -51,7 +51,7 @@ export class ServiceProxyController {
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward('users', request, response);
+    return this.forwardJson('users', request, response);
   }
 
   @All('admin/*path')
@@ -59,7 +59,7 @@ export class ServiceProxyController {
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward('admin', request, response);
+    return this.forwardJson('admin', request, response);
   }
 
   @All('payments/*path')
@@ -67,7 +67,7 @@ export class ServiceProxyController {
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward('payments', request, response);
+    return this.forwardJson('payments', request, response);
   }
 
   @All('subscriptions/*path')
@@ -75,46 +75,158 @@ export class ServiceProxyController {
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward('subscriptions', request, response);
+    return this.forwardJson('subscriptions', request, response);
   }
 
-  private async forward(
-    service: ServiceName,
-    request: RequestWithId,
-    response: Response,
-  ): Promise<void> {
-    // Create targetURL for request
+  @All('ai/*path')
+  @Public()
+  forwardToAi(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forwardRaw('ai', request, response);
+  }
+
+  @All('chat/*path')
+  forwardToChat(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forwardJson('chat', request, response);
+  }
+
+  private async forwardJson(service: ServiceName, request: RequestWithId, response: Response): Promise<void> {
+    const target = this.buildTarget(service, request);
+    const headers = this.buildRequestHeaders(request);
+
+    const hasBody = !["GET", "HEAD"].includes(request.method);
+    const mediaUpload =
+      request.method === "PUT" &&
+      /^\/users\/me\/media\/(avatar|cover)$/.test(request.path);
+    let body: string | Buffer | undefined =
+      hasBody && request.body !== undefined
+        ? JSON.stringify(request.body)
+        : undefined;
+    if (mediaUpload) {
+      const mime = request.headers["content-type"];
+      if (
+        !["image/jpeg", "image/png", "image/webp"].includes(mime ?? "") ||
+        request.headers["content-encoding"]
+      )
+        throw new BadRequestException("Use JPEG, PNG or WebP");
+      const limit = (request.path.endsWith("/avatar") ? 5 : 10) * 1024 * 1024;
+      if (Number(request.headers["content-length"]) > limit) {
+        await this.drainRejectedBody(request);
+        throw new PayloadTooLargeException();
+      }
+      const chunks: Buffer[] = [];
+      let length = 0;
+      const timer = setTimeout(() => request.destroy(), 30000);
+      try {
+        for await (const chunk of request.iterator({
+          destroyOnReturn: false,
+        })) {
+          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          length += bytes.length;
+          if (length > limit) {
+            request.resume();
+            throw new PayloadTooLargeException();
+          }
+          chunks.push(bytes);
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+      body = Buffer.concat(chunks);
+    }
+    if (body && !headers.has("content-type"))
+      headers.set("content-type", "application/json");
+
+    try {
+      const upstream = await fetch(target, {
+        method: request.method, headers,
+        body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
+        redirect: 'manual', signal: AbortSignal.timeout(mediaUpload ? 60000 : 15000),
+      });
+      response.status(upstream.status);
+      this.copyResponseHeaders(upstream.headers, response);
+      response.send(Buffer.from(await upstream.arrayBuffer()));
+    } catch (error) {
+      this.handleUpstreamError(error, request, response);
+    }
+  }
+
+  private async forwardRaw(service: ServiceName, request: RequestWithId, response: Response): Promise<void> {
+    const target = this.buildTarget(service, request);
+    const headers = this.buildRequestHeaders(request);
+    const hasBody = !['GET', 'HEAD'].includes(request.method);
+    const abortController = new AbortController();
+    let clientDisconnected = false;
+    let responseFinished = false;
+
+    const abortUpstream = () => {
+      clientDisconnected = true;
+      abortController.abort();
+    };
+    const markFinished = () => { responseFinished = true; };
+    const abortOnPrematureClose = () => {
+      if (!responseFinished) abortUpstream();
+    };
+
+    request.once('aborted', abortUpstream);
+    response.once('finish', markFinished);
+    response.once('close', abortOnPrematureClose);
+
+    try {
+      const init: RequestInit & { duplex?: 'half' } = {
+        method: request.method,
+        headers,
+        body: hasBody ? request as unknown as BodyInit : undefined,
+        redirect: 'manual',
+        signal: abortController.signal,
+      };
+      if (hasBody) init.duplex = 'half';
+
+      const upstream = await fetch(target, init);
+      response.status(upstream.status);
+      this.copyResponseHeaders(upstream.headers, response);
+
+      if (!upstream.body) {
+        response.end();
+        return;
+      }
+      await pipeline(Readable.fromWeb(upstream.body as never), response);
+    } catch (error) {
+      if (clientDisconnected || abortController.signal.aborted) {
+        if (!response.destroyed && !response.writableEnded) response.destroy();
+        return;
+      }
+      this.handleUpstreamError(error, request, response);
+    } finally {
+      request.removeListener('aborted', abortUpstream);
+      response.removeListener('finish', markFinished);
+      response.removeListener('close', abortOnPrematureClose);
+    }
+  }
+
+  private buildTarget(service: ServiceName, request: RequestWithId): URL {
     const route = SERVICE_ROUTES[service];
-    const baseUrl = this.config
-      .getOrThrow<string>(route.urlConfigKey)
-      .replace(/\/$/, '');
+    const baseUrl = this.config.getOrThrow<string>(route.urlConfigKey).replace(/\/$/, '');
     const path = this.getPath(request);
     const target = new URL(`${baseUrl}${route.prefix}${path ? `/${path}` : ''}`);
-    // append query params from originalUrl to targetURL
-    target.search = new URL(
-      request.originalUrl,
-      'http://gateway.internal',
-    ).search;
+    target.search = new URL(request.originalUrl, 'http://gateway.internal').search;
+    return target;
+  }
 
-    // eliminate HOP_BY_HOP_HEADERS and copy headers from request to headers
+  private buildRequestHeaders(request: RequestWithId): Headers {
     const headers = new Headers();
+    const blocked = new Set([
+      ...HOP_BY_HOP_HEADERS,
+      ...REQUEST_ONLY_HEADERS,
+      'x-service-token',
+      'x-user-id',
+      'x-user-role',
+      'x-user-roles',
+      'x-forwarded-for',
+      'x-real-ip',
+      ...this.connectionHeaderNames(request.headers.connection),
+    ]);
     for (const [name, value] of Object.entries(request.headers)) {
-      if (
-        [
-          'x-service-token',
-          'x-user-id',
-          'x-user-role',
-          'x-user-roles',
-        ].includes(name.toLowerCase())
-      )
-        continue;
-      if (
-        HOP_BY_HOP_HEADERS.has(name.toLowerCase()) ||
-        ['x-forwarded-for', 'x-real-ip'].includes(name.toLowerCase()) ||
-        Array.isArray(value) ||
-        value === undefined
-      )
-        continue;
+      if (blocked.has(name.toLowerCase()) || Array.isArray(value) || value === undefined) continue;
       headers.set(name, value);
     }
     headers.set('x-request-id', request.requestId);
@@ -123,46 +235,60 @@ export class ServiceProxyController {
       headers.set('x-user-id', user.userId);
       headers.set('x-user-role', user.role);
     }
-    // Replace client-supplied forwarding headers with the gateway-derived IP.
     const clientIp = request.ip ?? request.socket.remoteAddress ?? 'unknown';
     headers.set('x-forwarded-for', clientIp);
     headers.set('x-real-ip', clientIp);
+    return headers;
+  }
 
-    const hasBody = !['GET', 'HEAD'].includes(request.method);
-    const body =
-      hasBody && request.body !== undefined
-        ? JSON.stringify(request.body)
-        : undefined;
-    if (body && !headers.has('content-type'))
-      headers.set('content-type', 'application/json');
+  private copyResponseHeaders(upstreamHeaders: Headers, response: Response): void {
+    const blocked = new Set([...HOP_BY_HOP_HEADERS, ...this.connectionHeaderNames(upstreamHeaders.get('connection'))]);
+    upstreamHeaders.forEach((value, name) => {
+      if (!blocked.has(name.toLowerCase())) response.setHeader(name, value);
+    });
+  }
 
-    try {
-      const upstream = await fetch(target, {
-        method: request.method,
-        headers,
-        body,
-        redirect: 'manual',
-      });
-      response.status(upstream.status);
-      upstream.headers.forEach((value, name) => {
-        if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase()))
-          response.setHeader(name, value);
-      });
-      response.send(Buffer.from(await upstream.arrayBuffer()));
-    } catch {
-      response.status(502).json({
-        statusCode: 502,
-        error: 'Bad Gateway',
-        message: 'Upstream service unavailable',
-        requestId: request.requestId,
-      });
+  private connectionHeaderNames(value: string | string[] | undefined | null): string[] {
+    const header = Array.isArray(value) ? value.join(',') : value;
+    return String(header ?? '').split(',').map((name) => name.trim().toLowerCase()).filter(Boolean);
+  }
+
+  private handleUpstreamError(error: unknown, request: RequestWithId, response: Response): void {
+    if (response.headersSent) {
+      response.destroy(error instanceof Error ? error : undefined);
+      return;
     }
+    response.setHeader('Cache-Control', 'no-store');
+    response.status(502).json({
+      statusCode: 502,
+      error: 'Bad Gateway',
+      message: 'Upstream service unavailable',
+      requestId: request.requestId,
+    });
+  }
+
+  private async drainRejectedBody(request: RequestWithId): Promise<void> {
+    // Drain without buffering so clients receive a 413 instead of a socket reset.
+    await new Promise<void>((resolve) => {
+      const finish = () => {
+        clearTimeout(timer);
+        request.off("end", finish);
+        request.off("error", finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, 2000);
+      request.once("end", finish);
+      request.once("error", finish);
+      request.resume();
+    });
   }
 
   private getPath(request: RequestWithId): string {
+    // Named media routes have :kind instead of the wildcard parameter.
+    if (request.method === 'PUT' && request.params?.kind !== undefined) {
+      return request.path.slice('/users/'.length);
+    }
     const wildcard = request.params?.path;
-    return Array.isArray(wildcard)
-      ? wildcard.join('/')
-      : String(wildcard ?? '').replace(/^\//, '');
+    return Array.isArray(wildcard) ? wildcard.join('/') : String(wildcard ?? '').replace(/^\//, '');
   }
 }

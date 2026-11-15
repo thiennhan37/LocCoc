@@ -8,7 +8,7 @@ import { JwtAuthGuard, JwtVerifier, RolesGuard } from '@loccoc/common';
 
 // Run against compiled common code and Node's real package resolution, without
 // Vite deduplication masking duplicate Nest providers in the pnpm workspace.
-test('shared guards resolve the application Nest providers', async () => {
+await test('shared guards resolve the application Nest providers', async () => {
   assert.equal(Reflect.getMetadata('design:paramtypes', JwtAuthGuard)[0], Reflector);
   assert.equal(Reflect.getMetadata('design:paramtypes', JwtAuthGuard)[1], ConfigService);
   assert.equal(Reflect.getMetadata('design:paramtypes', RolesGuard)[0], Reflector);

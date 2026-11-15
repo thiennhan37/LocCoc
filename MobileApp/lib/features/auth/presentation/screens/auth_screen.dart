@@ -1,3 +1,4 @@
+import '../../../../core/widgets/user_avatar.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/constants/app_colors.dart';
@@ -255,8 +256,12 @@ class _AuthScreenState extends State<AuthScreen> {
                           children: [
                             ListTile(
                               key: ValueKey('saved_${account.id}'),
-                              leading: const CircleAvatar(
-                                child: Icon(Icons.person_outline),
+                              leading: UserAvatar(
+                                avatarUrl: account.avatarUrl,
+                                displayName:
+                                    account.name ??
+                                    account.username ??
+                                    account.email,
                               ),
                               title: Text(
                                 account.name ??

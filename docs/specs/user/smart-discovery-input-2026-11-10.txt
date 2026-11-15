@@ -1,0 +1,68 @@
+Tôi đang thiết kế chức năng Tìm kiếm kết bạn thông minh và Gợi ý bạn bè thông minh cho một Mạng xã hội chia sẻ khoảnh khắc (ưu tiên vòng tròn bạn thân, kết nối ngoài đời thực, bảo vệ quyền riêng tư).
+
+Dưới đây là bản thiết kế và các quy tắc xử lý đã được chốt sơ bộ sau quá trình rà soát kỹ thuật. Hãy đóng vai Senior Software Architect để kiểm tra tính nhất quán, sự hợp lý của các đánh đổi (trade-offs) và phát hiện xem còn lỗ hổng logic rõ rệt nào giữa các thành phần hay không (chưa cần viết code hay đi sâu vào tinh chỉnh trọng số/benchmark ở bước này).
+
+1. PHÂN VAI HẠ TẦNG & DỮ LIỆU ĐÃ CHỐT
+
+PostgreSQL (Source of Truth - OLTP & Tuyến bảo vệ cuối):
+
+Lưu hồ sơ user (id, username, display_name, display_name_norm, avatar_url, các cờ quyền riêng tư), dữ liệu quan hệ gốc (friendships, friend_requests, user_blocks, suggestion_feedback), và bảng outbox.
+Đảm bảo giao dịch ACID, tìm kiếm văn bản tiếng Việt toàn cục (unaccent + pg_trgm), và đóng vai trò tuyến kiểm tra cuối cùng (hydrate + hard filter) trước khi trả kết quả về client.
+Quy tắc nghiệp vụ tên hiển thị: user chỉ được đổi display_name 1 lần mỗi tháng nên hầu như không phát sinh trùng/xung đột đổi tên liên tục (vẫn có thể kèm profile_version/timestamp nhẹ phòng trường hợp admin đổi tên hoặc replay Kafka).
+
+Transactional Outbox + Kafka (Đồng bộ bất đồng bộ):
+
+API chỉ ghi PostgreSQL + outbox trong cùng 1 transaction, không dual-write trực tiếp sang Neo4j.
+Worker đọc Kafka cập nhật idempotent sang Neo4j (dựa trên eventId và version) và xử lý cập nhật/xóa cache Redis liên quan.
+
+Neo4j (Graph Read Engine):
+
+Lưu node tối giản :User {id, status, mutualVisibility, recommendable, username, displayNameNorm} và các cạnh [:FRIEND], [:REQUESTED], [:BLOCKED].
+Chuyên trách:
+Tính toán gợi ý bạn bè 2–3 hop chạy nền để đẩy vào Redis.
+Trực tiếp thực hiện Nhánh 1 của Search (tìm khớp tên/username trong phạm vi mạng 1–2 hop của người tìm).
+Truy vấn danh sách bạn chung & batch đếm bạn chung.
+
+Redis (Serving Cache & Fast Guard):
+
+Cache danh sách Top-K Gợi ý bạn bè (2–3 hop) đã được Neo4j tính sẵn (ZSET / JSON kèm TTL) để màn hình Gợi ý đọc nhanh, không phải chạy đồ thị mỗi lần mở app.
+Lưu bộ đếm rec_generation:{userId} để ngăn worker cũ ghi đè cache stale, khóa chống cache stampede, tập dismissed tạm và rate-limit Search.
+Có thể cache nhẹ danh sách bạn 1-hop (friends:1hop:{userId}) nếu cần kiểm tra nhanh trạng thái đã là bạn.
+2. CÁC QUY TẮC XỬ LÝ & ĐÁNH ĐỔI ĐÃ THỐNG NHẤT
+A. Luồng Tìm kiếm Kết bạn Thông minh (Song song 2 nhánh)
+Nhánh 1 (Neo4j): Tìm những người khớp từ khóa trong mạng lưới 1–2 hop của người tìm (tận dụng đồ thị để không bị hàng nghìn người lạ trùng tên đè mất người quen).
+Nhánh 2 (PostgreSQL): Tìm kiếm toàn hệ thống (unaccent + pg_trgm + exact/prefix @username) để lấy Top ứng viên toàn cục, đảm bảo vẫn tìm được người lạ mới quen chưa có bạn chung.
+Hợp nhất & Tuyến cuối: Gộp ID từ 2 nhánh 
+→
+→ vào PostgreSQL lấy thông tin hồ sơ mới nhất (hydrate), kiểm tra lại khớp từ khóa (phòng trường hợp Neo4j chưa cập nhật tên mới kịp) + lọc quyền riêng tư/block 
+→
+→ trộn điểm & xếp hạng 
+→
+→ trả kết quả.
+B. Luồng Gợi ý Bạn bè Thông minh
+Neo4j sinh và chấm điểm ứng viên 2–3 hop (chạy nền) 
+→
+→ lưu Top-K vào Redis.
+Khi user mở màn hình Gợi ý: đọc Top ứng viên từ Redis 
+→
+→ qua tuyến cuối PostgreSQL để hydrate thông tin mới nhất và lọc bỏ các trường hợp không hợp lệ.
+C. Quy tắc Cắt nhánh đồ thị (Graph Pruning) trên Neo4j
+Cắt nhánh sớm ngay khi duyệt:
+Node trung gian w có trạng thái không ACTIVE (khóa/xóa) hoặc có cạnh [:BLOCKED] với người tìm.
+Node w là Super-node (vượt ngưỡng degree cho phép).
+Node w tắt cờ mutual_friends_visibility = false: cắt luôn nhánh đi qua w để không dùng bất kỳ quan hệ nào của w làm cầu nối gợi ý hoặc hiển thị bạn chung.
+KHÔNG cắt nhánh trung gian, chỉ lọc ở đích/kết quả cuối:
+Node tắt cờ recommendable = false: vẫn cho phép đi qua cạnh của họ để nối tới bạn của họ, chỉ loại chính họ khỏi danh sách gợi ý được trả ra ở đích (Neo4j lọc ở đầu ra + Postgres chốt ở tuyến cuối).
+D. Chiến lược Cập nhật Redis & Chấp nhận Độ trễ (Consistency Trade-offs)
+Khi thay đổi quan hệ trực tiếp giữa 2 người A và B (BLOCK, FRIEND_ACCEPT, REJECT, SEND_REQUEST):
+Chỉ cập nhật / xóa cache Redis của đúng 2 người A và B (gỡ nhau bằng ZREM hoặc DEL key cache + tăng rec_gen).
+Riêng FRIEND_ACCEPT: nên xóa/làm mới cache gợi ý của A và B để danh sách sớm cập nhật thêm bạn của người bạn mới.
+Không xóa/cập nhật lan truyền sang cache của hàng trăm/nghìn bạn bè xung quanh (tránh invalidation fan-out), để cache của họ tự hết hạn theo TTL.
+Khi user tắt recommendable:
+Không cần xóa cache Redis của những người khác; dựa vào tuyến cuối PostgreSQL lúc hydrate để lọc bỏ hoàn toàn người tắt cờ.
+Khi user B tắt mutual_friends_visibility:
+Đồng bộ cờ lên Neo4j để các lượt tính toán mới cắt nhánh qua B.
+Không đi xóa Redis cache gợi ý của bạn bè xung quanh B; chấp nhận cache cũ tự hết hạn theo TTL (tối ưu hiệu năng hệ thống, độ sai lệch tạm thời chấp nhận được), đồng thời tuyến cuối PostgreSQL vẫn lọc ẩn tên/avatar của B nếu cần hiển thị danh sách bạn chung.
+Trạng thái tài khoản từ AuthService (account.status):
+Chấp nhận eventual consistency ở bản chiếu UserService: nếu tài khoản vừa bị khóa chưa kịp đồng bộ tới màn hình gợi ý/tìm kiếm thì chấp nhận độ trễ ngắn và sẽ được cập nhật ở các lần tìm kiếm sau (hoặc chặn lại ở bước gửi lời mời).
+Riêng quan hệ BLOCKED giữa 2 người do UserService quản lý trực tiếp: luôn được lọc đồng bộ tại tuyến cuối PostgreSQL ngay lúc đọc profile để đảm bảo bấm chặn xong là biến mất tức thời.

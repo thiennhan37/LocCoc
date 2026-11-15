@@ -12,8 +12,17 @@ export const SERVICE_ROUTES = {
     urlConfigKey: 'NOTIFICATION_SERVICE_URL',
   },
   users: {
+    // Includes raw PUT/DELETE /users/me/media/avatar|cover; image GETs use the media origin.
     prefix: '/users',
     urlConfigKey: 'USER_SERVICE_URL',
+  },
+  ai: {
+    prefix: '/ai',
+    urlConfigKey: 'AI_SERVICE_URL',
+  },
+  chat: {
+    prefix: '/chat',
+    urlConfigKey: 'CHAT_SERVICE_URL',
   },
   admin: {
     prefix: '/admin',

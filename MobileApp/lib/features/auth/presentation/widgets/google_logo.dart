@@ -5,17 +5,11 @@ import 'package:flutter/material.dart';
 class GoogleLogo extends StatelessWidget {
   final double size;
 
-  const GoogleLogo({
-    super.key,
-    this.size = 20,
-  });
+  const GoogleLogo({super.key, this.size = 20});
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(
-      size: Size(size, size),
-      painter: _GoogleLogoPainter(),
-    );
+    return CustomPaint(size: Size(size, size), painter: _GoogleLogoPainter());
   }
 }
 
@@ -31,7 +25,10 @@ class _GoogleLogoPainter extends CustomPainter {
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.butt;
 
-    final rect = Rect.fromCircle(center: center, radius: radius - strokeWidth / 2);
+    final rect = Rect.fromCircle(
+      center: center,
+      radius: radius - strokeWidth / 2,
+    );
 
     // 1. Red arc (Top)
     paint.color = const Color(0xFFEA4335);

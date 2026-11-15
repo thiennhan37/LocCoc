@@ -1,12 +1,20 @@
 # User profiles, search and friendship
 
+Discovery extension (2026-11-10): see [smart friend discovery](smart-friend-discovery.md)
+and [ADR-012](../../adr/ADR-012-smart-friend-discovery.md). Product behavior is
+agreed and implemented in source. See the linked spec/operations guide for new
+q/cursor, recommendations, mutual and privacy APIs; legacy routes below remain supported.
+
 Implementation checklist: migrations → authority/outbox → projection → repository
 transactions → services/DTO/controllers → gateway → Flutter onboarding/search → verification.
 
 Authenticated API, under existing /users gateway prefix:
 - GET /users/me: synchronize own account snapshot and return private profile.
 - POST /users/me/username: {username, displayName?}; one-time lowercase username claim.
-- PATCH /users/me: {displayName?, avatarUrl?, phone?}; username cannot be changed.
+- PATCH /users/me: {displayName?, avatarUrl?, coverUrl?, phone?}; username cannot be changed.
+- PUT/DELETE /users/me/media/avatar|cover: authenticated own-account image upload/removal.
+  See [profile media](profile-media.md) for raw-body format, storage provisioning,
+  approved URL origins, image limits and post-commit cleanup.
 - GET /users/search?username=an&page=1&limit=20: prefix search, exact match first,
   stable username/id order; 2–30 chars, max limit 50; no sensitive fields.
 - GET /users/profiles/:id: safe profile and relationship; unavailable/blocked is 404.
@@ -19,7 +27,7 @@ Authenticated API, under existing /users gateway prefix:
 - DELETE /users/blocks/:id: remove only caller's block; restore nothing.
 - GET /users/blocks: own blocks only, safe profile fields.
 
-Safe profile: id, username, displayName, avatarUrl, relationshipStatus
+Safe profile: id, username, displayName, avatarUrl, coverUrl, relationshipStatus
 (NONE/FRIENDS/OUTGOING_PENDING/INCOMING_PENDING), friendRequestId when pending.
 Request DTO: id, senderId, receiverId, status, createdAt, resolvedAt, peer safe profile.
 Terminal requests cannot be reopened. Existing administrator APIs stay restricted.

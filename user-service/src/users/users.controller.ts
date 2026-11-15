@@ -15,7 +15,7 @@ import {
   Roles,
   type AuthenticatedUser,
 } from '@loccoc/common';
-import { UsersService } from './users.service.js';
+import { UsersService, type UserProfile } from './users.service.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
 import { ListUsersQueryDto } from './dto/list-users-query.dto.js';
 import { User } from './entities/user.entity.js';
@@ -37,7 +37,7 @@ export class UsersController {
   getMyProfile(
     @CurrentUser() user: AuthenticatedUser,
     @Headers('authorization') token?: string,
-  ): Promise<User> {
+  ): Promise<UserProfile> {
     return token
       ? this.usersService.getMyProfile(user.userId, token)
       : this.usersService.getMyProfile(user.userId);
@@ -48,15 +48,25 @@ export class UsersController {
   getUserById(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<User> {
+  ): Promise<UserProfile> {
     return this.usersService.getUserById(id, user);
+  }
+
+  @Get(':id/display-name-history')
+  @Roles('admin')
+  displayNameHistory(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: ListUsersQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usersService.displayNameHistory(id, query, user);
   }
 
   @Patch('me')
   updateMyProfile(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateUserDto,
-  ): Promise<User> {
+  ): Promise<UserProfile> {
     return this.usersService.updateMyProfile(user.userId, dto);
   }
 
@@ -66,7 +76,7 @@ export class UsersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateUserDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<User> {
+  ): Promise<UserProfile> {
     return this.usersService.updateUserById(id, dto, user);
   }
 

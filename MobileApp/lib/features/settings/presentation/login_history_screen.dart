@@ -96,7 +96,7 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen>
       });
     } on AuthApiException catch (e) {
       if (!mounted || ticket != version) return;
-      if (e.statusCode == 401) {
+      if (e is SessionExpiredException) {
         await finishCurrentSession();
       } else {
         setState(() => error = 'Chưa thể tải lịch sử đăng nhập. Hãy thử lại.');
@@ -158,7 +158,7 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen>
       );
     } on AuthApiException catch (e) {
       if (!mounted) return;
-      if (e.statusCode == 401) {
+      if (e is SessionExpiredException) {
         await finishCurrentSession();
       } else if (e.statusCode == 404) {
         ScaffoldMessenger.of(context).showSnackBar(

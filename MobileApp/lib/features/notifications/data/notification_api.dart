@@ -7,7 +7,14 @@ class NotificationApi {
     String method,
     String path, {
     Map<String, dynamic>? body,
-  }) => user.request(method, path, area: 'notifications', body: body);
+    bool allowRefresh = true,
+  }) => user.request(
+    method,
+    path,
+    area: 'notifications',
+    body: body,
+    allowRefresh: allowRefresh,
+  );
   Future<Map<String, dynamic>> list([String? cursor]) => request(
     'GET',
     '?${Uri(queryParameters: {'limit': '20', 'cursor': ?cursor}).query}',

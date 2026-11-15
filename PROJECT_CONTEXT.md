@@ -1,5 +1,357 @@
 # LocCoc Project Context & Knowledge Base (Admin & Payment Module)
 
+### 2026-11-14: Full-screen avatar and cover viewing for self and peer profiles
+
+- Added `FullScreenImageViewer` (`core/widgets/full_screen_image_viewer.dart`) supporting pinch-to-zoom (`InteractiveViewer`), safe URL handling via `avatarUri`, dark theme backdrop, close/back controls, and descriptive empty states.
+- Enhanced `UserAvatar` and `UserCover` with optional `onTap` callbacks and accessibility semantics.
+- Connected own profile in `HomeScreen` (profile tab) allowing users to tap and inspect their own avatar and cover image in full resolution, while preserving the avatar edit action button.
+- Connected peer profile in `UsernameProfileScreen` allowing users to tap and view other users' avatars and cover photos in full screen.
+- Enhanced `EditProfileScreen` to allow quick preview of avatar and cover images while editing profile.
+- Automated verification: Added 9 widget tests in `test/view_profile_images_test.dart` covering both own and peer profiles, standalone viewer mechanics, invalid URLs, and descriptive feedback when images are unset. All 274 Flutter tests pass.
+
+### 2026-11-14: Local avatar save configuration fix
+
+- Diagnosed preview/save failure: service-local MEDIA_ENABLED was false and
+  the Compose media-store container had not been created.
+- Enabled local uploads, started media-store, provisioned the configured bucket
+  with anonymous object reads only, ran pending migrations and restarted the
+  UserService development watcher. Existing secrets were preserved.
+- Forwarded Android emulator port 9000 alongside Gateway port 8080 for the
+  configured loopback media URL. Forwarding needs reapplying after reconnect.
+- Verification: 9/9 isolated PostgreSQL/S3/Gateway media tests passed; local
+  bucket upload/public byte-identical read passed and anonymous listing was
+  denied (403). Temporary verification object removed; no user photo changed.
+- No mobile code/APK change required. Saving the selected photo in the running
+  app remains a manual device check. Details: docs/specs/user/profile-media.md.
+
+### 2026-11-12: Avatar and cover upload
+
+- Recorded ADR-014 and `docs/specs/user/profile-media.md` before implementation;
+  preserved existing dirty work. `.agents` rules/skills are absent locally.
+- Added nullable cover_url and an object lifecycle ledger with a transactional
+  retirement trigger. Raw authenticated own-account avatar/cover PUT/DELETE goes
+  through Controller -> Service -> Repository/Storage. New accounts are projected
+  before upload; administrator routes cannot change another account's images.
+- JPEG/PNG/WebP magic/MIME/decode checks, 5/10 MiB limits, 40 MP / 12000 axis,
+  animation rejection, ten-second decode deadline, bounded concurrency, rotation,
+  resize/WebP and metadata removal protect uploads. Redis enforces 10/min/account.
+  Approved HTTPS URL compatibility cannot attach managed objects or unsafe schemes.
+  Old media deletion is durable, retried and follows profile commit; failed
+  storage/transactions preserve the old reference. Name cooldown is unchanged.
+- Added optional Compose media-store with digest-pinned SeaweedFS 4.53, loopback S3
+  only and explicit credentials. MinIO pulls failed at both official registries;
+  S3-compatible SeaweedFS was verified with real storage. Explicit bucket setup
+  grants anonymous object reads, without anonymous listing/writing. No real .env,
+  secrets, live project data or deployments were changed.
+- Both Gateways forward bounded raw image bodies under existing /users routing
+  with upload quotas and 60s deadlines. Normal body limits remain. Flutter adds
+  library/camera selection, preview, upload/clear, progress/errors and generation
+  fences, plus shared safe cover rendering on own/peer profiles. Independent media
+  commits preserve unsaved name edits. Vault v1 adds optional cover URL metadata.
+- Actual verification: shared/User/Nest builds PASS; User 125 unit PASS and clean
+  type-aware lint; isolated real PostgreSQL/S3 E2E 87 PASS / 16 existing optional
+  infrastructure SKIP (all 9 media cases PASS); Nest Gateway 23 PASS; Spring
+  Gateway 20 PASS; Flutter format 75 files/0 changed, analyze clean, 265 tests PASS.
+  Android debug APK, Compose config and diff whitespace checks PASS. Artifact/hash
+  and repeatable commands are in the media spec.
+- Production S3/CDN/TLS configuration, live migration, device camera/gallery and
+  permission UX, lost-activity recovery and iOS build remain unverified. Uploads
+  stay disabled until real media configuration is supplied and schema applied.
+
+### 2026-11-11: Flutter wave 3 — supported account actions and honest readiness
+
+- Dependency-ordered plan and source evidence were written before implementation
+  in `docs/specs/user/mobile-wave-3.md`. Existing dirty work was preserved. No
+  backend, secrets/.env, live data, Kafka or discovery policy changes in this wave;
+  no new architectural decision/ADR is required for the supported client behavior.
+- EditProfile combines display name/avatar URL validation, preview and clearing.
+  Avatar-only PATCH omits name; combined updates respect the existing server-atomic
+  30-day name policy. Phone remains read-only: Auth owns accounts.phone and User
+  projects it, so profile phone edits can be overwritten. No upload claim is added.
+- Password form follows the actual DTO plus known server policy (10–128 characters,
+  common-password/prefix/email exclusions, no invented composition rule). Wrong
+  current password stays a form error after session probing; unavailable probes,
+  403, throttling and network errors are not presumed revocation. Retry-After is
+  shown safely. Public account has no hasPassword/provider capability, so a Google
+  login cannot establish password absence; first-password setup remains unsupported.
+- Extended the existing coordinator for exclusive password/logout-all operations
+  alongside single-flight refresh. Strict replacement pairs preserve current
+  identity and retention consent, advance generation, invalidate old reads and
+  replace authenticated navigation once. Home stops old work and drains known
+  pending push registration before new Home. Late server writes after HTTP timeout
+  still need a backend ordering contract; native push integration is unverified.
+- Lost/malformed password responses never fabricate success or automatically retry
+  the password mutation/old RT. Explicit reauthentication is offered. Acknowledged
+  changes with persistence failure continue using the new in-memory session and
+  warn honestly; other saved accounts are preserved. Storage failure cannot promise
+  durable erasure. Logout-all requires confirmation/server acknowledgement, blocks
+  repeat actions and reuses revocation teardown without retaining revoked sessions.
+- Signup/OTP remains closed: AuthModule binds ConsoleOtpSender unconditionally and
+  it performs no delivery in production. Real sender/verified delivery, generic
+  enumeration-safe outcomes and structured throttling are prerequisites. Future
+  UI must read verified:true, create no session from tokenless verification, then
+  return to login. No OTP success or production readiness is claimed.
+- Actual verification: baseline 202 tests rerun; final default 245 PASS, opt-in
+  Debug 248 PASS, no failures/skips. Added 43 account-security/UI tests covering
+  races, stale results, storage/push ordering, forms, confirmation and 360px/200%
+  text with keyboard. Format check 71 files/0 changed, analyzer no issues; scoped
+  diff whitespace check PASS. Android release built with dev flag true; AOT marker
+  inspection passes across three ABIs. Artifact/hash are recorded in the wave-3
+  spec. Existing local signing is not store signing. Android/iOS device UX, live
+  Auth/push/secure-storage integration, OTP delivery and iOS build remain unverified.
+
+### 2026-11-11: Flutter wave 2 — shared avatar, accessible theme and gated Debug
+
+- Plan and detailed evidence: `docs/specs/user/mobile-wave-2.md`, recorded before
+  implementation. Preserved the existing dirty worktree; no backend, secrets/.env,
+  live data, Kafka or Smart Discovery policy changes. Wave 3 remains separate.
+- Shared UserAvatar now handles all person-image API URLs with host/scheme checks,
+  HTTPS in release, bounded decoding, no application auth headers and initials/icon
+  fallback. SavedAccount/vault adds optional sanitized avatarUrl while reading old
+  v1 rows. The edit badge opens an explicitly URL-only preview/editor through the
+  existing avatarUrl PATCH contract; name cooldown/phone/upload are unchanged.
+- Theme covers common surfaces/forms/buttons/chips/dialogs/SnackBars. Original
+  coral stays as brand; dark coral with white reaches 5.74:1, secondary text on
+  main background 5.74:1 and input hint text 4.80:1. Narrow/large-text layouts grow
+  or wrap, including keyboard checks. Navigation/header/Debug were extracted from
+  Home; internal HomeTab mapping preserves existing initialTab:2 behavior.
+- Social labels are Vietnamese, search clears quickly, card bodies open profiles,
+  embedded blocked chips are hidden while Settings initialTab:4 remains. Friends,
+  mutuals and inbox dedupe within/across pages; single-card actions and unchanged
+  returns retain pages/cursors/scroll. Server-hidden/unavailable mutual responses
+  remove previous identities. Inbox shows local times and trimmed actor fallback
+  from payload without profile-enrichment queries.
+- Debug requires kDebugMode AND LOCCOC_DEV_TOOLS=true, independent of roles. Home
+  and profile no longer show technical account/token data. Debug masks AT, never
+  renders RT, bounds/redacts observational JWT claims and shares the coordinator
+  for Force Refresh. Busy/stale-session guards protect reloads. Firebase setup,
+  permission and server registration diagnostics are distinct; push disposal is
+  idempotent and strict retained-logout detach remains intact.
+- Actual checks: format 66 files/0 changed, analyzer no issues, default full suite
+  202 PASS and opt-in development full suite 205 PASS (no skipped cases). Baseline
+  was actually rerun: 171 PASS. Widget tests cover 360px/200% text/long names and
+  keyboard. Final Android release with dev flag intentionally true built; AOT APK
+  inspection found no Debug markers across three ABIs. Artifact/hash and repeatable
+  verification command are recorded in the wave-2 spec.
+- Native Android/iOS UI, live push/images/secure storage and iOS signing remain
+  unverified. APK uses existing local signing, not store signing. Java native-access
+  and firebase_core Kotlin migration advisories remain; no upgrade was attempted.
+
+### 2026-11-11: Flutter wave 1 — correctness and shared session lifecycle
+
+- Recorded the dependency-ordered plan before implementation in
+  `docs/specs/user/mobile-wave-1.md`. Preserved preexisting uncommitted discovery,
+  profile and backend work. The referenced `.agents` directory is absent locally.
+- Own-profile Share now opens a real QR/link/copy/native-share sheet using the
+  existing username/domain. Failed clipboard writes do not report success; Demo
+  and invalid/missing usernames cannot fabricate public links.
+- Real profiles use API avatars and friendCount, omit sample 128/24 statistics
+  and biography, and label moments/feed/gallery as previews. Profile friends opens
+  the retained tab, preserving loaded pages/cursors/subtab/scroll; returning from
+  inbox or push-open refreshes both notification and friendship counts.
+- Email login now matches LoginDto, classifies errors without message matching,
+  safely displays Retry-After and removes Demo failure actions. Standalone Demo
+  remains explicit without asserting real authentication/email verification.
+- Extended the existing GoogleAuthService coordinator: single-flight rotation,
+  generation-guarded requests/vault writes, no replay/retention of ambiguous RTs,
+  coalesced revocation and one shared AuthScreen transition. Old read/refresh/logout
+  results cannot overwrite a newer login, including the same account. Identity and
+  other accounts' credentials are preserved. Push detach cannot trigger refresh.
+- Backend change-password's ambiguous 401 is checked through GET /auth/sessions
+  before rotation; wrong current password remains a form error. Ordinary 403,
+  transport/timeouts/5xx and a second generic access 401 are nonterminal.
+- Actual final verification: dart format check (53 files, 0 changed), flutter
+  analyze (no issues), flutter test (171 passed, no failures/skips), scoped diff
+  whitespace check PASS. Tests include 360px/200% text with keyboard. Formatting
+  normalized a few existing Flutter files without changing their behavior.
+- No backend, .env/secrets, live data, Kafka/Smart Discovery decisions or deployment
+  changes in this wave. Native Android/iOS sharing, push, secure storage and device
+  UX remain unverified; no APK/release/iOS build or release-debug exclusion claim.
+  Wave 2/3 remain deferred; no new architectural/product approval is needed for
+  the implemented wave 1 fallback. See the linked spec for evidence and limits.
+
+### 2026-11-10: Smart friend discovery design preparation
+
+- Recorded the supplied PostgreSQL + outbox/Kafka + Neo4j + Redis clarification
+  verbatim in `docs/specs/user/smart-discovery-input-2026-11-10.txt`.
+- Added ADR-012 and `docs/specs/user/smart-friend-discovery.md`: baseline decisions,
+  repository gaps, privacy/cache consistency boundaries, proposed APIs, rollout
+  sequence, verification checklist and Q1–Q10 awaiting product confirmation.
+- Discovery accepts account-status projection lag and third-party ranking staleness
+  until cache refresh; synchronous PostgreSQL block checks remain mandatory.
+  Existing caller/target authority checks under ADR-006 remain unchanged.
+- Documentation only: no runtime code/configuration, schema/data, services or
+  secrets changed. This feature is not implemented; no runtime tests were run.
+
+### 2026-11-13: Publish chat-service for review against main
+
+- User reported satisfactory local testing and explicitly requested commit,
+  remote push and a pull request into main. The branch also contains the AI
+  implementation inherited from filter_service; main does not yet include it,
+  and the AI-only PR9 is still open. The new PR must describe this overlap.
+- Fresh pre-push verification: root Nest build passes; Flutter analyze is clean
+  and all131 tests pass; Chat5 unit +27 PostgreSQL/HTTP/socket integration,
+  gateway3 unit +26 e2e, AI60 unit +13 e2e all pass. Chat database validation
+  uses a disposable PostgreSQL container; existing project data is untouched
+  by these verification suites. All9 OpenAPI specs/83 operations pass schema,
+  reference and concrete-route checks.
+- Android debug APK was built and installed on both local emulators earlier.
+  User manual testing is reported by the user; automated tests do not establish
+  every manual checklist item. The known native iOS dependency conflict and
+  unrelated Notification/MySQL/PayOS setup limits remain documented.
+- Service env credentials, JWT/FCM files, local test-account passwords and build
+  outputs are excluded. The pre-existing local Flutter analyzer exclusions remain
+  outside this delivery commit.
+
+### 2026-11-13: Two local chat test accounts
+
+- At the user's request, created `chat.a@loccoc.test` / `chat_test_a` and
+  `chat.b@loccoc.test` / `chat_test_b`, with local test phone fields
+  `+84900000001` and `+84900000002`. Both accounts completed the normal
+  development console OTP verification and password login through the gateway.
+  Passwords were supplied only in the conversation, not written into the repo.
+- Claimed usernames, sent/accepted their friend request through the actual User
+  APIs, and verified the friendship from both accounts. Created an empty direct
+  chat and confirmed the recipient can interact. No chat messages were seeded;
+  verification sessions were logged out after setup.
+- Current login API accepts email/password; the mobile label suggesting phone
+  login does not establish backend phone-login support. Use email on each emulator.
+
+### 2026-11-13: Two-emulator Android build collision
+
+- Recovered the exact reported64s failure from Gradle daemon89382: task
+  `:app:copyFlutterAssetsDebug` failed with `NoSuchFileException` for generated
+  `flutter_assets/FontManifest.json`. Two Gradle daemons started builds in the
+  same MobileApp/android checkout at20:59:06 and20:59:10; the other build produced
+  an APK at21:00:14. Both emulators are ARM64, so the failure does not establish
+  an emulator ABI incompatibility or a missing source font asset.
+- Installed the successfully built APK onto emulator-5554 with `adb install -r`
+  and launched MainActivity. Install returned Success; app PIDs were verified on
+  both5554 and5556. Existing5556 Flutter run was preserved. No account login or
+  two-account chat exchange was performed by this recovery.
+- Updated the [runbook](docs/guides/chat-two-emulators.md) to build once and install
+  the same APK on both emulators. If debugging with separate Flutter run sessions,
+  wait until the first build/install completes before starting the second; avoid
+  clean/cache deletion during builds. No Gradle tracking workaround or dependency
+  upgrade is needed for this observed output collision.
+
+### 2026-11-13: Local backend configuration audit
+
+- Verified PostgreSQL5433, Redis6379 and Kafka9092 healthy. Existing project
+  databases use `auth`, `user` and `chat`; service defaults `accounts`/`users`
+  do not match this volume. Auth/User local env credentials were aligned with
+  read-only verified credentials from the running PostgreSQL container; no role
+  password rotation or volume removal. Their migration commands completed.
+- Auth/User/Chat/Notification/Gateway internal tokens match; User/Notification
+  public keys match Auth. Base URLs currently omit trailing slashes; a direct
+  probe demonstrated `/internal/access`401 versus `//internal/access`404 with
+  the clients' existing path concatenation. Running services need restart after
+  env changes; Gateway health200 does not establish Auth availability.
+- Built AI/Chat/Notification; smoke-started Auth, User, Chat, AI and Nest gateway
+  on temporary ports55810–55814 and stopped only those test processes afterward.
+  Auth/User/gateway returned expected401 for invalid/missing auth; AI/Chat health
+  returned200. Chat DB contains its migration and conversation/message tables.
+- Remaining local blockers: Notification role/database not provisioned; its env
+  enables FCM but configured credential file is absent. Admin/Payment MySQL3307
+  is not listening and current Compose does not supply MySQL; PayOS credentials
+  are unset. Spring gateway runtime was not started (alternative default8080).
+  No Gemini/PayOS/FCM provider calls or real payment/push delivery were performed.
+  Setup notes added to the [OpenAPI/Bruno guide](docs/guides/services-openapi-bruno.md).
+
+### 2026-11-13: OpenAPI catalog for all backend services
+
+- Added standalone OpenAPI3.0.3 files for Auth, User, Notification, Admin,
+  Payment, Nest gateway and Spring gateway. Existing AI/Chat specs remain the
+  contracts for those services. The [catalog and Bruno guide](docs/guides/services-openapi-bruno.md)
+  links all nine specs, default ports, auth setup and a real-account test flow.
+- Specs follow implemented controller/DTO/service returns and guard behavior,
+  including Auth internal-only routes, session rotation, social request IDs,
+  notification cursors/devices, actual Java envelopes and webhook status handling.
+  Gateway specs describe their owned health/probe operations and link downstream
+  specs; import each downstream file to obtain its Bruno requests.
+- Documented existing integration limits: both gateways default8080, Spring lacks
+  AI/chat/notification routes; Java Admin/Payment trust numeric identity headers,
+  while current Nest IAM injects UUIDs. No new JWT/RBAC compatibility guarantee
+  or payment idempotency behavior was introduced. Java payment/admin databases
+  remain separate; callback acknowledgement does not prove payment verification.
+- Validation: all nine specs pass the official OpenAPI3.0 schema, internal refs,
+  operation IDs, required path parameters and implemented concrete-route coverage.
+  The seven new specs contain74 operations; including AI/Chat there are83.
+  Input/response schema spot checks and documentation links pass. No business code,
+  secrets, databases or external providers were changed/called; Bruno GUI import
+  and live endpoint execution were not performed for this documentation task.
+
+### 2026-11-13: Deliver authenticated realtime chat on local chat-service
+
+- User approved the [chat design](docs/specs/chat/realtime-chat-design.md).
+  Added Nest Chat Service on 8083 with its own PostgreSQL database/role and
+  additive migration CLI. Auth/User authority from main authenticates every
+  HTTP request and socket operation/delivery; only active friends can interact.
+  Participant history remains readable after block/unfriend, while fresh profile
+  exposure and new interactions fail closed.
+- REST conversation/message/read operations route through the Nest gateway.
+  Transactional sequences, monotonic read cursors and sender/client UUID
+  idempotency persist across restarts; UUID case is normalized before locking.
+  Socket.IO namespace `/chat` uses the direct service origin, emits after commit,
+  rechecks receiving sessions and supports bounded typing. REST recovers missed
+  events; no exactly-once transport or multiple-replica claim.
+- Flutter adds inbox, friend chooser and conversation screens under the existing
+  authenticated Home entry. Shared refresh, account disposal, uncertain-send retry,
+  POST/socket merge, paged recovery and read receipts are covered. Socket policy
+  denial preserves other history/drafts; queued inbox invalidations survive slow
+  requests; typing transitions share a throttle. User-Service outages disable
+  interaction while authenticated participant history still loads.
+- Verification: Chat build, 5 unit + 27 integration tests (7 PostgreSQL,
+  6 HTTP, 14 real Socket.IO); gateway build, 3 unit + 26 e2e; Auth 77 unit +
+  25 HTTP passed (18 opt-in PostgreSQL cases skipped). Flutter analyze clean,
+  full 131 tests passed, Android debug APK built. Database helper/migration CLI
+  passed twice on a disposable database with the dedicated chat role; compiled
+  service health200 and missing-auth401 verified. OpenAPI passes the official
+  3.0 schema plus nullable conversation response checks; documentation links and
+  shell syntax pass. Independent review findings were reproduced and fixed.
+- [Runbook](docs/guides/chat-two-emulators.md), [service/API setup](chat-service/README.md),
+  [Bruno OpenAPI](chat-service/openapi.yaml) and
+  [completed checklist](docs/superpowers/plans/2026-11-13-realtime-chat.md) are ready.
+  Two real accounts on two emulator UIs have **not** been exercised; automation
+  uses real PostgreSQL/socket clients with IAM/profile fixtures. Native iOS build
+  remains blocked by main's Firebase/AppCheck versus GoogleSignIn dependency
+  conflict. The runbook therefore uses two Android AVDs.
+- Foreground realtime requires the Tin nhắn flow open; returning Home disposes
+  chat state/socket, and reopening loads history. No background push, app-wide
+  chat badge, groups/media or distributed quotas. Existing analysis exclusions
+  remain uncommitted; existing Flutter lock pins are preserved alongside new
+  socket dependencies. No real secrets or project database volumes changed.
+  This chat feature stays on the local branch; no new push/PR was requested.
+
+### 2026-11-13: Prepare chat-service with real main authentication
+
+- User selected real login integration from `main` on local `chat-service`.
+  Main's Auth/User/Notification, Flutter session/refresh/friends and gateway
+  account authority are retained. AI multipart streaming, cancellation and
+  its rate limiter are integrated with the authenticated gateway rather than
+  removing main's account access checks. Client identity/internal/forwarding
+  headers are filtered before upstream calls.
+- Main integration reconciles workspace/package/lockfile/config differences.
+  Gateway/Auth/User keep main's per-service environment loading. AI still uses
+  its existing root environment; direct AI access is unauthenticated while
+  gateway access now requires a real Bearer token. AI OpenAPI/Bruno instructions
+  document that distinction.
+- Verified: common/gateway/auth/user/AI build; gateway 3 unit + 23 e2e,
+  Auth 77 unit + 25 e2e, User 37 unit + 18 e2e, AI 60 unit + 13 e2e,
+  Flutter analyze clean + 99 tests. Auth/User database integration suites
+  skipped 48 cases because their opt-in database configuration was not enabled.
+  Updated AI OpenAPI passes the official OpenAPI 3.0 schema.
+- Chat itself is not implemented or approved yet. Proposed scope/design and
+  implementation milestones: [chat design](docs/specs/chat/realtime-chat-design.md)
+  and [ADR-012](docs/adr/ADR-012-realtime-chat.md). The
+  [two-emulator guide](docs/guides/chat-two-emulators.md) distinguishes current
+  login setup from future chat commands/checks. Design review precedes feature code.
+- Two original local Flutter edits (analysis exclusions and four SDK-related
+  transitive lockfile updates) remain outside the integration commit. A named
+  stash `chat-service: preserve local Flutter changes before main integration`
+  retains their pre-merge form as a backup. No local secrets or database volumes
+  were changed. No live two-device login/chat was performed.
+
 ### 2026-11-04: Merge custom/identity into main
 
 - Merge source: local custom/identity at 425d157, including its rate-limit update.
@@ -583,6 +935,147 @@ Mobile API layer now includes all existing Auth endpoints and Post create/delete
 - Architecture compliance: soft delete is preserved (`deleted_at = now()` in PostgreSQL `accounts` table, broadcast via Kafka `account.events` outbox to `user-service` projection); no hard deletion performed.
 - Verification: 54 / 54 Flutter tests passing (including 7 new tests in `test/account_deletion_test.dart`), `flutter analyze` clean (0 warnings), `flutter build bundle` clean. Backend test suites (`user-service`: 25 passed, `auth-service`: 75 passed) all green.
 
+### 2026-11-10: Rolling display-name cooldown (Q2)
+
+- Implemented the approved rolling 30-day policy for display names. Initial
+  nonempty naming and saving an identical trimmed/NFC name do not count. Blank/null
+  profile names cannot reset the allowance. Immutable usernames are unchanged.
+- Profile updates and username onboarding share a PostgreSQL row-locked writer.
+  Counted timestamps use database time; concurrent renames cannot consume the same
+  allowance. Rejected names roll back the entire profile/username request.
+- Admin overrides require the admin role, preserve the user's cooldown timestamp
+  (including database precision), and atomically log actor/target/old/new/time.
+  Admin-only GET /users/:id/display-name-history provides paginated audit records.
+- GET/PATCH profiles and cooldown conflicts expose nextDisplayNameChangeAt.
+  The existing Gateway /users mapping was verified without adding a redundant route.
+- Flutter's Profile > Edit profile now edits display names, shows the policy/next
+  date, prevents repeated submissions and refreshes displayed/cached profile names.
+- Migration DisplayNameCooldown1794268800000 preserves names, adds a nullable
+  last counted-change timestamp and a durable audit table. It is registered for
+  startup/explicit migrations; no historical changes are inferred for existing users.
+- Verified: all four NestJS services build; UserService 62 unit tests and 56 E2E
+  tests passed (real PostgreSQL, JWT authority and Gateway). Six unrelated Kafka/
+  outbox integration cases were skipped by their existing environment gates.
+  Gateway 16 E2E tests and 17 focused Flutter tests passed; UserService lint,
+  Flutter analyze and diff whitespace checks are clean.
+- Decision/spec: docs/adr/ADR-013-display-name-cooldown.md and
+  docs/specs/user/display-name-cooldown.md. Smart-discovery decisions were
+  subsequently confirmed as recorded below.
+
+### 2026-11-10: Smart friend discovery product decisions confirmed
+
+- Updated ADR-012 and the discovery specification with the user's follow-up
+  design and approval of review questions 1/2/4/5; question 3 selects a 30-day
+  bilateral suggestion cooldown after unfriend. Other cooldowns: dismiss 90 days
+  one-way, reject 30 days bilateral, cancel 7 days bilateral. These do not block
+  manual search/invitations; pending excludes recommendations.
+- Privacy flags default true. Hidden intermediaries lose identity/count at the
+  final PostgreSQL check. A hidden target's entire mutual section is suppressed
+  across profile/search/suggestion cards; the target can still view permitted
+  mutuals elsewhere. Stale third-party ranking influence remains accepted.
+- Search: exact @username, name relevance, graph proximity. Suggestions prioritize
+  2-hop then 3-hop fill, with connection score within groups. Keep Home search;
+  add a Friends tab, privacy settings and cold-start link sharing/QR guidance.
+- Cache TTL starts at 10 minutes, graph-lag budget at 30 seconds, both configurable.
+  Neo4j failure allows unexpired Redis suggestions within the freshness budget
+  after final filtering; Redis failure/excessive lag shows maintenance. Text search
+  continues through PostgreSQL without mutual data during either dependency failure.
+- Preserve notification-only social.events and existing account.events; add
+  social.graph.events, canonical pair versions/durable watermarks and independent
+  profile versions. Accept rare stale Redis publication without cross-store
+  generation coordination; PostgreSQL eligibility checks remain mandatory.
+- Local Neo4j Compose setup is part of the design; super-node handling is deferred.
+  This update changes documentation only. No runtime feature, migration, Docker
+  configuration or production data was changed; implementation checks remain pending.
+
+### 2026-11-10: Smart friend discovery implemented and verified
+
+- Added SmartDiscovery1794355200000, preserving existing users/relationships:
+  unaccent/trigram normalized-name search, true/true privacy defaults, independent
+  profile/pair versions, durable cooldown feedback, separate graph outbox,
+  projection offsets, refresh queue and viewer-bound expiring cursor sessions.
+- Existing SERIALIZABLE social mutations now lock canonical pair rows. Source
+  triggers write full pair/profile snapshots transactionally, including admin,
+  onboarding and deletion of graph relationships. Notification-only social.events
+  and its publisher remain unchanged. Independent social.graph.events/account.events
+  consumption applies account/profile versions separately and retains pair watermarks.
+- Added private authenticated Neo4j 5.26.33 Community Compose service and HTTP
+  adapter, persistent volume, health check and three-second transaction timeout.
+  Runtime bootstraps/reconciles from source snapshots, monitors progress/backlog,
+  periodically refreshes Top-500 Redis lists and uses generation-checked Lua with
+  ownership-token locks. TTL 600 seconds and conservative lag budget 30 seconds
+  are configurable. Source eligibility checks remain authoritative after stale
+  graph reads or Redis generation loss; no neighbor invalidation/super-node policy.
+- Added Vietnamese q/cursor search alongside preserved username/page search,
+  recommendations/dismiss, privacy and mutual-detail APIs. All routes use existing
+  Gateway users mapping. Final PostgreSQL reads recheck relations/privacy/feedback;
+  mutual count is exact and candidate lists identify projection gaps with partial.
+  Hidden/unavailable evidence has no numeric count. Dependency outages preserve
+  text search; unexpired suggestions serve only within the freshness policy.
+- Flutter has Home name/username search, a separate Friends tab with suggestions,
+  dismiss, privacy settings, profile/card mutual summaries/detail, cold-start
+  link copy/share plus QR and stale-response suppression after local block.
+- Verified: UserService build, 73 unit tests and 87 E2E/integration tests passed
+  without skipped cases, including real PostgreSQL/Neo4j/Redis/Kafka and Gateway
+  authentication/ownership checks. Flutter analyzer clean, 114 tests passed and
+  Android debug APK built at MobileApp/build/app/outputs/flutter-apk/app-debug.apk.
+  Compose config and documentation links/whitespace verified. Existing Firebase
+  Android plugin emits a future Kotlin migration advisory; current APK build passes.
+- Tests used a dedicated disposable database/schema, isolated Neo4j container,
+  unique Kafka topics/group and UUID-scoped Redis keys; temporary resources were
+  removed. Existing local .env secrets and live business tables were untouched.
+  Existing-environment activation requires matching new NEO4J_PASSWORD values in
+  root/UserService local .env, Neo4j startup, the registered migration and a
+  UserService restart. iOS/device interaction and workload benchmarks remain
+  unverified. Full API/deployment/rebuild/rollback guide:
+  docs/specs/user/smart-discovery-operations.md; product decisions: ADR-012.
+
+
+### 2026-11-10: Smart discovery hardening [1]–[8]
+
+- Replaced destructive pair cache invalidation with generation-incrementing Lua
+  pruning that preserves remaining PTTL/IDs, including delayed Kafka pair events.
+  Dismiss touches only its viewer. Flutter changes only affected cards/search
+  relationship state and retains loaded pages/cursors. Block acknowledgement also
+  advances the response epoch to reject reads begun while the write was in flight.
+- Search retrieves global PostgreSQL candidates once, parallel with Neo4j, then
+  ranks a bounded ID union with current PostgreSQL visibility/text checks. Query
+  normalization strips @, NFC-normalizes and collapses whitespace before minimum
+  length validation in both DTO/repository and Flutter.
+- Added DiscoveryRefreshLeases1794441600000 after SmartDiscovery: priority 0/1/2,
+  request revisions, token/30-second leases and retry availability. On-demand
+  upserts promote work while preserving its original queue position. Atomic
+  SKIP LOCKED claims commit before up to three concurrent computations; only
+  matching completed leases/revisions are acknowledged. Locked/failed/stale work
+  is retained and newer requests survive old worker completion. Monitoring and
+  refresh loops run independently to prevent graph work delaying health checks.
+- Two-hop candidates now score only distinct eligible common bridges. Three-hop
+  traversal runs only to fill remaining Top-500 slots, excluding two-hop IDs.
+  Bootstrap uses UUID tuple keyset; Kafka checks listTopics before creating the
+  graph topic. Typed discovery environment validation requires URL/password when
+  enabled outside tests. Blocking an existing friend writes bilateral UNFRIEND
+  30-day feedback transactionally; repeated block does not extend it.
+- Home retains FriendsScreen/subtab state in IndexedStack with lazy first load.
+  Unchanged profile return keeps pagination; changed peers refresh individually.
+  Profile buttons moved below names; zero/hidden/unavailable mutual chips omitted.
+- Verified required checks: shared/common and all four Node service builds PASS;
+  UserService lint clean and 91 unit tests PASS; AuthService 77 unit tests PASS;
+  Gateway 16 E2E PASS; UserService full-stack 94 E2E PASS with 0 skipped; Flutter
+  analyzer 0 issues and all 121 tests PASS. git diff whitespace check is clean.
+- Reusable scripts/verify-discovery-e2e.mjs generates process-only credentials,
+  starts UUID-named disposable PostgreSQL 17/authenticated Neo4j 5.26.33 on random
+  loopback ports, sets all test URLs, invokes npm test:e2e and removes containers
+  in finally. Tests use UUID-scoped Redis keys/Kafka topics and isolated schemas.
+  Real Gateway tests verify both search branches, exact username/graph ranking,
+  actual mutuals, preparing->ready, maintenance and preserved remaining cards
+  after send/dismiss; queue tests cover claims/ownership/revisions/lock contention.
+- Existing .env/secrets/live business data were not changed. Current local Neo4j
+  password/URL are not configured; activation requires local configuration and
+  both registered migrations. Physical-device/iOS checks, a new APK build,
+  workload benchmarks and super-node policy are outside this follow-up.
+- Evidence: docs/specs/user/smart-discovery-hardening-report.md; updated ADR-012,
+  smart-friend-discovery.md and smart-discovery-operations.md.
+
 ### 2026-11-13: Merge Home mới với camera/editor và local photo publishing
 
 - Giữ Google login, ProfileLinkScope, hồ sơ, bạn bè, thông báo và quản lý tài khoản khi giải quyết merge conflict.
@@ -605,3 +1098,71 @@ Mobile API layer now includes all existing Auth endpoints and Post create/delete
 - Legacy publish/media remain development JWT-free endpoints; feed access is authenticated. Deploying these changes requires restarting user-service and post-service. Development ddl-auto=update creates post_views; manual schema SQL is supplied for validate mode.
 - Verified: Flutter123 tests, post-service20 tests, feed5 tests on real PostgreSQL with disposable schema, audience real PG1, gateway Nest4 and Spring20. Test scaffolds isolate their data; no user data removed.
 - Android debug APK built successfully after feed integration; flutter analyze reports no issues. No service was left running by this task.
+### 2026-11-14: Resolve main merge into filter_service
+
+- Resolved all 9 merge conflicts while retaining AI multipart upload/response streaming,
+  client disconnect cancellation, IP rate limiting and all routes from main.
+- AI MVP remains public as specified by UC-07; existing account checks remain on
+  protected routes. Both JSON and raw proxy paths strip spoofed service/user headers
+  and replace forwarding headers with the gateway-derived client IP.
+- Preserved main's service-scoped environment validation and Redis lifecycle handling;
+  restored AI upstream URL and numeric limiter validation/defaults to gatewayKeys.
+- Combined workspace packages/scripts and lockfile dependency graphs. Aligned shared
+  AI NestJS dependency resolutions with libs/common to avoid duplicate HttpException
+  classes turning validation/provider errors into HTTP 500 responses.
+- Verification: common plus Gateway/Auth/User/Notification/AI builds passed; Gateway
+  unit 6/6 and E2E 32/32; AI unit 60/60 and E2E 13/13. Gemini provider is mocked in
+  tests; no paid generation or live webhook/tunnel changes were performed.
+
+### 2026-11-14: Merge main into chat-service
+
+- Merged main at 3570d0d (also the fetched origin/main) into chat-service;
+  resolved all 9 conflicting files while preserving chat REST/Socket.IO and the
+  camera/photo publishing/AI features from main.
+- Kept CHAT_SERVICE_URL validation/defaults and chat workspace build/start/migration
+  scripts. Combined both dependency graphs and retained matching NestJS runtime
+  resolutions for shared libraries. Flutter retains both camera and socket_io_client.
+- Chat REST still requires verified Bearer identity. Regression tests verify missing
+  and invalid credentials are rejected and forged user/service headers are stripped.
+  AI retains main's public MVP contract and five-request IP limit; client-supplied
+  forwarded IP headers cannot bypass the limiter when the gateway is accessed directly.
+- Verification: common plus Gateway/Auth/User/Notification/AI/Chat builds passed.
+  Gateway: 6 unit + 36 E2E; Chat: 5 unit + 27 E2E, including real PostgreSQL in a
+  disposable container and Socket.IO clients; AI: 60 unit + 13 E2E with mocked Gemini.
+  Flutter analyzer clean and all 147 Flutter tests passed. Android emulator/device
+  interaction and a paid Gemini generation were not part of these automated checks.
+
+### 2026-11-14: Merge main into feature/friend-suggestions
+
+- Resolved nine conflicts against main at 97f7181 while retaining friend discovery,
+  privacy/feedback, profile avatar/cover uploads and the branch's session boundaries.
+  Integrated main's chat, camera/photo publishing and Gemini image filtering.
+- Combined both raw media upload paths (5/10 MiB limits, quota, 60-second upstream
+  deadline) and AI streaming/cancellation. Preserved all gateway routes and added
+  regression checks that Python AI2 is not exposed through /ai-search.
+- User-approved final decision: Gemini remains /ai at 8082; posts remain at 8087;
+  Python AI2 code/examples/scripts default to 8088 with separate reserved
+  AI_SEARCH_SERVICE_URL. AI2 Gateway integration is deferred until verified identity
+  and user_id ownership checks exist. ADR-015 and ai-services-coexistence.md record
+  the decision. Existing .env files, secrets and live deployments were preserved.
+- Kept both Spring Gateway regression cases and the 8 MiB body default required
+  by photo posts. Retained upload-specific limits, timeouts and multipart settings.
+  Home keeps friend-tab state, avatar viewing and session replacement cleanup;
+  chat controllers are disposed before an account replacement.
+- Verification: all seven Node workspace packages built; Flutter analyzer clean,
+  322 Flutter tests passed. UserService: 125 unit, 94 discovery/social E2E plus
+  9 media E2E (separate PostgreSQL/S3 run), clean type-aware lint and one real Node
+  shared-guard smoke test. AuthService: 77 unit; Gateway: 6 unit + 45 E2E;
+  Gemini AI: 60 unit + 13 E2E; Spring Gateway: 21 tests. Python configuration and
+  search helper parsed successfully without loading models or using provider APIs.
+- PostgreSQL, Neo4j, Redis, Kafka and S3 verification used disposable containers;
+  all were removed. No live user data, emulator interaction or AI model inference
+  was used for these checks. Small existing Dart lint issues and the incoming
+  shared-guard test's unawaited test registration were corrected.
+
+
+### 2026-11-15: Resolve main merge into api-gateway
+
+- Resolved five conflicts, preserving ranked feed alongside main chat, profile and session management. Feed activity and pagination use HomeTab.home after the navigation enum migration.
+- Auth API accepts both posts and chat, retaining Retry-After and display-name cooldown error metadata. Kept portable post media defaults and feed configuration.
+- Verification: Flutter analyzer clean; all 330 Flutter tests passed; post-service Maven tests completed successfully.

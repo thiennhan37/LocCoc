@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthenticatedUser } from '@loccoc/common';
 import { UsersService } from './users.service.js';
@@ -46,7 +46,9 @@ describe('UsersService', () => {
     id: regularUser.userId,
     email: 'user@example.com',
     displayName: 'Test User',
+    lastDisplayNameChangedAt: null,
     avatarUrl: null,
+    coverUrl: null,
     phone: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -156,10 +158,28 @@ describe('UsersService', () => {
         adminUser,
       );
       expect(result.displayName).toBe('Admin Updated');
-      expect(repo.updateProfile).toHaveBeenCalledWith(sampleUser.id, {
-        displayName: 'Admin Updated',
-      });
+      expect(repo.updateProfile).toHaveBeenCalledWith(
+        sampleUser.id,
+        {
+          displayName: 'Admin Updated',
+        },
+        { id: adminUser.userId, type: 'ADMIN' },
+      );
     });
+
+    it.each([regularUser, moderatorUser])(
+      'rejects non-admin overrides before writing',
+      async (actor) => {
+        await expect(
+          service.updateUserById(
+            sampleUser.id,
+            { displayName: 'Override' },
+            actor,
+          ),
+        ).rejects.toThrow(ForbiddenException);
+        expect(repo.updateProfile).not.toHaveBeenCalled();
+      },
+    );
 
     it('throws 404 if user does not exist', async () => {
       repo.updateProfile?.mockResolvedValue(null);
@@ -174,6 +194,12 @@ describe('UsersService', () => {
   });
 
   describe('deleteMyAccount', () => {
+    it('does not allow an administrator to change another account images', async () => {
+      for (const dto of [{ avatarUrl: '' }, { coverUrl: '' }]) {
+        await expect(service.updateUserById(sampleUser.id, dto, adminUser)).rejects.toThrow(ForbiddenException);
+      }
+      expect(repo.updateProfile).not.toHaveBeenCalled();
+    });
     it('soft deletes own account successfully', async () => {
       repo.softDelete?.mockResolvedValue(true);
       await expect(
