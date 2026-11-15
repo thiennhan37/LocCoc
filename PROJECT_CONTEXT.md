@@ -595,3 +595,13 @@ Mobile API layer now includes all existing Auth endpoints and Post create/delete
 - Smoke PostgreSQL thật: c83fa5a8-4111-4936-8c43-6beb784df418.png, GET 200, retry cùng ID, bản ghi tồn tại trong moments. Post-service thử nghiệm 18087 đã dừng.
 
 - Android debug APK build thành công; Gradle lần đầu khoảng 12 phút. Review độc lập phát hiện no-op filter/caption làm đổi requestId; đã sửa và regression test qua.
+
+### 2026-11-13: Ranked Home feed
+
+- Home scrolls into real posts, refreshing and scrolling to feed after publishing. Own unseen recent (default24h) → friends unseen → own older unseen → seen; newest first within each group.
+- post-service GET /posts/feed and PUT /posts/{id}/seen require bearer identity via user-service GET /users/me/feed-audience, filtering current accepted active nonblocked friends. No cross-database reads.
+- post_views persists first-view history. Snapshot-aware keyset pagination keeps traversal stable during seen writes; expired cursors restart the feed. POST_FEED_OWN_PRIORITY_HOURS is configurable.
+- Mobile only records loaded images at >=50% visible for one continuous second while active and foreground; hides/scroll interruptions reset dwell. Existing Google/profile/friend/camera/editor flows retained.
+- Legacy publish/media remain development JWT-free endpoints; feed access is authenticated. Deploying these changes requires restarting user-service and post-service. Development ddl-auto=update creates post_views; manual schema SQL is supplied for validate mode.
+- Verified: Flutter123 tests, post-service20 tests, feed5 tests on real PostgreSQL with disposable schema, audience real PG1, gateway Nest4 and Spring20. Test scaffolds isolate their data; no user data removed.
+- Android debug APK built successfully after feed integration; flutter analyze reports no issues. No service was left running by this task.

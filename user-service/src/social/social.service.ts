@@ -52,6 +52,10 @@ export class SocialService {
     await this.repo.ready(id);
     return this.repo.summary(id);
   }
+  async feedAudience(id: string) {
+    await this.repo.ready(id);
+    return { viewerId: id, authors: await this.repo.feedAuthors(id) };
+  }
   async requests(id: string, dto: RequestsQueryDto) {
     await this.repo.ready(id);
     return this.repo.requests(id, dto, dto.direction);

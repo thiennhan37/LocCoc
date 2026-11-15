@@ -84,3 +84,13 @@ Chưa phân phối bài tới bạn bè.
 
 Postman: Publish local photo, Read local photo đã có trong cả hai collection.
 Xóa biến photoRequestId trước khi tạo ảnh mới; giữ biến khi thử lại.
+
+## Feed của mình và bạn bè
+
+GET /posts/feed?limit=20&cursor=... và PUT /posts/{id}/seen yêu cầu Bearer token hợp lệ.
+post-service gọi USER_SERVICE_URL (mặc định http://127.0.0.1:8081)/users/me/feed-audience; user-service xác thực tài khoản và lọc bạn bè accepted, active, không bị chặn.
+Thứ tự: bài mình chưa xem trong 24h → bài bạn bè chưa xem → bài mình cũ chưa xem → tất cả bài đã xem. Trong từng nhóm, mới nhất trước.
+POST_FEED_OWN_PRIORITY_HOURS cấu hình 1..8760 giờ, mặc định 24.
+Response {data:[...],nextCursor:string|null}; limit 1..50; cursor sống 1 giờ, không đổi thứ tự khi đang cuộn.
+Bảng post_views lưu lần xem đầu tiên theo viewer/post. DDL development update tự tạo khi khởi động; nếu dùng validate hãy áp dụng phần CREATE TABLE post_views trong schema-postgresql.sql.
+Khởi động lại user-service và post-service sau khi cập nhật; cần auth-service đang chạy. Không dùng ownerId từ client để quyết định quyền đọc feed.

@@ -285,7 +285,7 @@ class AuthApiClient {
     String accessToken, {
     Map<String, dynamic>? body,
   }) async {
-    if (!['users', 'notifications', 'auth'].contains(area)) {
+      if (!['users', 'notifications', 'auth', 'posts'].contains(area)) {
       throw ArgumentError('Invalid API area');
     }
     final suffix = path.isEmpty || path.startsWith('?') ? path : '/$path';
@@ -310,7 +310,7 @@ class AuthApiClient {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AuthApiException(
         response.statusCode,
-        code: data['code'] as String?,
+        code: data['code']?.toString(),
         message: data['message'] is String ? data['message'] as String : null,
       );
     }

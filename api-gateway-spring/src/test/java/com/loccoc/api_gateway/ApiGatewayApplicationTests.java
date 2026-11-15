@@ -128,6 +128,12 @@ class ApiGatewayApplicationTests {
 
   @Test
   void forwardsPostRootAndDeletionWithoutToken() throws Exception {
+    mvc.perform(get("/posts/feed?limit=20&cursor=test").header("Authorization", "Bearer viewer"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("GET /posts/feed?limit=20&cursor=test"));
+    mvc.perform(put("/posts/123/seen").header("Authorization", "Bearer viewer"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("PUT /posts/123/seen"));
     mvc.perform(post("/posts/photos").contentType("application/json").content("{\"imageBase64\":\"abc\"}"))
         .andExpect(status().isCreated());
     Assertions.assertTrue(received.get().startsWith("POST /posts/photos {\"imageBase64\":\"abc\"}"));

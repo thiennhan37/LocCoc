@@ -55,6 +55,11 @@
       "key": "photoRequestId",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "feedCursor",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -389,6 +394,85 @@
             "method": "GET",
             "header": [],
             "url": "{{gatewayUrl}}/posts/media/{{postId}}"
+          }
+        },
+        {
+          "name": "Get Feed",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{gatewayUrl}}/posts/feed?limit=20",
+            "description": "Requires login and a completed username. Own recent unseen, friends unseen, own older unseen, then seen. Use Get Feed to start a new traversal; cursor expires after one hour."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) { const body = pm.response.json(); pm.collectionVariables.set('feedCursor', body.nextCursor || ''); if (body.data.length) pm.collectionVariables.set('postId', body.data[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Next Feed Page",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{gatewayUrl}}/posts/feed?limit=20&cursor={{feedCursor}}",
+            "description": "Requires login and a completed username. Own recent unseen, friends unseen, own older unseen, then seen. Use Get Feed to start a new traversal; cursor expires after one hour."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) { const body = pm.response.json(); pm.collectionVariables.set('feedCursor', body.nextCursor || ''); if (body.data.length) pm.collectionVariables.set('postId', body.data[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mark Post Seen",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [],
+            "url": "{{gatewayUrl}}/posts/{{postId}}/seen",
+            "description": "Returns 204. Idempotent first view for authenticated viewer; checks current accepted-friend membership."
           }
         }
       ]

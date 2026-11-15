@@ -427,6 +427,9 @@ void main() {
           signInAdapter: adapter,
           apiClient: AuthApiClient(
             httpClient: FakeHttpClient((request) async {
+              if (request.url.path == '/posts/feed') {
+                return http.Response('{"data":[],"nextCursor":null}', 200);
+              }
               if (request.url.path == '/notifications/counts') {
                 return http.Response('{"unseenCount":0,"unreadCount":0}', 200);
               }

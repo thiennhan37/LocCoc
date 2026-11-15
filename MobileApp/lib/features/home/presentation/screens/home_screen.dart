@@ -1,3 +1,6 @@
+import '../../../posts/application/feed_controller.dart';
+import '../../../posts/data/feed_api.dart';
+import '../../../posts/presentation/feed_sliver.dart';
 import 'capture_moment_screen.dart';
 import '../../../posts/presentation/photo_editor_screen.dart';
 import 'dart:async';
@@ -41,6 +44,28 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  late final FeedController _feed = FeedController(
+    SessionFeedApi(_effectiveUserApi),
+  );
+  final ScrollController _homeScroll = ScrollController();
+  final GlobalKey _homeHeaderKey = GlobalKey();
+  void _onFeedScroll() {
+    if (_realSession &&
+        _currentTab == 0 &&
+        _homeScroll.hasClients &&
+        _homeScroll.position.extentAfter < 500 &&
+        _feed.error == null) {
+      unawaited(_feed.loadMore());
+    }
+  }
+
+  Future<void> _refreshHome() async {
+    await Future.wait([
+      _refreshSocialSummary(),
+      if (_realSession) _feed.refresh(),
+    ]);
+  }
+
   int _unseenCount = 0;
   int _countsVersion = 0;
   int? _friendCount;
@@ -57,6 +82,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _authService.updateSession(session);
+    _homeScroll.addListener(_onFeedScroll);
+    if (_realSession) unawaited(_feed.refresh());
     WidgetsBinding.instance.addObserver(this);
     if (_realSession) {
       if (widget.initialTab == 2) _refreshSocialSummary();
@@ -143,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
     );
     await _refreshSocialSummary();
+    if (mounted && _realSession) await _feed.refresh();
   }
 
   @override
@@ -158,6 +186,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _homeScroll.dispose();
+    _feed.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _notificationTimer?.cancel();
     _push?.dispose();
@@ -180,7 +210,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isLoggingOut = false;
   bool _awaitingLogoutChoice = false;
   bool _isDeletingAccount = false;
-  bool _isFavorited = false;
 
   UserApiClient? _fallbackUserApi;
   AuthSession get session =>
@@ -429,45 +458,60 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // ==========================================
   Widget _buildHomeTab() {
     final email = session.user.email ?? session.user.id;
-
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: RefreshIndicator(
-          onRefresh: _refreshSocialSummary,
-          child: SingleChildScrollView(
+          onRefresh: _refreshHome,
+          child: CustomScrollView(
+            controller: _homeScroll,
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Top Session Info & Status Header (ensures test compatibility & session visibility)
-                _buildTopStatusHeader(email),
-                const SizedBox(height: 12),
-
-                // Brand Header & User Greeting
-                _buildBrandHeader(),
-                const SizedBox(height: 14),
-                _buildAccountSearchBar(),
-                const SizedBox(height: 18),
-
-                // Title Section
-                _buildTitleSection(),
-                const SizedBox(height: 18),
-
-                // Stories Row
-                _buildStoriesRow(),
-                const SizedBox(height: 20),
-
-                // Featured Post Card
-                _buildFeaturedCard(),
-                const SizedBox(height: 20),
-
-                // Action Button ("Gửi một khoảnh khắc")
-                _buildActionMomentsButton(),
-                const SizedBox(height: 24),
-              ],
-            ),
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  key: _homeHeaderKey,
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildTopStatusHeader(email),
+                      const SizedBox(height: 12),
+                      _buildBrandHeader(),
+                      const SizedBox(height: 14),
+                      _buildAccountSearchBar(),
+                      const SizedBox(height: 18),
+                      _buildTitleSection(),
+                      const SizedBox(height: 18),
+                      _buildStoriesRow(),
+                      const SizedBox(height: 20),
+                      _buildActionMomentsButton(),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
+              ),
+              if (_realSession)
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  sliver: FeedSliver(
+                    controller: _feed,
+                    active:
+                        _currentTab == 0 &&
+                        !_isLoggingOut &&
+                        !_isDeletingAccount,
+                  ),
+                )
+              else
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'Đăng nhập để xem khoảnh khắc của bạn và bạn bè.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -532,6 +576,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       );
       if (mounted && result != null) {
+        await _feed.refresh();
+        if (!mounted) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_homeScroll.hasClients) return;
+          final header = _homeHeaderKey.currentContext?.findRenderObject();
+          if (header is RenderBox) {
+            unawaited(
+              _homeScroll.animateTo(
+                header.size.height.clamp(
+                  0.0,
+                  _homeScroll.position.maxScrollExtent,
+                ),
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.easeOut,
+              ),
+            );
+          }
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Đã đăng khoảnh khắc của bạn.')),
         );
@@ -851,211 +913,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             );
           }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFeaturedCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: AppColors.border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 18,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Media with floating badges
-          Stack(
-            children: [
-              SizedBox(
-                height: 310,
-                width: double.infinity,
-                child: _buildSafeAssetImage(
-                  'assets/images/coffee_full.png',
-                  fallback: Container(
-                    color: const Color(0xFFEFECE8),
-                    child: const Center(
-                      child: Icon(
-                        Icons.coffee_rounded,
-                        color: AppColors.primary,
-                        size: 48,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              // Top-left author pill
-              Positioned(
-                top: 14,
-                left: 14,
-                child: Container(
-                  padding: const EdgeInsets.only(
-                    top: 4,
-                    bottom: 4,
-                    left: 4,
-                    right: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.95),
-                    borderRadius: BorderRadius.circular(9999),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.08),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ClipOval(
-                        child: SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: _buildSafeAssetImage(
-                            'assets/images/minh_anh_circle.png',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '$_displayName • 2 giờ trước',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Bottom-right close friends badge
-              Positioned(
-                bottom: 14,
-                right: 14,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xB816191C),
-                    borderRadius: BorderRadius.circular(9999),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Text(
-                        '✦',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      SizedBox(width: 6),
-                      Text(
-                        AppStrings.closeFriends,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          // Card bottom details
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text(
-                        AppStrings.featuredPostDefaultTitle,
-                        style: TextStyle(
-                          fontSize: 15.5,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      SizedBox(height: 3),
-                      Text(
-                        AppStrings.featuredPostDefaultDesc,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w400,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () {
-                    setState(() => _isFavorited = !_isFavorited);
-                  },
-                  child: Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white,
-                      border: Border.all(color: const Color(0xFFECE7E1)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Icon(
-                        _isFavorited
-                            ? Icons.favorite_rounded
-                            : Icons.favorite_border_rounded,
-                        color: _isFavorited
-                            ? AppColors.primary
-                            : AppColors.textSecondary,
-                        size: 22,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );
