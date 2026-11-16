@@ -15,5 +15,4 @@ secrets
 logs
 .codex*
 MobileApp
-extracted_assets
-processed_assets
+docs/design

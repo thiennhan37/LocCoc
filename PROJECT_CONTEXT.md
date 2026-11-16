@@ -1,5 +1,31 @@
 # LocCoc Project Context & Knowledge Base (Admin & Payment Module)
 
+### 2026-11-16: Repository presentation cleanup
+
+- Removed Edge presentation scratch/cache and generated deck/slide artifacts,
+  nine duplicate processed PNGs and eight root Flutter build/test logs.
+- Moved Home/Profile mockups, screenshots, source crops and generator inputs into
+  docs/design; generator now uses portable paths. Flutter packaged assets remain.
+- Archived the obsolete H2 data/posts.mv.db outside the repository with verified
+  SHA-256. PostgreSQL configuration/data are unchanged. Removed run.txt; its LAN
+  Flutter command is already documented in MobileApp/README.md.
+- Untracked IDE configuration while preserving the local .idea directory.
+  Ignore rules now exclude scratch output and local H2 files.
+- Retained only postman/LocCoc IAM - API Gateway.postman_collection.json (62 unique
+  endpoints), without changing its contents; updated current documentation links.
+  Lockfiles, quest.txt and other items awaiting consolidation remain untouched.
+
+
+### 2026-11-16: Remove residual experimental AI directories
+
+- Confirmed ai-service-2 has no tracked source or remaining files; removed its
+  empty local directory tree left after merge. Python runtime remains ai-service;
+  ai-enhancement-service is the separate NestJS image-filter runtime.
+- Consolidated Python ignore rules and removed obsolete ai-service-2 entries.
+  Other cleanup candidates were inventoried only; no app assets, runtime data,
+  design references, secrets or existing environments were removed.
+
+
 ### 2026-11-16: Resolve smartly-seeking-moments merge with main
 
 - Preserve Moments' hardened Python runtime in ai-service; relocate main's NestJS
@@ -774,7 +800,7 @@ Mobile API layer now includes all existing Auth endpoints and Post create/delete
 
 - **Vấn đề đã xử lý:** Trước đó sau khi đăng nhập (Google Sign-In hoặc Email/Password), màn hình hiển thị chỉ là màn debug thông tin token kỹ thuật thô (`Thông tin tài khoản`, `Access Token`) mà không hiển thị **Trang chủ (Home Page)** của LocCoc. Đồng thời form email/mật khẩu bị chặn với thông báo "Đăng nhập chưa khả dụng".
 - **Hiện thực hóa Trang chủ chuẩn thiết kế (Home & Profile):**
-  - Đã tích hợp đầy đủ bộ tài nguyên hình ảnh (`assets/images/`) theo bản vẽ thiết kế (`Home.html`, `Profile.html`, `Home.png`, `Profile.png`).
+  - Đã tích hợp đầy đủ bộ tài nguyên hình ảnh (`assets/images/`) theo bản vẽ thiết kế (`docs/design/Home.html`, `docs/design/Profile.html`, `docs/design/Home.png`, `docs/design/Profile.png`).
   - Triển khai toàn diện giao diện `HomeScreen`:
     - **Tab 0 - Trang chủ:** Header thương hiệu `LocCoc ✦`, lời chào `Chào, [Tên]` & avatar; Tiêu đề *"Một chút hôm nay. Những điều nhỏ xíu, gửi người thân yêu."*; Hàng Story bạn bè (*Mời bạn*, *Nam*, *Thảo Vy*, *Linh*, *Bân*); Bài đăng nổi bật (*Ảnh cà phê, Author pill, Huy hiệu Bạn thân, Nút tim tương tác*); Nút hành động nổi bật gradient *"Gửi một khoảnh khắc"*; Thanh điều hướng dưới 3 tab (*Trang chủ*, *Kỷ niệm*, *Cá nhân*).
     - **Tab 1 - Kỷ niệm:** Bộ sưu tập kỷ niệm với hình ảnh, nhãn thời gian và mô tả.

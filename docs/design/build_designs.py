@@ -1,8 +1,9 @@
 import json
-import os
-import subprocess
+from pathlib import Path
 
-with open(r'd:\PTPM_HDV\LocCoc\processed_assets\b64_assets.json', 'r', encoding='utf-8') as f:
+DESIGN_DIR = Path(__file__).resolve().parent
+
+with (DESIGN_DIR / 'processed_assets' / 'b64_assets.json').open('r', encoding='utf-8') as f:
     b64 = json.load(f)
 
 # Common SVG definitions
@@ -533,7 +534,7 @@ body {{
 </html>
 """
 
-with open(r'd:\PTPM_HDV\LocCoc\Home.html', 'w', encoding='utf-8') as f:
+with (DESIGN_DIR / 'Home.html').open('w', encoding='utf-8') as f:
     f.write(home_html)
 
 # ----------------- PROFILE HTML -----------------
@@ -1038,7 +1039,7 @@ body {{
 </html>
 """
 
-with open(r'd:\PTPM_HDV\LocCoc\Profile.html', 'w', encoding='utf-8') as f:
+with (DESIGN_DIR / 'Profile.html').open('w', encoding='utf-8') as f:
     f.write(profile_html)
 
 print('Updated build_designs.py completed')

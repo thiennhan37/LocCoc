@@ -56,7 +56,7 @@ Lỗi trả cùng chuẩn api-gateway-spring: {"code":1100,"message":"Requested 
 
 ## Postman
 
-Import `postman/loccoc-api-gateway.postman_collection.json`, mở folder **Post Service**.
+Import `postman/LocCoc IAM - API Gateway.postman_collection.json`, mở folder **Post Service**.
 `postServiceUrl` mặc định `http://localhost:8089`; đổi sang `http://localhost:8080` khi chạy gateway.
 Chạy **Create Post** trước: response 201 tự lưu `postId` vào collection variables.
 Sau đó **Delete Post** sử dụng `postId` và `postOwnerId`, trả 204.
@@ -81,5 +81,5 @@ Xóa bài là xóa mềm; API ngừng phục vụ ảnh nhưng file vẫn giữ 
 Endpoint /posts cũ vẫn dành cho metadata của media đã upload.
 Chưa phân phối bài tới bạn bè.
 
-Postman: Publish local photo, Read local photo đã có trong cả hai collection.
+Postman: Publish local photo, Read local photo đã có trong collection được giữ lại.
 Xóa biến photoRequestId trước khi tạo ảnh mới; giữ biến khi thử lại.

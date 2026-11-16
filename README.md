@@ -26,6 +26,8 @@ post-service/     # Photo posts (:8089)
 libs/common/      # config schema, filters, guards, decorators and shared interfaces
 ```
 
+Design references: [Home/Profile mockups](docs/design/README.md).
+
 ## Local infrastructure
 
 The Compose stack contains PostgreSQL, Redis, Kafka, Kafbat UI and an optional Kafka CLI container. Copy `.env.example` to `.env`, then provide your own database passwords and key paths:
@@ -102,7 +104,7 @@ npm run db:migrate:user
 
 These commands build the service and apply only pending checked-in migrations using its own database credentials. Auth creates `accounts`, `sessions`, `refresh_tokens`; user creates `users`. They do not enable `synchronize`, edit `.env` or remove volumes. Run them again whenever deploying new migrations. Alternatively, explicitly set `TYPEORM_MIGRATIONS_RUN=true` in the process environment before starting a service; a value supplied in the shell overrides the file. A missing table is an auth/database issue even when the request arrives via a gateway.
 
-For `Postman/loccoc-api-gateway.postman_collection.json`:
+For `postman/LocCoc IAM - API Gateway.postman_collection.json`:
 
 1. Start auth and one gateway (NestJS or Spring) and set `gatewayUrl=http://localhost:8080`.
 2. Send **Register** first with your collection email/password/phone variables.
