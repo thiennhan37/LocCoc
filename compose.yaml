@@ -46,6 +46,8 @@ services:
       USER_DB_NAME: ${USER_DB_NAME:-users}
       NOTIFICATION_DB_NAME: ${NOTIFICATION_DB_NAME:-notifications}
       NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:-}
+      MOMENT_DB_NAME: ${MOMENT_DB_NAME:-moments}
+      MOMENT_DB_PASSWORD: ${MOMENT_DB_PASSWORD:-}
       USER_DB_PASSWORD: ${USER_DB_PASSWORD:?Set USER_DB_PASSWORD in .env}
       AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Set AUTH_DB_PASSWORD in .env}
     ports:
@@ -140,7 +142,7 @@ services:
       retries: 10
 
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2
     restart: unless-stopped
     ports:
       - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
@@ -152,6 +154,48 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  ai-service:
+    profiles: [moments]
+    build: ./ai-service
+    restart: unless-stopped
+    env_file:
+      - path: ./ai-service/.env
+        required: false
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "127.0.0.1:8087:8087"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  moment-service:
+    profiles: [moments]
+    build:
+      context: .
+      dockerfile: moment-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: ./moment-service/.env
+        required: false
+    environment:
+      SERVICE_BIND_HOST: 0.0.0.0
+      AI_SERVICE_URL: http://ai-service:8087
+      AUTH_SERVICE_URL: http://host.docker.internal:${AUTH_PORT:-8000}
+      KAFKA_BROKERS: kafka:19092
+    ports:
+      - "127.0.0.1:8088:8088"
+    volumes:
+      - ./secrets/jwt-public.pem:/run/secrets/jwt-public.pem:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
 
 volumes:
   media_data:

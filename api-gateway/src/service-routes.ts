@@ -24,9 +24,9 @@ export const SERVICE_ROUTES = {
     prefix: '/subscriptions',
     urlConfigKey: 'PAYMENT_SERVICE_URL',
   },
-  ai: {
-    prefix: '/ai',
-    urlConfigKey: 'AI_SERVICE_URL',
+  moments: {
+    prefix: '/moments',
+    urlConfigKey: 'MOMENT_SERVICE_URL',
   },
 } as const;
 

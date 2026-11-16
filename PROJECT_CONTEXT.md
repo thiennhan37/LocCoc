@@ -1,5 +1,97 @@
 # LocCoc Project Context & Knowledge Base (Admin & Payment Module)
 
+### 2026-11-15: Full-project verification
+
+- Executed current-checkout build/test/static checks: 754 tests passed, 2
+  Notifications integration tests failed because their fixture omits the
+  SmartDiscovery migration providing lock_social_pair. Production User migration
+  list includes it; this is not evidence of a missing production function.
+- TypeScript workspace build, backend lint, dashboard production build, Python
+  Ruff/pip consistency, Flutter analyzer and Android debug APK build pass.
+  Dashboard lint fails with 8 errors / 45 warnings. Flutter: 279 tests pass.
+- Admin/Payment default Maven builds fail on active JDK 24 without Lombok
+  annotation processing; both package successfully with -Dmaven.compiler.proc=full.
+  Neither module has source tests. No business code/build config was changed.
+- Code review identified missing Admin/Billing authorization boundaries, IAM UUID
+  versus billing Long mismatch, concurrent payment-idempotency gap, dashboard RAM
+  mutations/mock fallback and missing Admin/Payment Tier synchronization.
+  These source findings are distinguished from runtime reproduction in the report.
+- Added scripts/verify-iam-notifications-media.mjs for disposable PostgreSQL/S3
+  Auth/Notifications/media tests. Test resources were cleaned; existing services
+  and environment files preserved. No new live Gemini or PayOS calls.
+- Full results and limits: docs/reports/2026-11-15-full-project-audit.md.
+
+### 2026-11-15: Moments/AI live verification and separate chat branch tests
+
+- User confirmed the requested “post-service” means the current `moment-service`.
+  Current checkout passed 32 AI tests + Ruff, 13 Moments unit tests, 10 isolated
+  integration tests, 1 Redis quota concurrency test and 2 Gateway routing tests.
+- Started Auth :8000, Gateway :8080, unified Python AI :8087 and Moments :8088
+  using existing configuration; left these local services running. Real
+  Gateway/Auth/private-S3/Gemini/Qdrant upload/search/ACL/delete acceptance passed
+  using synthetic fixtures, with exactly 2 additional dedicated-key provider
+  reservations and no retry. Fixture deletion completed. Documented cumulative
+  request totals are now legacy key 2 / dedicated embedding key 6, excluding any
+  activity outside the recorded runs. No legacy-key calls or secret edits.
+- Chat source is absent from this checkout but exists on `chat-service` at
+  e96410ad5cfe36c45d86f736dddbca5e6480d07d. Verified an isolated archive without
+  switching/merging branches: builds, 5 chat configuration tests, 27 real
+  PostgreSQL/HTTP/Socket.IO integration tests and 6 Gateway chat/posts tests pass.
+  Auth/User responses were fixtures there; chat is not integrated or running in
+  the current branch. Combined current-branch acceptance remains unverified.
+- Additional Java PostService coverage on that archive passed 15 Maven tests
+  and real PostgreSQL/PNG Gateway lifecycle checks. Temporary containers and
+  processes were cleaned. Full evidence, commands and observed limitations:
+  docs/specs/moments/reports/2026-11-15-runtime-verification.md.
+
+### 2026-11-14: Unified Gemini moment-search runtime (supersedes plan below)
+
+- Local activation subsequently authorized and executed: independent `moments`
+  DB/role + migration and private `loccoc-moments-private` bucket created; matching
+  new AI service credentials saved only in ignored service .env files and flags
+  enabled. AuthService :8000, Nest Gateway :8080, AI :8087 and Moments :8088 are
+  running in hidden background processes; launcher/logs: scripts/start-moments-local.ps1
+  and logs/moments-local/. Existing UserService :8081 was preserved.
+- Live local Gateway -> real Auth/JWT -> Moments -> private S3 -> Gemini/Qdrant
+  verification passed using two synthetic accounts and one generated image;
+  owner/tenant rejection, upload/pending/ready, Vietnamese semantic-only candidate
+  retrieval, authenticated read, immediate deletion and external cleanup checked.
+  Fixtures were tombstoned through real account authority. This added exactly two
+  provider requests; cumulative calls are now legacy paid key 2 / dedicated key 4
+  (6 total), no retries. Live artifact: logs/moments-local/live-verification-3118381f-38b4-4993-9db0-b9a6c7fb0981.json.
+
+- Consolidated Python runtime into ai-service; deleted ai-service-2, local-model
+  code, download scripts and GPU dependencies. Existing ignored ai-service/.env
+  retained. An initial smoke used existing GEMINI_API_KEY for exactly two requests
+  (synthetic image + text, no retry; valid 768-dimensional vectors). User clarified
+  that legacy key is paid and must not be used. Added blank GEMINI_EMBEDDING_API_KEY;
+  runtime now exclusively uses it, with no legacy/Google-key fallback. User then
+  filled/authorized the dedicated key; its own two-request smoke passed. Total
+  Initial delivery calls were legacy paid key 2, dedicated key 2; activation added
+  two dedicated-key requests, bringing current totals to 2 / 4. No retries. Billing
+  amounts were not measured. No additional live tests are scheduled.
+- Added moment-service with independent PostgreSQL metadata/durable job outbox,
+  private S3 images, RS256 + live account authority, lease/version/final ACL checks,
+  retries, staged cleanup, account-deletion projection, hybrid search and visible
+  metadata fallback. Public /moments on both gateways; no public AI route.
+- Flutter has opt-in gallery/upload/search/filter/index state/fallback/session
+  fencing. Restored the already-imported but missing account_security.dart model
+  to unblock compilation; narrowed the global model-directory ignore rule.
+- ADR-016 records PostgreSQL polling-worker and authenticated image read-through
+  choices. Original ADR-015/spec/backlog are historical inputs; authoritative
+  verification/limits: docs/specs/moments/reports/2026-11-14-runtime.md.
+- Existing local environment is now activated after explicit user authorization:
+  scripts/configure-moments-local.mjs --apply completed successfully, service
+  credentials/DB/private bucket configured and flags enabled. Android debug APK
+  built with --dart-define=MOMENTS_ENABLED=true at MobileApp/build/app/outputs/flutter-apk/app-debug.apk.
+- Verification passed: 32 Python regressions, 13 MomentService unit tests,
+  10 real-dependency Node integration tests + 1 Redis concurrency test, 9 targeted
+  Nest Gateway E2E and 21 Spring Gateway tests. TypeScript workspace and CPU image
+  build/import checks pass; Flutter full regression 278 passed, followed by 5
+  final moments UI/client tests; analyzer clean. Disposable containers removed.
+- Live quality/load, private-data/free-tier suitability, production credential/TLS,
+  drift/reindex/restore and workload SLO gates remain open; no production claim.
+
 ### 2026-11-14: Gemini API moment-search design and remediation plan
 
 - At the user's request, revised ADR-015/spec from self-hosted SigLIP/Jina to

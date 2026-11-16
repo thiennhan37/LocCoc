@@ -1,5 +1,10 @@
 # Đánh giá và kế hoạch tìm kiếm khoảnh khắc thông minh
 
+> Runtime implementation now exists under [ADR-016](../../adr/ADR-016-unified-ai-and-moment-runtime.md).
+> The original assessment/test targets below remain reference material. Consult
+> the [runtime report](reports/2026-11-14-runtime.md) and [operations](operations.md)
+> for actual implemented contracts, evidence and unresolved rollout gates.
+
 Ngày: 2026-11-14. Quyết định: [ADR-015](../../adr/ADR-015-smart-moment-search.md).
 Phạm vi đợt này: cập nhật thiết kế Gemini API và kế hoạch sửa lỗi bằng Markdown;
 chưa hiện thực tính năng/benchmark. Kế hoạch thực thi chi tiết và backlog nằm tại

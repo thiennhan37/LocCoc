@@ -4,18 +4,21 @@ This repository now contains the IAM Level 1 platform foundation: an API gateway
 
 ## Monorepo layout
 
-Smart moment search is planned to use Gemini Embedding 2 API + Qdrant with a
-CPU-only AI adapter, private moment storage and a dedicated MomentService.
-The current AI code is still a legacy Jina PoC. See
-[ADR-015](docs/adr/ADR-015-smart-moment-search.md), the
-[search specification](docs/specs/moments/smart-moment-search.md) and the
-[implementation/remediation plan](docs/specs/moments/gemini-implementation-and-remediation-plan.md)
-for the target design and unresolved fixes; this is not a deployed feature.
+Smart moment search now uses the unified Python `ai-service` (Gemini Embedding 2,
+768 dimensions, Qdrant) and NestJS `moment-service` (private images, PostgreSQL
+metadata/jobs, final ownership checks). `ai-service-2` and its local embedding
+runtime have been removed. Public clients use `/moments`; AI APIs are internal.
+The feature remains disabled until local credentials/infrastructure are configured.
+See the [operations guide](docs/specs/moments/operations.md),
+[implementation report](docs/specs/moments/reports/2026-11-14-runtime.md) and
+[ADR-016](docs/adr/ADR-016-unified-ai-and-moment-runtime.md).
 
 ```text
 api-gateway/      # public edge: Helmet, CORS, validation, request IDs, Redis throttling
 auth-service/     # identity boundary (scaffold for login/token flows)
 user-service/     # user boundary
+moment-service/   # private moment metadata, upload/search and durable indexing jobs
+ai-service/       # CPU-only internal Gemini adapter and owner-filtered vector index
 libs/common/      # config schema, filters, guards, decorators and shared interfaces
 ```
 

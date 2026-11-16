@@ -110,9 +110,10 @@ node_modules
 **/.venv/
 **/venv/
 **/env/
-ai-service-2/.venv/
-ai-service-2/models/
-**/models/
+ai-service/.venv/
+**/.pytest_cache/
+**/.ruff_cache/
+ai-service/models/
 *.safetensors
 *.bin
 *.onnx

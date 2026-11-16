@@ -1,5 +1,10 @@
 # Kế hoạch triển khai Gemini Embedding và sửa lỗi tìm kiếm khoảnh khắc
 
+> Historical implementation plan. The runtime is now consolidated into
+> `ai-service` plus `moment-service` under [ADR-016](../../adr/ADR-016-unified-ai-and-moment-runtime.md).
+> The Open/Planned tables below describe the pre-implementation inventory; current
+> status and test evidence are in the [runtime report](reports/2026-11-14-runtime.md).
+
 Ngày: 2026-11-14. Thiết kế: [ADR-015](../../adr/ADR-015-smart-moment-search.md).
 Hợp đồng nghiệp vụ/test: [smart moment search](smart-moment-search.md).
 

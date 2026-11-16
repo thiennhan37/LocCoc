@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import '../../auth/data/services/auth_api_client.dart';
 import '../../auth/data/services/google_sign_in_service.dart';
 import '../../auth/domain/models/auth_session.dart';
@@ -210,6 +211,33 @@ class UserApiClient {
     }
     return request('DELETE', 'me/media/$kind');
   }
+
+  Future<T> _momentBinary<T>(Future<T> Function(String token) send) async {
+    _checkCurrent();
+    final token = session.accessToken;
+    try {
+      final result = await send(token);
+      _checkCurrent();
+      return result;
+    } on AuthApiException catch (e) {
+      _checkCurrent();
+      if (e.statusCode != 401) rethrow;
+      await _retryWithRefresh('GET', 'users', 'me', token, null);
+      _checkCurrent();
+      final result = await send(session.accessToken);
+      _checkCurrent();
+      return result;
+    }
+  }
+
+  Future<Map<String, dynamic>> uploadMoment(
+    String id,
+    List<int> bytes,
+    String mime,
+  ) => _momentBinary((token) => auth.uploadMoment(id, bytes, mime, token));
+
+  Future<Uint8List> momentImage(String id) =>
+      _momentBinary((token) => auth.momentImage(id, token));
 
   Future<Map<String, dynamic>> updateDisplayName(String name) =>
       request('PATCH', 'me', body: {'displayName': name.trim()});

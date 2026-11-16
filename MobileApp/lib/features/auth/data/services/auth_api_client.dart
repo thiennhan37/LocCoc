@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:io' show Platform, SocketException, HttpDate;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
@@ -219,7 +220,7 @@ class AuthApiClient {
     String accessToken, {
     Map<String, dynamic>? body,
   }) async {
-    if (!['users', 'notifications', 'auth'].contains(area)) {
+    if (!['users', 'notifications', 'auth', 'moments'].contains(area)) {
       throw ArgumentError('Invalid API area');
     }
     final suffix = path.isEmpty || path.startsWith('?') ? path : '/$path';
@@ -255,6 +256,52 @@ class AuthApiClient {
     });
     request.bodyBytes = bytes;
     return _sendServiceRequest(request, const Duration(seconds: 60));
+  }
+
+  Future<Map<String, dynamic>> uploadMoment(
+    String id,
+    List<int> bytes,
+    String contentType,
+    String accessToken,
+  ) {
+    if (!RegExp(r'^[0-9a-f-]{36}$').hasMatch(id) ||
+        bytes.length > 10 * 1024 * 1024) {
+      throw ArgumentError('Invalid moment image');
+    }
+    final request = http.Request(
+      'PUT',
+      Uri.parse('$_baseUrl/moments/$id/image'),
+    );
+    request.headers.addAll({
+      'Authorization': 'Bearer $accessToken',
+      'Content-Type': contentType,
+    });
+    request.bodyBytes = bytes;
+    return _sendServiceRequest(request, const Duration(seconds: 60));
+  }
+
+  Future<Uint8List> momentImage(String id, String accessToken) async {
+    if (!RegExp(r'^[0-9a-f-]{36}$').hasMatch(id)) {
+      throw ArgumentError('Invalid moment ID');
+    }
+    final request = http.Request(
+      'GET',
+      Uri.parse('$_baseUrl/moments/$id/image'),
+    );
+    request.headers['Authorization'] = 'Bearer $accessToken';
+    final response = await _httpClient.send(request).timeout(requestTimeout);
+    if (response.statusCode != 200) {
+      await response.stream.drain<void>().timeout(requestTimeout);
+      throw AuthApiException(response.statusCode);
+    }
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in response.stream.timeout(requestTimeout)) {
+      if (bytes.length + chunk.length > 2 * 1024 * 1024) {
+        throw const FormatException('Image too large');
+      }
+      bytes.add(chunk);
+    }
+    return bytes.takeBytes();
   }
 
   Future<Map<String, dynamic>> _sendServiceRequest(

@@ -4,6 +4,7 @@ import {
   Req,
   Res,
   Put,
+  Post,
   PayloadTooLargeException,
   BadRequestException,
 } from "@nestjs/common";
@@ -89,12 +90,24 @@ export class ServiceProxyController {
     return this.forward("subscriptions", request, response);
   }
 
-  @All(["ai", "ai/*path"])
-  forwardToAi(
+  @Post("moments/search")
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  forwardMomentSearch(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forward("moments", request, response);
+  }
+
+  @Put("moments/:id/image")
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  forwardMomentImage(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forward("moments", request, response);
+  }
+
+  @All(["moments", "moments/*path"])
+  forwardToMoments(
     @Req() request: RequestWithId,
     @Res() response: Response,
   ): Promise<void> {
-    return this.forward("ai", request, response);
+    return this.forward("moments", request, response);
   }
 
   private async forward(
@@ -121,6 +134,7 @@ export class ServiceProxyController {
       if (
         [
           "x-service-token",
+          "x-ai-actor",
           "x-user-id",
           "x-user-role",
           "x-user-roles",
@@ -150,7 +164,8 @@ export class ServiceProxyController {
     const hasBody = !["GET", "HEAD"].includes(request.method);
     const mediaUpload =
       request.method === "PUT" &&
-      /^\/users\/me\/media\/(avatar|cover)$/.test(request.path);
+      (/^\/users\/me\/media\/(avatar|cover)$/.test(request.path) ||
+       /^\/moments\/[0-9a-f-]{36}\/image$/.test(request.path));
     let body: string | Buffer | undefined =
       hasBody && request.body !== undefined
         ? JSON.stringify(request.body)

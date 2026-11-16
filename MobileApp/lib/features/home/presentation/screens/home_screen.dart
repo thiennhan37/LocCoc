@@ -27,6 +27,8 @@ import '../../../users/data/user_api_client.dart';
 import '../../../users/presentation/friends_screen.dart';
 import '../../../users/presentation/edit_profile_screen.dart';
 import '../../../settings/presentation/settings_privacy_screen.dart';
+import '../../../moments/data/moment_api.dart';
+import '../../../moments/presentation/moments_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final AuthSession session;
@@ -776,11 +778,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ),
   );
 
-  void _postingUnavailable() => ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text('Tính năng thêm tin, ảnh sẽ được phát triển sau.'),
-    ),
-  );
+  void _postingUnavailable() {
+    if (momentsEnabled && _realSession) {
+      unawaited(
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) =>
+                MomentUploadScreen(api: MomentApi(_effectiveUserApi)),
+          ),
+        ),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Tính năng thêm tin, ảnh sẽ được phát triển sau.'),
+      ),
+    );
+  }
 
   Widget _buildBrandHeader() => Row(
     children: [
@@ -1235,6 +1250,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // TAB 1: KỶ NIỆM (MEMORIES)
   // ==========================================
   Widget _buildMemoriesTab() {
+    if (momentsEnabled && _realSession) {
+      return MomentsScreen(
+        api: MomentApi(_effectiveUserApi),
+        active: _currentTab == HomeTab.memories,
+      );
+    }
     final memories = [
       {
         'tag': 'Hôm nay',

@@ -3,6 +3,7 @@ packages:
   - auth-service
   - user-service
   - notification-service
+  - moment-service
   - admin-dashboard
   - libs/common
 allowBuilds:

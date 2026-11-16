@@ -1,5 +1,11 @@
 # ADR-015: Gemini Embedding API và Qdrant cho tìm kiếm khoảnh khắc
 
+> Runtime update: [ADR-016](ADR-016-unified-ai-and-moment-runtime.md) supersedes
+> the directory/worker topology below. Code now lives in `ai-service` and
+> `moment-service`; the legacy source observations below are historical evidence.
+> See the [implementation report](../specs/moments/reports/2026-11-14-runtime.md)
+> for completed verification and remaining production gates.
+
 Ngày: 2026-11-14.
 Trạng thái: Chốt thiết kế và kế hoạch Gemini API; chưa triển khai runtime hoặc
 nghiệm thu production. Cập nhật quyết định: 2026-11-14.

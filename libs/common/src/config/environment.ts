@@ -25,6 +25,9 @@ const fields = {
   USER_SERVICE_URL: Joi.string()
     .uri({ scheme: ["http", "https"] })
     .default("http://127.0.0.1:8081"),
+  MOMENT_SERVICE_URL: Joi.string()
+    .uri({ scheme: ["http", "https"] })
+    .default("http://127.0.0.1:8088"),
   INTERNAL_SERVICE_TOKEN: Joi.string().min(32),
   SERVICE_BIND_HOST: Joi.string().default("127.0.0.1"),
   KAFKA_BROKERS: Joi.string().default("127.0.0.1:9092"),
@@ -126,6 +129,7 @@ const gatewayKeys = [
   "NOTIFICATION_SERVICE_URL",
   "ADMIN_SERVICE_URL",
   "PAYMENT_SERVICE_URL",
+  "MOMENT_SERVICE_URL",
   "REDIS_URL",
   "CORS_ORIGINS",
   "RATE_LIMIT_TTL_MS",
