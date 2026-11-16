@@ -2,7 +2,9 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import '../../auth/data/auth_api.dart';
+import '../../../core/network/api_client.dart';
+import '../../auth/data/services/auth_api_client.dart';
+import '../../users/data/user_api_client.dart';
 import '../application/photo_renderer.dart';
 import '../data/post_api.dart';
 
@@ -18,10 +20,12 @@ class PhotoEditorScreen extends StatefulWidget {
     required this.photo,
     this.api,
     this.ownerId,
+    this.userApi,
   });
   final Uint8List photo;
   final PostApi? api;
   final String? ownerId;
+  final UserApiClient? userApi;
   @override
   State<PhotoEditorScreen> createState() => _PhotoEditorScreenState();
 }
@@ -35,7 +39,7 @@ class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
   bool _sending = false;
   Uint8List? _exported;
   String? _requestId;
-  late final PostApi _api = widget.api ?? PostApi();
+  late final PostApi _api = widget.api ?? PostApi(session: widget.userApi);
 
   @override
   void initState() {
@@ -113,7 +117,10 @@ class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
                 maxLength: 200,
                 maxLines: 3,
                 style: const TextStyle(color: Colors.white),
+                cursorColor: Colors.white,
                 decoration: const InputDecoration(
+                  filled: true,
+                  fillColor: Color(0xFF303030),
                   hintText: 'Thêm một tin nhắn',
                   hintStyle: TextStyle(color: Colors.white54),
                   counterStyle: TextStyle(color: Colors.white54),
@@ -139,7 +146,7 @@ class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
 
   Future<void> _send() async {
     if (_sending || _image == null) return;
-    final ownerId = widget.ownerId ?? AuthApi.userId;
+    final ownerId = widget.ownerId ?? widget.userApi?.session.user.id;
     if (ownerId == null || ownerId.isEmpty) {
       setState(() => _error = 'Hãy đăng nhập để gửi ảnh.');
       return;
@@ -165,6 +172,9 @@ class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
         setState(
           () => _error = error is ApiException
               ? error.message
+              : error is AuthApiException &&
+                    (error.statusCode == 401 || error.statusCode == 403)
+              ? 'Phiên đăng nhập không hợp lệ. Hãy đăng nhập lại để gửi ảnh.'
               : 'Chưa gửi được ảnh. Ảnh vẫn ở đây, hãy thử lại.',
         );
       }

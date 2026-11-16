@@ -1,19 +1,11 @@
 package com.loccoc.post_service.service;
-
 import com.loccoc.post_service.exception.*;
 import java.io.*;
-import java.nio.file.*;
 import java.util.*;
 import javax.imageio.ImageIO;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-
 @Component
-public class LocalPhotoStorage {
-  private final Path root;
-  public LocalPhotoStorage(@Value("${post.media-dir}") String directory) {
-    root=Path.of(directory).toAbsolutePath().normalize();
-  }
+public class PhotoDecoder {
   public record Photo(byte[] bytes, int width, int height) {}
 
   public Photo decode(String base64) {
@@ -37,27 +29,6 @@ public class LocalPhotoStorage {
         } finally { reader.dispose(); }
       }
     } catch(IOException | IllegalArgumentException e) { throw invalid(); }
-  }
-  public Path path(UUID id) { return root.resolve(id+".png"); }
-  public void save(UUID id, Photo photo) {
-    try {
-      Files.createDirectories(root);
-      // CREATE_NEW prevents overwriting files from another request or a prior crash.
-      try(var output=Files.newOutputStream(path(id), StandardOpenOption.CREATE_NEW)) {
-        try { output.write(photo.bytes()); }
-        catch(IOException e) { Files.deleteIfExists(path(id)); throw e; }
-      }
-    } catch(FileAlreadyExistsException e) { throw new AppException(ErrorCode.CONFLICT); }
-    catch(IOException e) { throw new AppException(ErrorCode.SERVICE_UNAVAILABLE); }
-  }
-  public byte[] read(UUID id) {
-    try { return Files.readAllBytes(path(id)); }
-    catch(NoSuchFileException e) { throw new AppException(ErrorCode.ROUTE_NOT_FOUND); }
-    catch(IOException e) { throw new AppException(ErrorCode.SERVICE_UNAVAILABLE); }
-  }
-  public void discard(UUID id) {
-    try { Files.deleteIfExists(path(id)); }
-    catch(IOException e) { throw new AppException(ErrorCode.SERVICE_UNAVAILABLE); }
   }
   private AppException invalid() { return new AppException(ErrorCode.INVALID_PARAMETER); }
 }

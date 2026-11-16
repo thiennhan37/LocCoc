@@ -10,6 +10,7 @@ import 'profile_share_card.dart';
 import 'mutual_friends.dart';
 
 class FriendsScreen extends StatefulWidget {
+  final Widget? header;
   final UserApiClient api;
   final int initialTab;
   final bool autofocus;
@@ -19,6 +20,7 @@ class FriendsScreen extends StatefulWidget {
   const FriendsScreen({
     super.key,
     required this.api,
+    this.header,
     this.initialTab = 0,
     this.autofocus = false,
     this.embedded = false,
@@ -645,6 +647,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(12),
               children: [
+                if (tab == 3 && widget.header != null) widget.header!,
                 if (!loading && rows.isEmpty && error == null)
                   Padding(
                     padding: EdgeInsets.all(24),

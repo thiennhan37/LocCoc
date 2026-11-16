@@ -7,6 +7,9 @@ import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
 public interface PostRepository extends JpaRepository<Post, UUID> {
+  @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+  @Query("select p from Post p where p.id = :id")
+  java.util.Optional<Post> lockById(@Param("id") UUID id);
   @Modifying(clearAutomatically = true, flushAutomatically = true)
   @Query("update Post p set p.deletedAt = :now where p.id = :id and p.ownerId = :ownerId and p.deletedAt is null")
   int softDelete(@Param("id") UUID id, @Param("ownerId") UUID ownerId, @Param("now") Instant now);

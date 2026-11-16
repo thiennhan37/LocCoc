@@ -859,6 +859,17 @@ describe.skipIf(!url)(
       expect((await summary().expect(200)).body.friendCount).toBe(0);
     });
 
+    it('feed audience contains only self and accepted active nonblocked friends', async () => {
+      const audience = () => request(gateway.getHttpServer()).get('/users/me/feed-audience').set('Authorization', bearer(0));
+      await request(gateway.getHttpServer()).get('/users/me/feed-audience').expect(401);
+      const first = await repo.send(ids[0]!, ids[1]!);
+      expect((await audience().expect(200)).body.authors.map((a: {id: string}) => a.id)).toEqual([ids[0]]);
+      await repo.resolve(ids[1]!, first.id, 'ACCEPTED');
+      expect((await audience().expect(200)).body.authors.map((a: {id: string}) => a.id)).toEqual(expect.arrayContaining([ids[0], ids[1]]));
+      await repo.block(ids[1]!, ids[0]!);
+      expect((await audience().expect(200)).body.authors).toHaveLength(1);
+    });
+
     it('hides username profiles when blocked, deleted, unavailable, or anonymous', async () => {
       const get = (name: string) =>
         request(userApp.getHttpServer())

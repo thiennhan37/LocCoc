@@ -12,14 +12,18 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class PhotoPostService {
   private final PostRepository repository;
-  private final LocalPhotoStorage storage;
+  private final PhotoStorage storage;
+  private final PhotoDecoder decoder;
+  private final UserIdentityClient identity;
   private final TransactionTemplate transactions;
-  public PhotoPostService(PostRepository repository, LocalPhotoStorage storage, PlatformTransactionManager manager) {
-    this.repository=repository; this.storage=storage; transactions=new TransactionTemplate(manager);
+  public PhotoPostService(PostRepository repository, PhotoStorage storage, PhotoDecoder decoder, UserIdentityClient identity, PlatformTransactionManager manager) {
+    this.repository=repository; this.storage=storage; this.decoder=decoder; this.identity=identity; transactions=new TransactionTemplate(manager);
   }
   // Local single-instance publishing: hold the lock through commit so duplicate retries see the row.
-  public synchronized PostResponse publish(PhotoPostRequest request) {
-    var photo=storage.decode(request.imageBase64());
+  public synchronized PostResponse publish(PhotoPostRequest request, String authorization) {
+    UUID owner=identity.resolve(authorization);
+    if(!owner.equals(request.ownerId())) throw new AppException(ErrorCode.ACCESS_DENIED);
+    var photo=decoder.decode(request.imageBase64());
     var existing=repository.findById(request.requestId());
     if(existing.isPresent()) {
       var post=existing.get();
@@ -29,14 +33,14 @@ public class PhotoPostService {
           !Arrays.equals(storage.read(request.requestId()),photo.bytes())) throw new AppException(ErrorCode.CONFLICT);
       return PostResponse.from(post);
     }
-    storage.save(request.requestId(), photo);
+    boolean created=storage.save(request.requestId(), photo.bytes(), owner, request.caption());
     try {
       return transactions.execute(status -> {
-        var metadata=new CreatePostRequest(request.ownerId(),mediaKey(request.requestId()),0,null,request.caption(),photo.width(),photo.height());
+        var metadata=new CreatePostRequest(owner,mediaKey(request.requestId()),0,null,request.caption(),photo.width(),photo.height());
         return PostResponse.from(repository.saveAndFlush(Post.create(request.requestId(),metadata)));
       });
     } catch(RuntimeException error) {
-      try { storage.discard(request.requestId()); } catch(RuntimeException cleanup) { error.addSuppressed(cleanup); }
+      try { if(created) storage.discard(request.requestId()); } catch(RuntimeException cleanup) { error.addSuppressed(cleanup); }
       throw error;
     }
   }

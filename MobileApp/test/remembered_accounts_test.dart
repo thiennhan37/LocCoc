@@ -129,6 +129,11 @@ void main() {
   }
 
   Future<void> startLogout(WidgetTester tester) async {
+    if (find.byKey(const Key('home_tab_profile')).evaluate().isNotEmpty) {
+      await tester.tap(find.byKey(const Key('home_tab_profile')));
+      await tester.pump();
+    }
+    await tester.ensureVisible(find.byIcon(Icons.logout_rounded));
     await tester.tap(find.byIcon(Icons.logout_rounded));
     await tester.pumpAndSettle();
   }
@@ -541,29 +546,42 @@ void main() {
     expect((await vault.list()).single.canContinue, isFalse);
   });
 
-  testWidgets('login has no storage choices; retention is decided at logout', (
-    tester,
-  ) async {
-    AuthSession? entered;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: AuthScreen(
-          googleAuthService: auth,
-          onLoginSuccess: (value) => entered = value,
+  testWidgets(
+    'login persists session and a restarted app enters Home automatically',
+    (tester) async {
+      AuthSession? entered;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AuthScreen(
+            googleAuthService: auth,
+            onLoginSuccess: (value) => entered = value,
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.byType(CheckboxListTile), findsNothing);
-    expect(find.byType(TextFormField), findsNWidgets(2));
-    await tester.enterText(find.byType(TextFormField).first, 'a@example.com');
-    await tester.enterText(find.byType(TextFormField).last, 'example-pass');
-    await tester.ensureVisible(find.text('Đăng nhập'));
-    await tester.tap(find.text('Đăng nhập'));
-    await tester.pumpAndSettle();
-    expect(entered!.user.id, 'a');
-    expect((await vault.list()).single.canContinue, isFalse);
-  });
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(CheckboxListTile), findsNothing);
+      expect(find.byType(TextFormField), findsNWidgets(2));
+      await tester.enterText(find.byType(TextFormField).first, 'a@example.com');
+      await tester.enterText(find.byType(TextFormField).last, 'example-pass');
+      await tester.ensureVisible(find.text('Đăng nhập'));
+      await tester.tap(find.text('Đăng nhập'));
+      await tester.pumpAndSettle();
+      expect(entered!.user.id, 'a');
+      expect((await vault.list()).single.canContinue, isTrue);
+      expect(await vault.activeId(), 'a');
+      // Recreate coordinator and vault to simulate losing all in-memory state.
+      await tester.pumpWidget(const SizedBox());
+      final restarted = service(memory.open(), api);
+      await tester.pumpWidget(
+        MaterialApp(home: AuthScreen(googleAuthService: restarted)),
+      );
+      await tester.pumpAndSettle();
+      expect(api.refreshCalls, 1);
+      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(find.byType(TextFormField), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets(
     'switch clears navigation and profile state before entering another account',

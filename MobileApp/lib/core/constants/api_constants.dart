@@ -56,5 +56,7 @@ class ApiConstants {
   static const changePasswordPath = '/auth/change-password';
   static const postsPath = '/posts';
   static const photoPostsPath = '/posts/photos';
+  static const feedPath = '/posts/feed';
+  static String seenPath(String id) => '/posts/${Uri.encodeComponent(id)}/seen';
   static Uri get login => Uri.parse(baseUrl).resolve(loginPath);
 }

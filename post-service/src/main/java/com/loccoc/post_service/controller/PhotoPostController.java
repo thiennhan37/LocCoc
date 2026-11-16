@@ -14,8 +14,8 @@ public class PhotoPostController {
   private final PhotoPostService service;
   public PhotoPostController(PhotoPostService service) { this.service=service; }
   @PostMapping("/photos")
-  public ResponseEntity<PostResponse> publish(@Valid @RequestBody PhotoPostRequest request) {
-    var post=service.publish(request);
+  public ResponseEntity<PostResponse> publish(@Valid @RequestBody PhotoPostRequest request, @RequestHeader(value="Authorization", required=false) String authorization) {
+    var post=service.publish(request, authorization);
     return ResponseEntity.created(URI.create("/posts/"+post.id())).body(post);
   }
   @GetMapping(value="/media/{id}",produces=MediaType.IMAGE_PNG_VALUE)

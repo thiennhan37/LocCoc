@@ -141,6 +141,18 @@ export class SocialRepository {
     return row!;
   }
 
+  async feedAuthors(id: string): Promise<{id: string; username: string; displayName: string | null}[]> {
+    const rows: {id: string; username: string; displayName: string | null}[] = await this.db!.query(
+      `SELECT u.id,u.username,u.display_name AS "displayName" FROM users u
+       LEFT JOIN friendships f ON f.user_low_id=LEAST($1::uuid,u.id) AND f.user_high_id=GREATEST($1::uuid,u.id)
+       WHERE (u.id=$1 OR f.id IS NOT NULL) AND u.username IS NOT NULL
+         AND u.deleted_at IS NULL AND u.account_status='active'
+         AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$1 AND b.blocked_id=u.id) OR (b.blocked_id=$1 AND b.blocker_id=u.id))
+       ORDER BY u.id LIMIT 10002`, [id]);
+    if (rows.length > 10001) throw new ConflictException('Feed audience exceeds supported size');
+    return rows;
+  }
+
   async profile(id: string, target: string): Promise<SafeProfile> {
     const rows: SafeProfile[] = await this.db!.query(
       `SELECT ${safeColumns} FROM users u ${relations} WHERE ${visible} AND u.id=$2`,

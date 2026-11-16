@@ -121,6 +121,9 @@ void main() {
         if (r.url.path == '/notifications/counts') {
           return fixtures.json({'unseenCount': 0, 'unreadCount': 0});
         }
+        if (r.url.path == '/posts/feed') {
+          return fixtures.json({'data': [], 'nextCursor': null});
+        }
         if (r.url.path == '/users/me/social-summary') {
           return fixtures.json({'friendCount': 0});
         }

@@ -49,13 +49,31 @@ describe('Post proxy routes', () => {
     expect(url.toString()).toBe('http://localhost:8089/posts/post-id?ownerId=owner-id');
     expect(options.method).toBe('DELETE');
   });
+  it('forwards authenticated feed cursor and seen updates to post-service', async () => {
+    upstream.mockResolvedValueOnce(new Response('{"data":[],"nextCursor":null}'));
+    await request(app.getHttpServer()).get('/posts/feed?limit=20&cursor=opaque').set('Authorization','Bearer viewer').expect(200);
+    let [url, options] = upstream.mock.calls.at(-1)!;
+    expect(url.toString()).toBe('http://localhost:8087/posts/feed?limit=20&cursor=opaque');
+    expect(options.headers.get('authorization')).toBe('Bearer viewer');
+    upstream.mockResolvedValueOnce(new Response(null,{status:204}));
+    await request(app.getHttpServer()).put('/posts/post-id/seen').set('Authorization','Bearer viewer').expect(204);
+    [url, options] = upstream.mock.calls.at(-1)!;
+    expect(url.toString()).toBe('http://localhost:8087/posts/post-id/seen');
+    expect(options.method).toBe('PUT');
+  });
+
+  it('preserves photo authentication rejection from post-service', async () => {
+    upstream.mockResolvedValueOnce(new Response('{"code":1001}', { status: 401 }));
+    await request(app.getHttpServer()).post('/posts/photos').send({}).expect(401);
+  });
 
   it('forwards photo JSON larger than the former body limit', async () => {
     const imageBase64 = 'A'.repeat(1500000);
     upstream.mockResolvedValueOnce(new Response('{"id":"post-id"}', { status: 201 }));
-    await request(app.getHttpServer()).post('/posts/photos').send({ imageBase64 }).expect(201);
+    await request(app.getHttpServer()).post('/posts/photos').set('Authorization', 'Bearer photo-token').send({ imageBase64 }).expect(201);
     const [url, options] = upstream.mock.calls.at(-1)!;
     expect(url.toString()).toBe('http://localhost:8089/posts/photos');
     expect(JSON.parse(options.body).imageBase64).toBe(imageBase64);
+    expect(options.headers.get('authorization')).toBe('Bearer photo-token');
   });
 });
