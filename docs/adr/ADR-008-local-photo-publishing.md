@@ -1,0 +1,3 @@
+# ADR-008: Edited photo publishing to local Downloads
+
+Store edited PNG files on the host in POST_MEDIA_DIR and metadata in the existing posts database. A single JSON endpoint accepts base64 bytes so both gateways can forward the existing JSON protocol. Bound requests to 8 MiB and decoded PNGs to 5 MiB/2048 pixels per dimension. The mobile canvas exports 1080-square images before sending. Use a client UUID to make retries idempotent within the local single-instance deployment. This is local-development storage, not distributed object storage. Existing unauthenticated ownerId semantics remain a deployment limitation. Friend distribution and gallery export are out of scope.

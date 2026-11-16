@@ -250,6 +250,28 @@ void main() {
     );
   }
 
+  test(
+    'replacement rejects demo, reused and oversized tokens and invalid identity',
+    () {
+      final current = f.session('a');
+      for (final invalid in <Map<String, dynamic>>[
+        {'accessToken': current.accessToken},
+        {'accessToken': 'demo-access'},
+        {'accessToken': 'x' * 16385},
+        {'refreshToken': 'x' * 4097},
+        {'user': null},
+        {'expiresIn': 86401},
+      ]) {
+        expect(
+          () =>
+              passwordReplacement(current, {...replacementPair(), ...invalid}),
+          throwsFormatException,
+          reason: invalid.keys.single,
+        );
+      }
+    },
+  );
+
   for (final data in [
     <String, dynamic>{},
     {

@@ -1,0 +1,542 @@
+openapi: 3.0.3
+info:
+  title: LocCoc Admin Service
+  version: 0.1.0
+  description: |
+    API implemented by the Spring controllers; import this file into Bruno.
+    Gateway requests require an active account Bearer token. The gateway currently
+    performs no ADMIN-role check for these routes. Direct service requests have no
+    authentication or role enforcement in this code; optional numeric x-user-id
+    headers identify the audit actor and default to 1. The empty security alternative
+    below describes direct service access only, never anonymous gateway access.
+    The gateway discards supplied x-user-id and injects the authenticated account ID.
+    Current IAM UUID IDs do not fit Java Long headers/path variables: actor mutations
+    through the gateway can fail conversion. Use numeric legacy IDs for direct tests.
+    No x-service-token is checked by this Java service. Direct access must remain
+    within the deployment's trusted network.
+    Responses use ApiResponse; HTTP 201 creation responses still have body statusCode
+    200. Missing tiers/reports are HTTP 400, not 404. Generic exceptions (including
+    some malformed input/conversion failures) use HTTP 500. LocalDateTime entity
+    timestamps are strings without a timezone; envelope timestamps are UTC instants.
+servers:
+  - url: http://localhost:8080
+    description: Gateway (GATEWAY_PORT override); Bearer required
+  - url: http://localhost:8086
+    description: Direct service (ADMIN_PORT override); trusted network only
+security:
+  - bearerGateway: []
+  - {}
+tags:
+  - name: Tiers
+  - name: Subscriptions
+  - name: Reports
+  - name: Analytics
+  - name: Audit
+paths:
+  /admin/tiers:
+    get:
+      tags: [Tiers]
+      operationId: adminListTiers
+      summary: List all tiers, including inactive tiers
+      responses:
+        '200':
+          description: All tiers; no pagination
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Envelope'}
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/Tier'}}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+    post:
+      tags: [Tiers]
+      operationId: adminCreateTier
+      summary: Create an active tier and audit the action
+      description: Code is uppercased before saving. Existing code causes HTTP 400; database uniqueness failures may cause HTTP 500.
+      parameters:
+        - {$ref: '#/components/parameters/ActorId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateTier'}
+      responses:
+        '201': {$ref: '#/components/responses/Tier'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /admin/tiers/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      tags: [Tiers]
+      operationId: adminGetTier
+      summary: Get one tier
+      responses:
+        '200': {$ref: '#/components/responses/Tier'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+    put:
+      tags: [Tiers]
+      operationId: adminUpdateTier
+      summary: Update non-null tier fields and audit the action
+      description: |
+        Partial update despite PUT. Null/omitted fields retain existing values;
+        fields cannot be cleared with null. No Bean Validation is applied to this DTO;
+        creation minimums do not apply. Code cannot be changed. JSON fields are
+        JSON-encoded strings; database JSON constraints can reject invalid contents.
+      parameters:
+        - {$ref: '#/components/parameters/ActorId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateTier'}
+      responses:
+        '200': {$ref: '#/components/responses/Tier'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /admin/users/{userId}/subscriptions:
+    parameters:
+      - {$ref: '#/components/parameters/UserId'}
+    get:
+      tags: [Subscriptions]
+      operationId: adminListUserSubscriptions
+      summary: List a numeric user's subscriptions
+      responses:
+        '200':
+          description: Subscription history; empty array if none, no documented ordering
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Envelope'}
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/Subscription'}}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /admin/users/{userId}/override-tier:
+    parameters:
+      - {$ref: '#/components/parameters/UserId'}
+    post:
+      tags: [Subscriptions]
+      operationId: adminOverrideUserTier
+      summary: Change or create a subscription and extend its duration
+      description: |
+        Real mutation; repeated calls extend the subscription again. Selects latest
+        ACTIVE row, changes its tier and adds durationDays to a future endDate or to
+        now otherwise. New rows are ACTIVE with autoRenew=false. Does not check tier
+        isActive. Writes audit log and attempts Redis/Kafka updates. Operates on
+        admin_db; this API does not directly update payment-service's database.
+      parameters:
+        - {$ref: '#/components/parameters/ActorId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tierId, durationDays, reason]
+              properties:
+                tierId: {type: integer, format: int64}
+                durationDays: {type: integer, format: int32, minimum: 1}
+                reason: {type: string, minLength: 1, description: Must contain a non-whitespace character}
+      responses:
+        '200':
+          description: User subscription overridden successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Envelope'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/Subscription'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /admin/reports:
+    get:
+      tags: [Reports]
+      operationId: adminListReports
+      summary: Filter reports and paginate by createdAt descending
+      parameters:
+        - {name: status, in: query, description: Exact database filter; blank values ignored, schema: {type: string}}
+        - {name: targetType, in: query, description: Exact database filter; blank values ignored, schema: {type: string}}
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Size'}
+      responses:
+        '200':
+          description: Spring Data page of reports
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Envelope'}
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - {$ref: '#/components/schemas/Page'}
+                          - type: object
+                            properties:
+                              content: {type: array, items: {$ref: '#/components/schemas/Report'}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+    post:
+      tags: [Reports]
+      operationId: adminCreateReport
+      summary: Submit a report with PENDING status
+      description: Reporter ID is supplied in the body, with no ownership check in the Java service. targetType is uppercased; suggested values are not enum-validated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reporterId, targetType, targetId, reason]
+              properties:
+                reporterId: {type: integer, format: int64}
+                targetType: {type: string, minLength: 1, description: Nonblank; convention USER / POST / COMMENT / CHAT}
+                targetId: {type: integer, format: int64}
+                reason: {type: string, minLength: 1, description: Must contain a non-whitespace character}
+                description: {type: string, nullable: true}
+      responses:
+        '201': {$ref: '#/components/responses/Report'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /admin/reports/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      tags: [Reports]
+      operationId: adminGetReport
+      summary: Get a report
+      responses:
+        '200': {$ref: '#/components/responses/Report'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /admin/reports/{id}/resolve:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    put:
+      tags: [Reports]
+      operationId: adminResolveReport
+      summary: Set moderation outcome, audit and publish a moderation event
+      description: |
+        Status and actionTaken are uppercased; neither is enum-validated. No check
+        prevents resolving the same report again. Kafka publish is best-effort;
+        this handler does not itself ban users or delete posts.
+      parameters:
+        - {$ref: '#/components/parameters/ActorId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status, actionTaken]
+              properties:
+                status: {type: string, minLength: 1, description: Nonblank; convention RESOLVED / REJECTED}
+                actionTaken: {type: string, minLength: 1, description: Nonblank; convention BAN_USER / DELETE_POST / DISMISS / WARNING}
+                adminNote: {type: string, nullable: true}
+      responses:
+        '200': {$ref: '#/components/responses/Report'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /admin/reports/overview:
+    get:
+      tags: [Analytics]
+      operationId: adminDashboardOverview
+      summary: Aggregate tiers, subscriptions, reports and audit counts
+      description: Active means status ACTIVE without checking endDate. Estimated revenue is the sum of current active subscription tier prices, without normalizing billing periods or reading payment transactions.
+      responses:
+        '200':
+          description: Dashboard aggregates
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Envelope'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/Dashboard'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /admin/reports/tiers-distribution:
+    get:
+      tags: [Analytics]
+      operationId: adminTierDistribution
+      summary: Count ACTIVE subscriptions for every tier
+      description: Includes inactive tiers. Percentage uses all ACTIVE subscriptions as denominator and rounds to two decimals; expiration dates are not checked.
+      responses:
+        '200':
+          description: Tier distribution
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Envelope'}
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/TierDistribution'}}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /admin/audit-logs:
+    get:
+      tags: [Audit]
+      operationId: adminListAuditLogs
+      summary: Paginate all audit logs by createdAt descending
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Size'}
+      responses:
+        '200': {$ref: '#/components/responses/AuditPage'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /admin/audit-logs/user/{targetUserId}:
+    parameters:
+      - name: targetUserId
+        in: path
+        required: true
+        schema: {type: integer, format: int64}
+    get:
+      tags: [Audit]
+      operationId: adminListTargetUserAuditLogs
+      summary: Paginate audit logs for a target user by createdAt descending
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Size'}
+      responses:
+        '200': {$ref: '#/components/responses/AuditPage'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+components:
+  securitySchemes:
+    bearerGateway:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Required at gateway; Java service does not verify Bearer tokens directly
+  parameters:
+    Id: {name: id, in: path, required: true, schema: {type: integer, format: int64}}
+    UserId: {name: userId, in: path, required: true, schema: {type: integer, format: int64}}
+    ActorId:
+      name: x-user-id
+      in: header
+      description: Direct-service numeric audit actor; defaults to 1. Gateway overwrites this header from its account token.
+      schema: {type: integer, format: int64, default: 1}
+    Page: {name: page, in: query, schema: {type: integer, minimum: 0, default: 0}}
+    Size: {name: size, in: query, description: Must be positive; no application maximum, schema: {type: integer, minimum: 1, default: 20}}
+  responses:
+    Tier:
+      description: Tier entity; creation uses HTTP 201 with body statusCode 200
+      content:
+        application/json:
+          schema:
+            allOf:
+              - {$ref: '#/components/schemas/Envelope'}
+              - type: object
+                properties:
+                  data: {$ref: '#/components/schemas/Tier'}
+    Report:
+      description: System report; creation uses HTTP 201 with body statusCode 200
+      content:
+        application/json:
+          schema:
+            allOf:
+              - {$ref: '#/components/schemas/Envelope'}
+              - type: object
+                properties:
+                  data: {$ref: '#/components/schemas/Report'}
+    AuditPage:
+      description: Spring Data page of audit log entities
+      content:
+        application/json:
+          schema:
+            allOf:
+              - {$ref: '#/components/schemas/Envelope'}
+              - type: object
+                properties:
+                  data:
+                    allOf:
+                      - {$ref: '#/components/schemas/Page'}
+                      - type: object
+                        properties:
+                          content: {type: array, items: {$ref: '#/components/schemas/AuditLog'}}
+    BadRequest:
+      description: Bean Validation (data is field-to-message map) or IllegalArgumentException (data null), including missing entity or invalid pagination
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/JavaError'}
+    ServerError:
+      description: Unhandled service exception, database error or input conversion failure
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/JavaError'}
+    GatewayError:
+      description: Gateway-only failures may include 401 authentication, 403 account unavailable, 404 missing account, 429 rate limit, 502 upstream unavailable or 503 authority unavailable
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/GatewayError'}
+  schemas:
+    Envelope:
+      type: object
+      required: [success, statusCode, message, timestamp, data]
+      properties:
+        success: {type: boolean, enum: [true]}
+        statusCode: {type: integer, enum: [200]}
+        message: {type: string}
+        timestamp: {type: string, format: date-time}
+    JavaError:
+      type: object
+      required: [success, statusCode, message, timestamp, data]
+      properties:
+        success: {type: boolean, enum: [false]}
+        statusCode: {type: integer, enum: [400, 500]}
+        message: {type: string}
+        timestamp: {type: string, format: date-time}
+        data: {type: object, nullable: true, additionalProperties: {type: string}}
+    GatewayError:
+      type: object
+      properties:
+        statusCode: {type: integer}
+        error: {type: string}
+        message:
+          oneOf:
+            - {type: string}
+            - {type: array, items: {type: string}}
+        code: {type: string}
+        requestId: {type: string}
+    CreateTier:
+      type: object
+      required: [code, name, price, durationDays]
+      properties:
+        code: {type: string, minLength: 1, description: Must contain a non-whitespace character; uppercased on creation}
+        name: {type: string, minLength: 1, description: Must contain a non-whitespace character}
+        description: {type: string, nullable: true}
+        price: {type: number, minimum: 0}
+        durationDays: {type: integer, format: int32, minimum: 1}
+        limitsJson: {type: string, nullable: true, description: JSON encoded as a string}
+        featuresJson: {type: string, nullable: true, description: JSON encoded as a string}
+    UpdateTier:
+      type: object
+      properties:
+        name: {type: string, nullable: true}
+        description: {type: string, nullable: true}
+        price: {type: number, nullable: true}
+        durationDays: {type: integer, format: int32, nullable: true}
+        limitsJson: {type: string, nullable: true}
+        featuresJson: {type: string, nullable: true}
+        isActive: {type: boolean, nullable: true}
+    Tier:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        code: {type: string}
+        name: {type: string}
+        description: {type: string, nullable: true}
+        price: {type: number}
+        durationDays: {type: integer, format: int32}
+        limitsJson: {type: string, nullable: true, description: JSON encoded as a string}
+        featuresJson: {type: string, nullable: true, description: JSON encoded as a string}
+        isActive: {type: boolean}
+        createdAt: {type: string, example: '2026-11-13T08:00:00'}
+        updatedAt: {type: string, example: '2026-11-13T08:00:00'}
+    Subscription:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        userId: {type: integer, format: int64}
+        tier: {$ref: '#/components/schemas/Tier'}
+        status: {type: string, description: Stored status string; normally ACTIVE / EXPIRED / CANCELLED}
+        startDate: {type: string, example: '2026-11-13T08:00:00'}
+        endDate: {type: string, example: '2026-12-13T08:00:00'}
+        autoRenew: {type: boolean, nullable: true}
+        updatedByAdminId: {type: integer, format: int64, nullable: true}
+        createdAt: {type: string}
+        updatedAt: {type: string}
+    Report:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        reporterId: {type: integer, format: int64}
+        targetType: {type: string}
+        targetId: {type: integer, format: int64}
+        reason: {type: string}
+        description: {type: string, nullable: true}
+        status: {type: string}
+        actionTaken: {type: string, nullable: true}
+        resolvedByAdminId: {type: integer, format: int64, nullable: true}
+        adminNote: {type: string, nullable: true}
+        createdAt: {type: string}
+        updatedAt: {type: string}
+    AuditLog:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        adminId: {type: integer, format: int64}
+        action: {type: string}
+        targetUserId: {type: integer, format: int64, nullable: true}
+        detailsJson: {type: string, nullable: true, description: JSON encoded as a string}
+        ipAddress: {type: string, nullable: true}
+        createdAt: {type: string}
+    Page:
+      type: object
+      description: Spring Data PageImpl serialization; metadata may vary with Spring configuration
+      properties:
+        totalPages: {type: integer}
+        totalElements: {type: integer, format: int64}
+        size: {type: integer}
+        number: {type: integer, description: Zero-based page index}
+        numberOfElements: {type: integer}
+        first: {type: boolean}
+        last: {type: boolean}
+        empty: {type: boolean}
+        pageable:
+          type: object
+          properties:
+            pageNumber: {type: integer}
+            pageSize: {type: integer}
+            offset: {type: integer, format: int64}
+            paged: {type: boolean}
+            unpaged: {type: boolean}
+            sort: {$ref: '#/components/schemas/Sort'}
+        sort: {$ref: '#/components/schemas/Sort'}
+    Sort:
+      type: object
+      properties:
+        sorted: {type: boolean}
+        unsorted: {type: boolean}
+        empty: {type: boolean}
+    Dashboard:
+      type: object
+      properties:
+        totalTiers: {type: integer, format: int64}
+        activeTiers: {type: integer, format: int64}
+        totalSubscriptions: {type: integer, format: int64}
+        activeSubscriptions: {type: integer, format: int64}
+        pendingReports: {type: integer, format: int64}
+        totalAuditLogs: {type: integer, format: int64}
+        estimatedMonthlyRevenue: {type: number}
+        subscriptionsByTier: {type: object, additionalProperties: {type: integer, format: int64}}
+    TierDistribution:
+      type: object
+      properties:
+        tierCode: {type: string}
+        tierName: {type: string}
+        price: {type: number}
+        userCount: {type: integer, format: int64}
+        percentage: {type: number, format: double}

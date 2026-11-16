@@ -88,7 +88,7 @@ class ApiGatewayApplicationTests {
 
   @DynamicPropertySource
   static void properties(DynamicPropertyRegistry registry) {
-    for (String name : new String[] {"auth", "users", "admin", "payments", "subscriptions", "moments"})
+    for (String name : new String[] {"auth", "users", "admin", "payments", "subscriptions", "moments", "posts"})
       registry.add(
           "gateway.routes." + name, () -> "http://127.0.0.1:" + upstream.getAddress().getPort());
     registry.add("gateway.cors-origins", () -> "http://localhost:3000");
@@ -112,7 +112,7 @@ class ApiGatewayApplicationTests {
 
   @Test
   void allPrefixesPreserved() throws Exception {
-    for (String prefix : new String[] {"auth", "users", "admin", "payments", "subscriptions", "moments"}) {
+    for (String prefix : new String[] {"auth", "users", "admin", "payments", "subscriptions", "moments", "posts"}) {
       mvc.perform(
               get(java.net.URI.create("/" + prefix + "/check?q=a%20b"))
                   .header("Authorization", "Bearer test")
@@ -155,6 +155,18 @@ class ApiGatewayApplicationTests {
         .andExpect(status().isUnsupportedMediaType());
     mvc.perform(post("/ai/internal/search").contentType("application/json").content("{}"))
         .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void forwardsPostRootAndDeletionWithoutToken() throws Exception {
+    mvc.perform(post("/posts/photos").contentType("application/json").content("{\"imageBase64\":\"abc\"}"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("POST /posts/photos {\"imageBase64\":\"abc\"}"));
+    mvc.perform(post("/posts").contentType("application/json").content("{\"mediaType\":0}"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("POST /posts {\"mediaType\":0}"));
+    mvc.perform(delete("/posts/123?ownerId=456")).andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("DELETE /posts/123?ownerId=456"));
   }
 
   @Test

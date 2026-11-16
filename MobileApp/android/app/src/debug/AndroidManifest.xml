@@ -7,3 +7,4 @@
     <!-- Local API Gateway over USB forwarding or a development LAN. -->
     <application android:usesCleartextTraffic="true"/>
 </manifest>
+

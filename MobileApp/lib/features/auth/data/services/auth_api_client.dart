@@ -220,7 +220,7 @@ class AuthApiClient {
     String accessToken, {
     Map<String, dynamic>? body,
   }) async {
-    if (!['users', 'notifications', 'auth', 'moments'].contains(area)) {
+    if (!['users', 'notifications', 'auth', 'moments', 'chat'].contains(area)) {
       throw ArgumentError('Invalid API area');
     }
     final suffix = path.isEmpty || path.startsWith('?') ? path : '/$path';

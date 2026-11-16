@@ -1,0 +1,401 @@
+openapi: 3.0.3
+info:
+  title: LocCoc Payment Service
+  version: 0.1.0
+  description: |
+    Implemented Spring Payment/Subscription APIs for Bruno. Creating checkout links,
+    processing verified webhooks and confirming webhook URLs perform real mutations
+    and may call PayOS using the server's configured merchant credentials.
+    Gateway requests require an active account Bearer token except POST
+    /payments/webhook/payos. Direct Java service access has no authentication/role
+    enforcement or x-service-token check; numeric x-user-id is trusted and defaults
+    to 1. The empty security alternative describes direct service access only.
+    Keep direct access inside the deployment's trusted network. Gateway discards
+    client x-user-id and injects its account ID; current IAM UUID IDs do not fit
+    Java Long, so checkout/subscription requests through gateway can fail conversion.
+    For direct tests use explicit numeric legacy user IDs.
+    Payment uses payment_db; admin-service tier/subscription writes are in admin_db
+    and are not automatically reflected here by these HTTP handlers. Checkout
+    requires an active tier present in payment_db. This spec does not add payment
+    success/cancel callback endpoints: those configured redirect URLs are not routes
+    implemented by the service.
+    Envelope timestamps are UTC instants; entity LocalDateTime timestamps have no
+    timezone. Health and webhook responses do not use the ApiResponse envelope.
+servers:
+  - url: http://localhost:8080
+    description: Gateway (GATEWAY_PORT override); Bearer required except POST PayOS webhook
+  - url: http://localhost:8085
+    description: Direct service (PAYMENT_PORT override); trusted network only
+security:
+  - bearerGateway: []
+  - {}
+tags:
+  - name: Checkout
+  - name: Subscriptions
+  - name: Webhooks
+  - name: Health
+paths:
+  /:
+    get:
+      tags: [Health]
+      operationId: paymentRootHealth
+      summary: Check payment process health (direct only)
+      description: Gateway root belongs to the gateway, not payment-service. Does not check DB, Redis, Kafka or PayOS readiness.
+      servers:
+        - url: http://localhost:8085
+          description: Direct service; adjust for PAYMENT_PORT
+      security: []
+      responses:
+        '200': {$ref: '#/components/responses/Health'}
+  /health:
+    get:
+      tags: [Health]
+      operationId: paymentHealth
+      summary: Check payment process health (direct only)
+      description: Gateway /health belongs to the gateway. Does not check DB, Redis, Kafka or PayOS readiness.
+      servers:
+        - url: http://localhost:8085
+          description: Direct service; adjust for PAYMENT_PORT
+      security: []
+      responses:
+        '200': {$ref: '#/components/responses/Health'}
+  /payments/create-checkout:
+    post:
+      tags: [Checkout]
+      operationId: paymentCreateCheckout
+      summary: Create a real PayOS checkout link and pending transaction
+      description: |
+        Calls PayOS and writes a payment transaction; executing from Bruno is a real
+        mutation. Requires an existing active tier in payment_db. Amount comes from
+        tier.price, converted to long (fractional part truncated); response amount is
+        cast to int. Description is LOCCOC plus tier code, truncated to 25 characters.
+        Redirect URLs come from PAYOS_RETURN_URL/PAYOS_CANCEL_URL server configuration,
+        not this request. There is no client idempotency key or retry guarantee:
+        orderCode is current epoch seconds, so concurrent/repeated requests in one
+        second may collide with the database unique key. Repeating later can create
+        another order. Do not automatically retry this request.
+      parameters:
+        - {$ref: '#/components/parameters/UserHeader'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tierId]
+              properties:
+                tierId: {type: integer, format: int64, description: Existing active payment_db tier ID; only non-null is Bean-validated}
+      responses:
+        '200':
+          description: Checkout link created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Envelope'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/Checkout'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /subscriptions/me:
+    get:
+      tags: [Subscriptions]
+      operationId: paymentMySubscription
+      summary: Get latest ACTIVE subscription or null
+      description: |
+        Selects latest createdAt ACTIVE row. If endDate is before now, this GET
+        marks it EXPIRED, attempts to reset Redis tier to FREE, and returns null;
+        it does not fall back to an older ACTIVE row. A null result still returns
+        HTTP 200, success=true, message='No active subscription found'.
+      parameters:
+        - {$ref: '#/components/parameters/UserHeader'}
+      responses:
+        '200':
+          description: Active subscription or no active subscription
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Envelope'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/NullableSubscription'}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /subscriptions/history:
+    get:
+      tags: [Subscriptions]
+      operationId: paymentSubscriptionHistory
+      summary: List all subscriptions for current numeric user
+      description: No pagination, ordering guarantee or expiration update in this handler. Includes rows in every stored status.
+      parameters:
+        - {$ref: '#/components/parameters/UserHeader'}
+      responses:
+        '200':
+          description: Subscription history; empty array if none
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Envelope'}
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/Subscription'}}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /payments/webhook/payos:
+    get:
+      tags: [Webhooks]
+      operationId: paymentWebhookHealth
+      summary: Ping the webhook endpoint
+      description: Direct access is unauthenticated; this GET requires Bearer when called via gateway. Only POST on this path is gateway-public.
+      responses:
+        '200':
+          description: Endpoint is live
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, message]
+                properties:
+                  status: {type: string, enum: [ok]}
+                  message: {type: string, enum: [PayOS Webhook endpoint is live]}
+        default: {$ref: '#/components/responses/GatewayError'}
+    post:
+      tags: [Webhooks]
+      operationId: paymentReceivePayOSWebhook
+      summary: Receive PayOS notification and potentially upgrade subscription
+      security: []
+      description: |
+        Public at gateway and direct service. This is a real payment mutation when
+        the PayOS SDK verifies HMAC-SHA256 and top-level code is '00'. Signature is
+        in the JSON body, not a header; use authentic provider data and server-side
+        checksum configuration. Never use merchant secrets in Bruno examples.
+        Marks the matching transaction SUCCESS and creates/extends a subscription,
+        then attempts Redis/Kafka updates. Unknown orderCode is ignored. An existing
+        SUCCESS transaction is skipped on replay, but no explicit row lock/concurrent
+        delivery guarantee is implemented. The handler does not compare webhook
+        amount with the saved transaction amount.
+        Signature failures are caught and ACKed HTTP 200 success=true without
+        applying payment. Parsing or payment processing exceptions inside the method
+        are HTTP 200 success=false. Thus HTTP 200/success=true alone does not prove
+        signature validity or payment completion. Body binding errors before method
+        entry can instead use the generic HTTP 500 envelope. Gateway can still reject
+        malformed requests or rate-limit this public endpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PayOSWebhook'}
+      responses:
+        '200':
+          description: ACK or caught processing/parsing error; inspect success and error but do not infer payment settlement from ACK
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [success, message]
+                    properties:
+                      success: {type: boolean, enum: [true]}
+                      message: {type: string, enum: [Webhook received successfully]}
+                  - type: object
+                    required: [success, error]
+                    properties:
+                      success: {type: boolean, enum: [false]}
+                      error: {type: string}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+  /payments/webhook/confirm:
+    post:
+      tags: [Webhooks]
+      operationId: paymentConfirmWebhookUrl
+      summary: Register or confirm a real webhook URL with PayOS
+      description: |
+        Calls payOS.webhooks().confirm using configured merchant credentials; may
+        change the merchant webhook configuration and trigger provider verification.
+        Run only for an intended merchant configuration. Requires gateway Bearer;
+        direct Java access has no auth check. Only nonblank webhookUrl is checked
+        here, with further URL/provider rules delegated to SDK and PayOS. No
+        application idempotency guarantee is implemented.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [webhookUrl]
+              properties:
+                webhookUrl: {type: string, minLength: 1, description: Nonblank public callback URL for the intended merchant}
+      responses:
+        '200':
+          description: Webhook confirmed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data]
+                properties:
+                  success: {type: boolean, enum: [true]}
+                  message: {type: string, enum: [Webhook confirmed successfully]}
+                  data: {description: Unmodified result of PayOS SDK 2.0.1 webhook confirmation; provider-defined JSON}
+        '400':
+          description: Missing/blank webhookUrl or caught SDK/provider error
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, error]
+                properties:
+                  success: {type: boolean, enum: [false]}
+                  error: {type: string}
+        '500': {$ref: '#/components/responses/ServerError'}
+        default: {$ref: '#/components/responses/GatewayError'}
+components:
+  securitySchemes:
+    bearerGateway:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Required at gateway except POST PayOS webhook; not verified by the direct Java service
+  parameters:
+    UserHeader:
+      name: x-user-id
+      in: header
+      description: Direct-service numeric user identity; defaults to 1. Gateway discards supplied value and inserts its account ID.
+      schema: {type: integer, format: int64, default: 1}
+  responses:
+    Health:
+      description: Payment service process is running
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [status, service, timestamp]
+            properties:
+              status: {type: string, enum: [ok]}
+              service: {type: string, enum: [payment-service]}
+              timestamp: {type: integer, format: int64, description: Epoch milliseconds}
+    BadRequest:
+      description: Missing tier ID validation (data is field-to-message map), or missing/inactive tier (data null)
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/JavaError'}
+    ServerError:
+      description: Unhandled service exception, SDK/provider failure, database error or input conversion failure
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/JavaError'}
+    GatewayError:
+      description: Gateway-only errors can include 401 authentication, 403 unavailable account, 404 missing account, 429 rate limit, 502 upstream unavailable and 503 authority unavailable; auth/account checks do not apply to public webhook POST
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/GatewayError'}
+  schemas:
+    Envelope:
+      type: object
+      required: [success, statusCode, message, timestamp, data]
+      properties:
+        success: {type: boolean, enum: [true]}
+        statusCode: {type: integer, enum: [200]}
+        message: {type: string}
+        timestamp: {type: string, format: date-time}
+    JavaError:
+      type: object
+      required: [success, statusCode, message, timestamp, data]
+      properties:
+        success: {type: boolean, enum: [false]}
+        statusCode: {type: integer, enum: [400, 500]}
+        message: {type: string}
+        timestamp: {type: string, format: date-time}
+        data: {type: object, nullable: true, additionalProperties: {type: string}}
+    GatewayError:
+      type: object
+      properties:
+        statusCode: {type: integer}
+        error: {type: string}
+        message:
+          oneOf:
+            - {type: string}
+            - {type: array, items: {type: string}}
+        code: {type: string}
+        requestId: {type: string}
+    Checkout:
+      type: object
+      properties:
+        orderCode: {type: integer, format: int64, description: Epoch seconds; unique database key}
+        checkoutUrl: {type: string, description: Provider checkout URL}
+        qrCode: {type: string, description: Provider QR payload; not an image}
+        amount: {type: integer, format: int32, description: Tier price truncated to integer and cast to int}
+        description: {type: string, maxLength: 25}
+    Tier:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        code: {type: string}
+        name: {type: string}
+        description: {type: string, nullable: true}
+        price: {type: number}
+        durationDays: {type: integer, format: int32}
+        limitsJson: {type: string, nullable: true, description: JSON encoded as a string}
+        featuresJson: {type: string, nullable: true, description: JSON encoded as a string}
+        isActive: {type: boolean}
+        createdAt: {type: string, example: '2026-11-13T08:00:00'}
+        updatedAt: {type: string, example: '2026-11-13T08:00:00'}
+    Subscription:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        userId: {type: integer, format: int64}
+        tier: {$ref: '#/components/schemas/Tier'}
+        status: {type: string, description: Stored status; convention ACTIVE / EXPIRED / CANCELLED}
+        startDate: {type: string, example: '2026-11-13T08:00:00'}
+        endDate: {type: string, example: '2026-12-13T08:00:00'}
+        autoRenew: {type: boolean, nullable: true}
+        updatedByAdminId: {type: integer, format: int64, nullable: true}
+        createdAt: {type: string}
+        updatedAt: {type: string}
+    NullableSubscription:
+      type: object
+      nullable: true
+      description: Same serialized entity fields as Subscription, or null if no active subscription
+      properties:
+        id: {type: integer, format: int64}
+        userId: {type: integer, format: int64}
+        tier: {$ref: '#/components/schemas/Tier'}
+        status: {type: string}
+        startDate: {type: string}
+        endDate: {type: string}
+        autoRenew: {type: boolean, nullable: true}
+        updatedByAdminId: {type: integer, format: int64, nullable: true}
+        createdAt: {type: string}
+        updatedAt: {type: string}
+    PayOSWebhook:
+      type: object
+      description: |
+        Raw JSON object mapped to vn.payos.model.webhooks.Webhook and verified by
+        PayOS SDK 2.0.1. Listed fields describe provider payload; the controller has
+        no Bean Validation required-field annotations. Additional provider fields
+        are permitted. An arbitrary object may be ACKed without applying payment.
+      additionalProperties: true
+      properties:
+        code: {type: string, description: Top-level 00 is required by handler to apply a verified payment}
+        desc: {type: string}
+        success: {type: boolean}
+        signature: {type: string, description: Authentic PayOS HMAC-SHA256 signature; no secret example supplied}
+        data:
+          type: object
+          additionalProperties: true
+          properties:
+            orderCode: {type: integer, format: int64}
+            amount: {type: integer, format: int64}
+            description: {type: string}
+            accountNumber: {type: string}
+            reference: {type: string}
+            transactionDateTime: {type: string}
+            currency: {type: string}
+            paymentLinkId: {type: string}
+            code: {type: string}
+            desc: {type: string}

@@ -1,5 +1,7 @@
 # LocCoc IAM Level 1
 
+API contracts for every backend service: [OpenAPI catalog and Bruno setup](docs/guides/services-openapi-bruno.md).
+
 This repository now contains the IAM Level 1 platform foundation: an API gateway, auth-service, user-service and shared NestJS security library. Business authentication flows can be added behind the gateway without changing the security bootstrap.
 
 ## Monorepo layout
@@ -19,6 +21,8 @@ auth-service/     # identity boundary (scaffold for login/token flows)
 user-service/     # user boundary
 moment-service/   # private moment metadata, upload/search and durable indexing jobs
 ai-service/       # CPU-only internal Gemini adapter and owner-filtered vector index
+ai-enhancement-service/ # NestJS Gemini image filters (:8082)
+post-service/     # Photo posts (:8089)
 libs/common/      # config schema, filters, guards, decorators and shared interfaces
 ```
 
@@ -109,6 +113,8 @@ Spring gateway coverage: Spring routes `/auth`, `/users`, `/admin`, `/payments` 
 
 ## Applications
 
+- [Chat Service: chạy và API](chat-service/README.md), [OpenAPI Bruno](chat-service/openapi.yaml), [test hai máy ảo](docs/guides/chat-two-emulators.md).
+- [AI chỉnh ảnh: API, OpenAPI và hướng dẫn import Bruno](ai-enhancement-service/README.md) xử lý ảnh qua `POST /ai/images/enhance`; [OpenAPI 3.0.3](ai-enhancement-service/openapi.yaml) có thể import trực tiếp.
 - [user-service](user-service/README.md) starts on port 8081 and currently exposes no application API.
 - [MobileApp](MobileApp/README.md) shows a basic login form. It does not authenticate users yet.
 

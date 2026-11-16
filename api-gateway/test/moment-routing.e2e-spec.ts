@@ -50,6 +50,10 @@ describe("moment gateway contract", () => {
     expect(headers.has("x-service-token")).toBe(false);
     expect(headers.has("x-ai-actor")).toBe(false);
   });
+  it('preserves the Moments root and query independently of Chat and Post', async () => {
+    await request(app.getHttpServer()).get('/moments?limit=10').expect(200);
+    expect(String(upstream.mock.calls[0]![0])).toBe('http://moments:8088/moments?limit=10');
+  });
   it("forwards upload bytes with 10 MiB cap and never exposes legacy AI APIs", async () => {
     const path = "/moments/11111111-1111-4111-8111-111111111111/image";
     const bytes = Buffer.from([255, 216, 255, 0, 128]);
@@ -58,6 +62,7 @@ describe("moment gateway contract", () => {
       .set("content-type", "image/jpeg")
       .send(bytes)
       .expect(200);
+    expect(String(upstream.mock.calls[0]![0])).toBe(`http://moments:8088${path}`);
     expect(Buffer.from(upstream.mock.calls[0]![1]!.body as Uint8Array)).toEqual(
       bytes,
     );

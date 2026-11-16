@@ -19,11 +19,15 @@
     "dev": "npm run start:dev",
     "lint": "oxlint --type-aware src/ test/",
     "test": "vitest run",
+    "test:guards": "npm --prefix ../libs/common run build && node --test test/shared-guards.smoke.mjs",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "db:migrate": "npm --prefix ../libs/common run build && npm run build && node dist/database/migrate.js"
+  },
+  "dependenciesMeta": {
+    "@loccoc/common": { "injected": true }
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1166.0",

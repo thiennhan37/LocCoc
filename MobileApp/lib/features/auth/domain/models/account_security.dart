@@ -31,13 +31,16 @@ AuthSession passwordReplacement(
       refresh = data['refreshToken'],
       expiry = data['expiresIn'];
   final refreshExpiry = data['refreshExpiresIn'];
-  if ((user != null &&
+  if ((data.containsKey('user') &&
           (user is! Map<String, dynamic> || user['id'] != previous.user.id)) ||
       access is! String ||
       access.isEmpty ||
+      access.length > 16384 ||
+      access.startsWith('demo-') ||
       access == previous.accessToken ||
       refresh is! String ||
       refresh.isEmpty ||
+      refresh.length > 4096 ||
       refresh == previous.refreshToken ||
       expiry is! int ||
       expiry < 1 ||
@@ -48,7 +51,7 @@ AuthSession passwordReplacement(
     throw const FormatException('Invalid replacement session');
   }
   return AuthSession(
-    authenticated: true,
+    authenticated: previous.authenticated,
     user: previous.user,
     accessToken: access,
     refreshToken: refresh,

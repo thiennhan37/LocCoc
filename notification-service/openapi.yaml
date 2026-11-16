@@ -1,0 +1,471 @@
+openapi: 3.0.3
+info:
+  title: LocCoc Notification Service
+  version: 0.0.1
+  description: |
+    Inbox và đăng ký thiết bị push hiện được triển khai; có thể import trực tiếp vào Bruno.
+    Mọi operation cần Bearer access token. Service gọi auth-service để kiểm tra tài khoản
+    và phiên đăng nhập hiện hành; không chỉ xác minh chữ ký JWT. Không truyền userId,
+    sessionId hoặc x-service-token từ client. Thiết bị gắn với user và session trong token.
+    FCM token là token thiết bị của client, không phải access token của LocCoc.
+
+    Direct service mặc định NOTIFICATION_PORT=8084, SERVICE_BIND_HOST=127.0.0.1.
+    NestJS gateway mặc định GATEWAY_PORT=8080 giữ nguyên prefix /notifications;
+    gateway có rate limit mặc định 100 request/IP/60000 ms cho từng handler.
+    Spring gateway chưa có route notification. Service không có HTTP health endpoint.
+    Các phản hồi thành công trả JSON trực tiếp, không bọc trong trường result.
+servers:
+  - url: http://localhost:8084
+    description: Notification Service trực tiếp (mặc định)
+  - url: http://localhost:8080
+    description: NestJS gateway; cùng đường dẫn, cần chạy thay cho Spring gateway
+security:
+  - bearerAuth: []
+tags:
+  - name: Inbox
+  - name: Push devices
+paths:
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [Inbox]
+      summary: Liệt kê inbox của người đăng nhập
+      description: |
+        Sắp xếp createdAt giảm dần, sau đó id giảm dần; chỉ lấy thông báo chưa hết hạn.
+        Cursor có chữ ký, gắn với user và mục đích sử dụng, hết hạn sau 24 giờ.
+        Dùng pageInfo.nextCursor cho trang tiếp theo; không tự tạo/sửa cursor.
+        seenCursor chỉ có ở trang đầu (không truyền cursor), kể cả khi inbox rỗng.
+        Đọc danh sách không tự đánh dấu seen/read. actor và data hiện đến từ sự kiện kết bạn.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: pageInfo.nextCursor từ trang trước, không dùng seenCursor.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 2048
+      responses:
+        '200':
+          description: Trang thông báo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/AuthorityUnavailable'
+        '429':
+          $ref: '#/components/responses/GatewayRateLimited'
+        '502':
+          $ref: '#/components/responses/GatewayUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /notifications/counts:
+    get:
+      operationId: getNotificationCounts
+      tags: [Inbox]
+      summary: Đếm thông báo chưa xem và chưa đọc
+      description: Chỉ đếm thông báo chưa hết hạn và chưa đọc; thông báo đã đọc cũng được xem là đã xem.
+      responses:
+        '200':
+          description: Bộ đếm hiện tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationCounts'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/AuthorityUnavailable'
+        '429':
+          $ref: '#/components/responses/GatewayRateLimited'
+        '502':
+          $ref: '#/components/responses/GatewayUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /notifications/seen:
+    patch:
+      operationId: markNotificationsSeen
+      tags: [Inbox]
+      summary: Đánh dấu inbox đã xem đến mốc trang đầu
+      description: |
+        Gửi seenCursor nhận từ GET /notifications không truyền page cursor.
+        Mốc last_seen_sequence chỉ tăng và bị chặn ở latest_sequence; không đánh dấu read.
+        Token sai user, sai mục đích, bị sửa hoặc hết hạn trả 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [seenCursor]
+              properties:
+                seenCursor:
+                  type: string
+                  minLength: 1
+                  maxLength: 2048
+      responses:
+        '200':
+          description: Bộ đếm sau cập nhật
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationCounts'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/AuthorityUnavailable'
+        '429':
+          $ref: '#/components/responses/GatewayRateLimited'
+        '502':
+          $ref: '#/components/responses/GatewayUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /notifications/{id}/read:
+    patch:
+      operationId: markNotificationRead
+      tags: [Inbox]
+      summary: Đánh dấu một thông báo đã đọc
+      description: |
+        Idempotent; giữ readAt cũ khi đọc lại. Chỉ cập nhật thông báo của người đăng nhập
+        còn hạn. ID không tồn tại, không thuộc user hoặc đã hết hạn đều trả 404.
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '200':
+          description: Trạng thái đã đọc
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, readAt, isRead, isSeen]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  readAt:
+                    type: string
+                    format: date-time
+                  isRead:
+                    type: boolean
+                    enum: [true]
+                  isSeen:
+                    type: boolean
+                    enum: [true]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/AuthorityUnavailable'
+        '429':
+          $ref: '#/components/responses/GatewayRateLimited'
+        '502':
+          $ref: '#/components/responses/GatewayUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /notifications/devices/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: UUID installation do ứng dụng tạo và lưu cho lần cài đặt này.
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: registerNotificationDevice
+      tags: [Push devices]
+      summary: Đăng ký hoặc cập nhật thiết bị cho phiên đăng nhập
+      description: |
+        Chuyển installation/token sang user và session hiện được auth-service xác minh.
+        Xóa liên kết token trùng ở installation khác. Client không được tự chỉ định session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, platform]
+              properties:
+                token:
+                  type: string
+                  minLength: 20
+                  maxLength: 4096
+                  description: Token push FCM thật của thiết bị thử nghiệm.
+                platform:
+                  type: string
+                  enum: [android, ios]
+      responses:
+        '200':
+          description: Đã đăng ký
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [registered]
+                properties:
+                  registered:
+                    type: boolean
+                    enum: [true]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/AuthorityUnavailable'
+        '429':
+          $ref: '#/components/responses/GatewayRateLimited'
+        '502':
+          $ref: '#/components/responses/GatewayUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: unregisterNotificationDevice
+      tags: [Push devices]
+      summary: Hủy đăng ký thiết bị của phiên hiện tại
+      description: |
+        Chỉ xóa khi installation thuộc cả user và session hiện tại. Idempotent;
+        trả registered=false kể cả khi không có bản ghi phù hợp.
+      responses:
+        '200':
+          description: Thiết bị đã được hủy đăng ký hoặc không có liên kết phù hợp
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [registered]
+                properties:
+                  registered:
+                    type: boolean
+                    enum: [false]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/AuthorityUnavailable'
+        '429':
+          $ref: '#/components/responses/GatewayRateLimited'
+        '502':
+          $ref: '#/components/responses/GatewayUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token LocCoc còn hạn, phiên chưa bị thu hồi và tài khoản khả dụng.
+  parameters:
+    NotificationId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Notification:
+      type: object
+      required: [id, type, actor, data, createdAt, readAt, inboxSequence, isSeen, isRead]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [FRIEND_REQUEST_RECEIVED, FRIEND_REQUEST_ACCEPTED]
+        actor:
+          type: object
+          required: [id, displayName, avatarUrl]
+          properties:
+            id:
+              type: string
+              format: uuid
+            displayName:
+              type: string
+              nullable: true
+              maxLength: 255
+            avatarUrl:
+              type: string
+              nullable: true
+              maxLength: 2048
+              description: URL HTTP(S) hoặc null.
+        data:
+          type: object
+          required: [friendRequestId]
+          properties:
+            friendRequestId:
+              type: string
+              format: uuid
+        createdAt:
+          type: string
+          description: PostgreSQL timestamptz được trả dưới dạng text, không đảm bảo định dạng RFC3339.
+          example: '2026-11-13 08:00:00.000000+00'
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+        inboxSequence:
+          type: string
+          pattern: '^[0-9]+$'
+          description: PostgreSQL bigint được trả dưới dạng chuỗi để giữ độ chính xác.
+          example: '1'
+        isSeen:
+          type: boolean
+        isRead:
+          type: boolean
+    NotificationPage:
+      type: object
+      required: [items, pageInfo, seenCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+        pageInfo:
+          type: object
+          required: [hasMore, nextCursor]
+          properties:
+            hasMore:
+              type: boolean
+            nextCursor:
+              type: string
+              nullable: true
+              description: null nếu không có trang tiếp theo.
+        seenCursor:
+          type: string
+          nullable: true
+          description: Mốc đã ký của trang đầu; null khi truyền page cursor.
+    NotificationCounts:
+      type: object
+      required: [unseenCount, unreadCount]
+      properties:
+        unseenCount:
+          type: integer
+          minimum: 0
+        unreadCount:
+          type: integer
+          minimum: 0
+    ApiError:
+      type: object
+      required: [statusCode, error, message]
+      properties:
+        statusCode:
+          type: integer
+        error:
+          type: string
+          description: Tên hằng HttpStatus của NestJS, ví dụ BAD_REQUEST hoặc UNAUTHORIZED.
+        message:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        code:
+          type: string
+          description: Ví dụ ACCOUNT_UNAVAILABLE khi tài khoản không khả dụng.
+        requestId:
+          type: string
+          description: Không được sinh bởi notification-service hiện tại; có thể bị bỏ khỏi JSON.
+  responses:
+    BadRequest:
+      description: DTO có field lạ/sai ràng buộc, UUID sai, hoặc cursor không hợp lệ/hết hạn.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    Unauthorized:
+      description: Thiếu Bearer token, token không hợp lệ hoặc phiên không còn hợp lệ.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    Forbidden:
+      description: Tài khoản không khả dụng; code ACCOUNT_UNAVAILABLE.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    NotFound:
+      description: Auth authority không tìm thấy user, hoặc thông báo không tồn tại/không thuộc user/đã hết hạn.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    AuthorityUnavailable:
+      description: Không thể xác minh tài khoản/phiên qua auth-service hoặc nhận phản hồi không hợp lệ.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    InternalError:
+      description: Lỗi nội bộ; message được che thành Internal server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    GatewayRateLimited:
+      description: Chỉ qua NestJS gateway; vượt limiter theo IP/handler (mặc định 100 request/60000 ms).
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Thời gian chờ tính bằng giây.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    GatewayUnavailable:
+      description: Chỉ qua NestJS gateway; không kết nối được notification-service.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          example:
+            statusCode: 502
+            error: Bad Gateway
+            message: Upstream service unavailable
+            requestId: 8e3fb44f-1a44-4bc3-8d48-90f71c59cb3f

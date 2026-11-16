@@ -1,4 +1,8 @@
 export const SERVICE_ROUTES = {
+  posts: {
+    prefix: '/posts',
+    urlConfigKey: 'POST_SERVICE_URL',
+  },
   auth: {
     prefix: '/auth',
     urlConfigKey: 'AUTH_SERVICE_URL',
@@ -11,6 +15,14 @@ export const SERVICE_ROUTES = {
     // Includes raw PUT/DELETE /users/me/media/avatar|cover; image GETs use the media origin.
     prefix: '/users',
     urlConfigKey: 'USER_SERVICE_URL',
+  },
+  ai: {
+    prefix: '/ai',
+    urlConfigKey: 'AI_SERVICE_URL',
+  },
+  chat: {
+    prefix: '/chat',
+    urlConfigKey: 'CHAT_SERVICE_URL',
   },
   admin: {
     prefix: '/admin',
