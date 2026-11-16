@@ -55,14 +55,9 @@ void main() {
 
     // Verify: Navigated to HomeScreen and displays Home Page elements
     expect(find.byType(HomeScreen), findsOneWidget);
-    expect(find.text('LocCoc'), findsOneWidget);
-    expect(find.text('Một chút hôm nay.'), findsOneWidget);
-    expect(
-      find.text('Những điều nhỏ xíu, gửi người thân yêu.'),
-      findsOneWidget,
-    );
-    expect(find.text('Thêm tin'), findsOneWidget);
-    expect(find.text('Gửi một khoảnh khắc'), findsOneWidget);
+    expect(find.byTooltip('Chọn ảnh từ thư viện'), findsOneWidget);
+    expect(find.text('Lịch sử'), findsOneWidget);
+    expect(find.text('Một chút hôm nay.'), findsNothing);
     expect(find.text('Trang chủ'), findsOneWidget);
     expect(find.text('Kỷ niệm'), findsOneWidget);
     expect(find.text('Cá nhân'), findsOneWidget);
@@ -95,6 +90,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(HomeScreen), findsOneWidget);
-    expect(find.text('Một chút hôm nay.'), findsOneWidget);
+    expect(find.text('Lịch sử'), findsOneWidget);
   });
 }

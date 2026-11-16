@@ -61,6 +61,10 @@ export class SocialController {
   summary(@CurrentUser() u: AuthenticatedUser) {
     return this.service.summary(u.userId);
   }
+  @Get('me/feed-audience')
+  feedAudience(@CurrentUser() u: AuthenticatedUser) {
+    return this.service.feedAudience(u.userId);
+  }
   @Get('friend-requests')
   requests(
     @CurrentUser() u: AuthenticatedUser,

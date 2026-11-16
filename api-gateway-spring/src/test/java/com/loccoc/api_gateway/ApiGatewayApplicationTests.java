@@ -145,14 +145,38 @@ class ApiGatewayApplicationTests {
 
   @Test
   void forwardsPostRootAndDeletionWithoutToken() throws Exception {
-    mvc.perform(post("/posts/photos").contentType("application/json").content("{\"imageBase64\":\"abc\"}"))
+    mvc.perform(get("/posts/feed?limit=20&cursor=test").header("Authorization", "Bearer viewer"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("GET /posts/feed?limit=20&cursor=test"));
+    mvc.perform(put("/posts/123/seen").header("Authorization", "Bearer viewer"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("PUT /posts/123/seen"));
+    mvc.perform(post("/posts/photos").header("Authorization", "Bearer photo-token").contentType("application/json").content("{\"imageBase64\":\"abc\"}"))
         .andExpect(status().isCreated());
     Assertions.assertTrue(received.get().startsWith("POST /posts/photos {\"imageBase64\":\"abc\"}"));
+    Assertions.assertTrue(received.get().endsWith("Bearer photo-token 127.0.0.1"));
     mvc.perform(post("/posts").contentType("application/json").content("{\"mediaType\":0}"))
         .andExpect(status().isCreated());
     Assertions.assertTrue(received.get().startsWith("POST /posts {\"mediaType\":0}"));
     mvc.perform(delete("/posts/123?ownerId=456")).andExpect(status().isCreated());
     Assertions.assertTrue(received.get().startsWith("DELETE /posts/123?ownerId=456"));
+  }
+
+  @Test
+  void forwardsReactionMethodsBodyAndViewerToken() throws Exception {
+    mvc.perform(get("/posts/123/reactions").header("Authorization", "Bearer viewer"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("GET /posts/123/reactions"));
+    Assertions.assertTrue(received.get().endsWith("Bearer viewer 127.0.0.1"));
+    mvc.perform(put("/posts/123/reaction").header("Authorization", "Bearer viewer")
+        .contentType("application/json").content("{\"emoji\":\"💛\"}"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("PUT /posts/123/reaction {\"emoji\":\"💛\"}"));
+    Assertions.assertTrue(received.get().endsWith("Bearer viewer 127.0.0.1"));
+    mvc.perform(delete("/posts/123/reaction").header("Authorization", "Bearer viewer"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("DELETE /posts/123/reaction"));
+    Assertions.assertTrue(received.get().endsWith("Bearer viewer 127.0.0.1"));
   }
 
   @Test

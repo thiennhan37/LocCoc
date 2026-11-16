@@ -111,3 +111,8 @@ The account API has no hasPassword/provider capability, so Google-only users are
 informed that setting their first password is not supported by this form. No JWT
 claim is used to infer that capability. See the wave-3 spec for current client
 tests, limitations and the distinct deferred OTP/infrastructure requirements.
+
+
+### 2026-11-15: Automatic mobile session restoration
+
+Successful password and Google login now retain the active session using AccountVault secure storage by default. After Hot Restart or cold start, AuthScreen resumes the active account through the existing single-use refresh-token rotation and opens ProfileGate/Home automatically once IAM accepts the session. Access tokens and passwords remain memory-only; rejected/expired retained credentials still require login. Explicit logout/account switching clears automatic entry. Existing logout retention behavior is preserved. Previously logged-in sessions created without retention require one fresh login to persist credentials.

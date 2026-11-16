@@ -1,3 +1,8 @@
+import '../../../posts/data/post_reaction_api.dart';
+import '../../application/camera_session.dart';
+import '../../../posts/application/feed_controller.dart';
+import '../../../posts/data/feed_api.dart';
+import '../../../posts/presentation/feed_sliver.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../../../core/widgets/user_cover.dart';
 import '../../../../core/widgets/full_screen_image_viewer.dart';
@@ -5,7 +10,7 @@ import '../../../users/presentation/avatar_url_screen.dart';
 import '../../../debug/developer_tools.dart';
 import '../../../debug/presentation/debug_screen.dart';
 import '../widgets/home_navigation.dart';
-import '../widgets/home_actions_header.dart';
+import 'package:flutter/services.dart';
 import '../../../auth/presentation/widgets/session_boundary.dart';
 import 'capture_moment_screen.dart';
 import '../../../posts/presentation/photo_editor_screen.dart';
@@ -21,7 +26,7 @@ import 'package:flutter/material.dart';
 import '../../../users/presentation/profile_share_card.dart';
 import '../../../users/presentation/profile_link_session.dart';
 
-import '../../../../core/constants/app_colors.dart';
+import '../widgets/home_theme.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/widgets/custom_button.dart';
 import '../../../auth/data/services/auth_api_client.dart';
@@ -35,6 +40,8 @@ import '../../../users/presentation/edit_profile_screen.dart';
 import '../../../settings/presentation/settings_privacy_screen.dart';
 
 class HomeScreen extends StatefulWidget {
+  final CameraSession? camera;
+  final ChatController Function()? chatControllerFactory;
   final AuthSession session;
   final GoogleAuthService? googleAuthService;
   final Map<String, dynamic>? profile;
@@ -45,6 +52,8 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     required this.session,
+    this.camera,
+    this.chatControllerFactory,
     this.googleAuthService,
     this.profile,
     this.userApi,
@@ -57,6 +66,20 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  late final FeedController _feed = FeedController(
+    SessionFeedApi(_effectiveUserApi),
+  );
+  late final PostReactionApi _reactions = PostReactionApi(_effectiveUserApi);
+  final PageController _homePages = PageController();
+  int _homePage = 0;
+
+  Future<void> _refreshHome() async {
+    await Future.wait([
+      _refreshSocialSummary(),
+      if (_realSession) _feed.refresh(),
+    ]);
+  }
+
   Map<String, dynamic>? _editedProfile;
   Map<String, dynamic>? get _profile => _editedProfile ?? widget.profile;
   int _unseenCount = 0;
@@ -66,16 +89,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _socialVersion = 0;
   PushNotifications? _push;
   ChatController? _chat;
+  ChatController _createChatController() =>
+      widget.chatControllerFactory?.call() ??
+      ChatController(
+        api: ChatApi(_effectiveUserApi),
+        socket: ChatSocketClient(),
+      );
+
   Future<void> _openChat() async {
     if (!_realSession ||
         !session.authenticated ||
         session.accessToken.isEmpty) {
       return;
     }
-    final controller = ChatController(
-      api: ChatApi(_effectiveUserApi),
-      socket: ChatSocketClient(),
-    );
+    final controller = _createChatController();
     _chat = controller;
     try {
       await Navigator.of(context).push(
@@ -89,6 +116,53 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  bool _openingAuthorChat = false;
+  Future<void> _messageAuthor(FeedPost post) async {
+    if (_openingAuthorChat ||
+        _isLoggingOut ||
+        _isDeletingAccount ||
+        !_realSession ||
+        post.mine ||
+        post.ownerId == session.user.id ||
+        !session.authenticated ||
+        session.accessToken.isEmpty) {
+      return;
+    }
+    _openingAuthorChat = true;
+    final accountId = session.user.id;
+    final controller = _createChatController();
+    _chat = controller;
+    try {
+      final conversation = await controller.openDirect(post.ownerId);
+      if (!mounted ||
+          _isLoggingOut ||
+          _isDeletingAccount ||
+          session.user.id != accountId) {
+        return;
+      }
+      if (conversation == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(controller.error ?? 'Chưa thể mở cuộc trò chuyện.'),
+          ),
+        );
+        return;
+      }
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ChatDetailScreen(
+            controller: controller,
+            conversationId: conversation.id,
+          ),
+        ),
+      );
+    } finally {
+      controller.dispose();
+      if (identical(_chat, controller)) _chat = null;
+      _openingAuthorChat = false;
+    }
+  }
+
   Timer? _notificationTimer;
   late final UserApiClient _notificationUserApi = _effectiveUserApi;
   late final NotificationApi _notifications = NotificationApi(
@@ -99,6 +173,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _authService.updateSession(session);
+    if (_realSession) unawaited(_feed.refresh());
     _authService.addReplacementCleanup(_prepareSessionReplacement);
     WidgetsBinding.instance.addObserver(this);
     if (_realSession) {
@@ -188,6 +263,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
     );
     await _refreshSocialSummary();
+    if (mounted && _realSession) await _feed.refresh();
   }
 
   @override
@@ -203,6 +279,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _homePages.dispose();
+    _feed.dispose();
     _authService.removeReplacementCleanup(_prepareSessionReplacement);
     _chat?.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -234,7 +312,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isLoggingOut = false;
   bool _awaitingLogoutChoice = false;
   bool _isDeletingAccount = false;
-  bool _isFavorited = false;
 
   UserApiClient? _fallbackUserApi;
   AuthSession get session =>
@@ -288,7 +365,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      backgroundColor: AppColors.card,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       constraints: const BoxConstraints(maxWidth: 520),
       builder: (sheetContext) => SizedBox(
         width: double.infinity,
@@ -553,7 +630,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           TextButton(
             key: const Key('confirm_delete_account_button'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            style: TextButton.styleFrom(foregroundColor: HomeColors.error),
             child: const Text(AppStrings.deleteAccountConfirmButton),
           ),
         ],
@@ -652,10 +729,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Container(
               width: width,
               height: height,
-              color: AppColors.coralLight,
+              color: HomeColors.coralLight,
               child: const Icon(
                 Icons.image_outlined,
-                color: AppColors.primary,
+                color: HomeColors.primary,
                 size: 20,
               ),
             );
@@ -668,36 +745,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     auth: _authService,
     api: _effectiveUserApi,
     onEnding: _stopSessionWork,
-    child: _buildContent(context),
+    child: Theme(
+      data: HomeColors.theme,
+      child: Builder(builder: _buildContent),
+    ),
   );
 
   Widget _buildContent(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: IndexedStack(
-          index: _currentTab.index,
-          children: [
-            _buildHomeTab(),
-            _buildMemoriesTab(),
-            _buildProfileTab(),
-            if (_realSession)
-              FriendsScreen(
-                api: _effectiveUserApi,
-                initialTab: 3,
-                embedded: true,
-                active: _currentTab == HomeTab.friends,
-              )
-            else
-              const Center(child: Text('Hãy đăng nhập để kết nối bạn bè.')),
-            if (developerToolsEnabled)
-              DebugScreen(
-                api: _effectiveUserApi,
-                push: _push,
-                reloadProfile: _debugReloadProfile,
-                reloadCounts: _debugReloadCounts,
-              ),
-          ],
+      backgroundColor: Colors.black,
+      body: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.light,
+        child: SafeArea(
+          child: IndexedStack(
+            index: _currentTab.index,
+            children: [
+              _buildHomeTab(),
+              _buildMemoriesTab(),
+              _buildProfileTab(),
+              if (_realSession)
+                FriendsScreen(
+                  api: _effectiveUserApi,
+                  initialTab: 3,
+                  embedded: true,
+                  active: _currentTab == HomeTab.friends,
+                  header: _buildFriendStories(),
+                )
+              else
+                SingleChildScrollView(child: _buildFriendStories()),
+              if (developerToolsEnabled)
+                DebugScreen(
+                  api: _effectiveUserApi,
+                  push: _push,
+                  reloadProfile: _debugReloadProfile,
+                  reloadCounts: _debugReloadCounts,
+                ),
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: HomeNavigation(
@@ -713,68 +797,103 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // ==========================================
   // TAB 0: TRANG CHỦ (HOME PAGE)
   // ==========================================
-  Widget _buildHomeTab() {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: RefreshIndicator(
-          onRefresh: _refreshSocialSummary,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Top Session Info & Status Header (ensures test compatibility & session visibility)
-                HomeActionsHeader(
-                  demo: !_realSession,
-                  unseen: _unseenCount,
-                  onNotifications: _openNotifications,
-                  onLogout: _isLoggingOut || _isDeletingAccount
-                      ? null
-                      : _logout,
-                ),
-                const SizedBox(height: 12),
+  Widget _buildFriendStories() => Padding(
+    padding: const EdgeInsets.fromLTRB(8, 12, 8, 20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildTitleSection(),
+        const SizedBox(height: 12),
+        _buildStoriesRow(),
+      ],
+    ),
+  );
 
-                // Brand Header & User Greeting
-                _buildBrandHeader(),
-                const SizedBox(height: 14),
-                _buildAccountSearchBar(),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  key: const Key('home_chat'),
-                  onPressed:
-                      _realSession &&
-                          session.authenticated &&
-                          session.accessToken.isNotEmpty
-                      ? _openChat
-                      : null,
-                  icon: const Icon(Icons.chat_bubble_outline_rounded),
-                  label: const Text('Tin nhắn'),
-                ),
-                const SizedBox(height: 18),
+  Widget _buildHomeTab() => RefreshIndicator(
+    onRefresh: _refreshHome,
+    child: FeedPages(
+      controller: _feed,
+      pageController: _homePages,
+      selectedPage: _homePage,
+      reactions: _realSession ? _reactions : null,
+      onMessage: _messageAuthor,
+      postHeader: _buildHomeHeader(),
+      active:
+          _currentTab == HomeTab.home &&
+          _homePage > 0 &&
+          !_isLoggingOut &&
+          !_isDeletingAccount &&
+          (ModalRoute.isCurrentOf(context) ?? true),
+      onPageChanged: (page) => setState(() => _homePage = page),
+      leading: _buildCameraTab(),
+    ),
+  );
 
-                const Text('Bản xem trước · Nội dung khoảnh khắc mẫu'),
-                // Title Section
-                _buildTitleSection(),
-                const SizedBox(height: 18),
+  Widget _buildCameraTab() => CaptureMomentScreen(
+    camera: widget.camera,
+    ownerId: session.user.id,
+    userApi: _effectiveUserApi,
+    embedded: true,
+    active:
+        _currentTab == HomeTab.home &&
+        _homePage == 0 &&
+        !_isLoggingOut &&
+        !_isDeletingAccount,
+    onHistory: _openHistory,
+    onPublished: (_) {
+      unawaited(_feed.refresh());
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đã đăng khoảnh khắc của bạn.')),
+      );
+    },
+    header: _buildHomeHeader(),
+  );
 
-                // Stories Row
-                _buildStoriesRow(),
-                const SizedBox(height: 20),
-
-                // Featured Post Card
-                _buildFeaturedCard(),
-                const SizedBox(height: 20),
-
-                // Action Button ("Gửi một khoảnh khắc")
-                _buildActionMomentsButton(),
-                const SizedBox(height: 24),
-              ],
-            ),
+  Widget _buildHomeHeader() => Row(
+    children: [
+      IconButton.filledTonal(
+        tooltip: 'Thông báo',
+        onPressed: _realSession ? _openNotifications : null,
+        style: IconButton.styleFrom(backgroundColor: const Color(0xFF202020)),
+        icon: Badge(
+          isLabelVisible: _unseenCount > 0,
+          label: Text('$_unseenCount'),
+          child: const Icon(Icons.campaign_outlined, color: Colors.white),
+        ),
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: FilledButton.icon(
+          onPressed: _openRetainedFriends,
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF202020),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          ),
+          icon: const Icon(Icons.people_rounded),
+          label: Text(
+            _friendCount == null ? 'Bạn bè' : '$_friendCount Bạn bè',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
           ),
         ),
       ),
+      const SizedBox(width: 12),
+      IconButton(
+        tooltip: 'Mở hồ sơ cá nhân',
+        onPressed: () => setState(() => _currentTab = HomeTab.profile),
+        icon: _ownAvatar(42),
+      ),
+    ],
+  );
+
+  Future<void> _openHistory() async {
+    if (!_homePages.hasClients) return;
+    await _homePages.animateToPage(
+      1,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOut,
     );
   }
 
@@ -782,7 +901,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     button: true,
     label: 'Tìm tài khoản',
     child: Material(
-      color: Colors.white,
+      color: HomeColors.surface,
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         key: const Key('home_account_search'),
@@ -791,18 +910,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
           decoration: BoxDecoration(
-            border: Border.all(color: AppColors.border),
+            border: Border.all(color: HomeColors.border),
             borderRadius: BorderRadius.circular(18),
           ),
           child: const Row(
             children: [
-              Icon(Icons.search_rounded, color: AppColors.primary),
+              Icon(Icons.search_rounded, color: HomeColors.primary),
               SizedBox(width: 12),
               Expanded(
                 child: Text(
                   'Tìm bạn bằng tên hoặc @username',
                   style: TextStyle(
-                    color: AppColors.textSecondary,
+                    color: HomeColors.textSecondary,
                     fontSize: 14,
                   ),
                 ),
@@ -810,7 +929,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               Icon(
                 Icons.arrow_forward_rounded,
                 size: 18,
-                color: AppColors.textSecondary,
+                color: HomeColors.textSecondary,
               ),
             ],
           ),
@@ -832,10 +951,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       final result = await Navigator.of(context).push<PublishedPhoto>(
         MaterialPageRoute(
-          builder: (_) => CaptureMomentScreen(ownerId: session.user.id),
+          builder: (_) => CaptureMomentScreen(
+            ownerId: session.user.id,
+            userApi: _effectiveUserApi,
+          ),
         ),
       );
       if (mounted && result != null) {
+        await _feed.refresh();
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Đã đăng khoảnh khắc của bạn.')),
         );
@@ -844,44 +968,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _openingCamera = false;
     }
   }
-
-  Widget _buildBrandHeader() => Row(
-    children: [
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              AppStrings.appName,
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                color: AppColors.primary,
-              ),
-            ),
-            Text(
-              'Chào, $_displayName',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(width: 8),
-      IconButton(
-        tooltip: 'Mở hồ sơ cá nhân',
-        onPressed: () {
-          setState(() => _currentTab = HomeTab.profile);
-          unawaited(_refreshSocialSummary());
-        },
-        icon: _ownAvatar(36),
-      ),
-    ],
-  );
 
   Widget _buildTitleSection() {
     return Column(
@@ -892,7 +978,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           style: TextStyle(
             fontSize: 25,
             fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
+            color: HomeColors.textPrimary,
             letterSpacing: -0.6,
           ),
         ),
@@ -902,7 +988,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           style: TextStyle(
             fontSize: 13.5,
             fontWeight: FontWeight.w400,
-            color: AppColors.textSecondary,
+            color: HomeColors.textSecondary,
           ),
         ),
       ],
@@ -935,16 +1021,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     height: 56,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: AppColors.coralLight,
+                      color: HomeColors.coralLight,
                       border: Border.all(
-                        color: AppColors.coralBorder,
+                        color: HomeColors.coralBorder,
                         width: 1.5,
                       ),
                     ),
                     child: const Center(
                       child: Icon(
                         Icons.add_rounded,
-                        color: AppColors.primary,
+                        color: HomeColors.primary,
                         size: 24,
                       ),
                     ),
@@ -955,7 +1041,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
-                      color: Color(0xFF6D6862),
+                      color: HomeColors.textSecondary,
                     ),
                   ),
                 ],
@@ -974,7 +1060,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     height: 56,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.primary, width: 2.2),
+                      border: Border.all(color: HomeColors.primary, width: 2.2),
                       color: Colors.white,
                     ),
                     padding: const EdgeInsets.all(2.5),
@@ -982,14 +1068,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       child: _buildSafeAssetImage(
                         story['asset']!,
                         fallback: Container(
-                          color: AppColors.primarySoft,
+                          color: HomeColors.primarySoft,
                           child: Center(
                             child: Text(
                               story['name']![0],
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
+                                color: HomeColors.primary,
                               ),
                             ),
                           ),
@@ -1003,7 +1089,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF383431),
+                      color: HomeColors.textPrimary,
                     ),
                   ),
                 ],
@@ -1015,288 +1101,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildFeaturedCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: AppColors.border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 18,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Media with floating badges
-          Stack(
-            children: [
-              SizedBox(
-                height: 310,
-                width: double.infinity,
-                child: _buildSafeAssetImage(
-                  'assets/images/coffee_full.png',
-                  fallback: Container(
-                    color: const Color(0xFFEFECE8),
-                    child: const Center(
-                      child: Icon(
-                        Icons.coffee_rounded,
-                        color: AppColors.primary,
-                        size: 48,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              // Top-left author pill
-              Positioned(
-                top: 14,
-                left: 14,
-                right: 14,
-                child: Container(
-                  padding: const EdgeInsets.only(
-                    top: 4,
-                    bottom: 4,
-                    left: 4,
-                    right: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.95),
-                    borderRadius: BorderRadius.circular(9999),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.08),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _ownAvatar(24),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '$_displayName • 2 giờ trước',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Bottom-right close friends badge
-              Positioned(
-                bottom: 14,
-                right: 14,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xB816191C),
-                    borderRadius: BorderRadius.circular(9999),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Text(
-                        '✦',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      SizedBox(width: 6),
-                      Text(
-                        AppStrings.closeFriends,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          // Card bottom details
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text(
-                        AppStrings.featuredPostDefaultTitle,
-                        style: TextStyle(
-                          fontSize: 15.5,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      SizedBox(height: 3),
-                      Text(
-                        AppStrings.featuredPostDefaultDesc,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w400,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () {
-                    setState(() => _isFavorited = !_isFavorited);
-                  },
-                  child: Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white,
-                      border: Border.all(color: const Color(0xFFECE7E1)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Icon(
-                        _isFavorited
-                            ? Icons.favorite_rounded
-                            : Icons.favorite_border_rounded,
-                        color: _isFavorited
-                            ? AppColors.primary
-                            : AppColors.textSecondary,
-                        size: 22,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionMomentsButton() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppColors.primary, AppColors.primaryDark],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFFF6B5F).withValues(alpha: 0.32),
-            blurRadius: 20,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: _openCamera,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.camera_alt_rounded,
-                  color: Colors.white,
-                  size: 24,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Text(
-                        AppStrings.sendMoment,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        AppStrings.sendMomentSubtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w400,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  color: Colors.white,
-                  size: 14,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ==========================================
-  // TAB 1: KỶ NIỆM (MEMORIES)
-  // ==========================================
   Widget _buildMemoriesTab() {
     final memories = [
       {
@@ -1335,7 +1139,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.w800,
-                      color: AppColors.textPrimary,
+                      color: HomeColors.textPrimary,
                     ),
                   ),
                   Container(
@@ -1344,7 +1148,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.coralLight,
+                      color: HomeColors.coralLight,
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: const Text(
@@ -1352,7 +1156,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: AppColors.primary,
+                        color: HomeColors.primary,
                       ),
                     ),
                   ),
@@ -1363,9 +1167,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 return Container(
                   margin: const EdgeInsets.only(bottom: 18),
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
+                    color: HomeColors.surface,
                     borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: AppColors.border),
+                    border: Border.all(color: HomeColors.border),
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: Column(
@@ -1409,7 +1213,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
+                            color: HomeColors.textPrimary,
                           ),
                         ),
                       ),
@@ -1439,6 +1243,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                _buildAccountSearchBar(),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        key: const Key('home_chat'),
+                        onPressed: _realSession ? _openChat : null,
+                        icon: const Icon(Icons.chat_bubble_outline_rounded),
+                        label: const Text('Tin nhắn'),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Đăng xuất',
+                      onPressed: _isLoggingOut || _isDeletingAccount
+                          ? null
+                          : _logout,
+                      icon: const Icon(Icons.logout_rounded),
+                    ),
+                  ],
+                ),
                 // Top Profile Navigation Bar
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1450,13 +1275,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         height: 40,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.white,
-                          border: Border.all(color: AppColors.border),
+                          color: HomeColors.surface,
+                          border: Border.all(color: HomeColors.border),
                         ),
                         child: const Center(
                           child: Icon(
                             Icons.arrow_back_rounded,
-                            color: AppColors.textPrimary,
+                            color: HomeColors.textPrimary,
                             size: 20,
                           ),
                         ),
@@ -1469,7 +1294,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         style: TextStyle(
                           fontSize: 16.5,
                           fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
+                          color: HomeColors.textPrimary,
                         ),
                       ),
                     ),
@@ -1516,7 +1341,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 border: Border.all(
-                                  color: AppColors.primary,
+                                  color: HomeColors.primary,
                                   width: 2.5,
                                 ),
                                 color: Colors.white,
@@ -1529,7 +1354,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             bottom: 0,
                             right: 0,
                             child: Material(
-                              color: AppColors.primary,
+                              color: HomeColors.primary,
                               shape: const CircleBorder(),
                               child: IconButton(
                                 key: const Key('edit_avatar_url'),
@@ -1537,7 +1362,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 onPressed: _editAvatar,
                                 icon: const Icon(
                                   Icons.edit_outlined,
-                                  color: Colors.white,
+                                  color: Colors.black,
                                   size: 18,
                                 ),
                               ),
@@ -1551,7 +1376,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
-                          color: AppColors.textPrimary,
+                          color: HomeColors.textPrimary,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -1560,7 +1385,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
-                          color: AppColors.textSecondary,
+                          color: HomeColors.textSecondary,
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -1569,7 +1394,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           'Gom những ngày bình thường đáng nhớ.',
                           style: TextStyle(
                             fontSize: 13,
-                            color: Color(0xFF58534C),
+                            color: HomeColors.textSecondary,
                           ),
                         ),
                     ],
@@ -1582,9 +1407,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Container(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: HomeColors.surface,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: AppColors.border),
+                    border: Border.all(color: HomeColors.border),
                   ),
                   child: Wrap(
                     alignment: WrapAlignment.spaceEvenly,
@@ -1623,9 +1448,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.primary,
+                    foregroundColor: HomeColors.primary,
                     side: const BorderSide(
-                      color: AppColors.primary,
+                      color: HomeColors.primary,
                       width: 1.5,
                     ),
                     shape: RoundedRectangleBorder(
@@ -1654,7 +1479,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
+                        color: HomeColors.textPrimary,
                       ),
                     ),
                     GestureDetector(
@@ -1668,14 +1493,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             style: TextStyle(
                               fontSize: 12.5,
                               fontWeight: FontWeight.w600,
-                              color: AppColors.primary,
+                              color: HomeColors.primary,
                             ),
                           ),
                           SizedBox(width: 4),
                           Icon(
                             Icons.arrow_forward_rounded,
                             size: 14,
-                            color: AppColors.primary,
+                            color: HomeColors.primary,
                           ),
                         ],
                       ),
@@ -1729,6 +1554,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 // Logout Button
                 CustomButton(
                   text: 'Chuyển tài khoản',
+                  textColor: HomeColors.primary,
+                  backgroundColor: HomeColors.primary,
                   isOutlined: true,
                   icon: Icons.switch_account_outlined,
                   onPressed: _isLoggingOut || _isDeletingAccount
@@ -1738,6 +1565,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 const SizedBox(height: 12),
                 CustomButton(
                   text: AppStrings.logout,
+                  textColor: HomeColors.primary,
+                  backgroundColor: HomeColors.primary,
                   isOutlined: true,
                   isLoading: _isLoggingOut && !_awaitingLogoutChoice,
                   onPressed: _isLoggingOut || _isDeletingAccount
@@ -1754,8 +1583,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       : AppStrings.deleteAccount,
                   isOutlined: true,
                   isLoading: _isDeletingAccount,
-                  backgroundColor: AppColors.error,
-                  textColor: AppColors.error,
+                  backgroundColor: HomeColors.error,
+                  textColor: HomeColors.error,
                   icon: Icons.delete_outline_rounded,
                   onPressed: _isDeletingAccount || _isLoggingOut
                       ? null
@@ -1778,7 +1607,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           style: const TextStyle(
             fontSize: 19,
             fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
+            color: HomeColors.textPrimary,
           ),
         ),
         const SizedBox(height: 2),
@@ -1787,7 +1616,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           style: const TextStyle(
             fontSize: 11.5,
             fontWeight: FontWeight.w500,
-            color: AppColors.textSecondary,
+            color: HomeColors.textSecondary,
           ),
         ),
       ],
@@ -1800,7 +1629,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       margin: const EdgeInsets.only(right: 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: HomeColors.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
@@ -1839,16 +1668,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildSettingRow(
-    IconData icon,
-    String title,
-    String? trailingText,
-  ) => Card(
-    child: ListTile(
-      leading: Icon(icon, color: AppColors.primary),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: trailingText == null ? null : Text(trailingText),
-      trailing: const Icon(Icons.chevron_right, color: AppColors.textSecondary),
-    ),
-  );
+  Widget _buildSettingRow(IconData icon, String title, String? trailingText) =>
+      Card(
+        child: ListTile(
+          leading: Icon(icon, color: HomeColors.primary),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          subtitle: trailingText == null ? null : Text(trailingText),
+          trailing: const Icon(
+            Icons.chevron_right,
+            color: HomeColors.textSecondary,
+          ),
+        ),
+      );
 }

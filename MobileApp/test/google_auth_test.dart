@@ -434,6 +434,9 @@ void main() {
           signInAdapter: adapter,
           apiClient: AuthApiClient(
             httpClient: FakeHttpClient((request) async {
+              if (request.url.path == '/posts/feed') {
+                return http.Response('{"data":[],"nextCursor":null}', 200);
+              }
               if (request.url.path == '/notifications/counts') {
                 return http.Response('{"unseenCount":0,"unreadCount":0}', 200);
               }
@@ -452,6 +455,9 @@ void main() {
             home: HomeScreen(session: testSession, googleAuthService: service),
           ),
         );
+        await tester.tap(find.byKey(const Key('home_tab_profile')));
+        await tester.pump();
+        await tester.ensureVisible(find.byIcon(Icons.logout_rounded));
         await tester.tap(find.byIcon(Icons.logout_rounded));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('logout_identity_only')));
@@ -474,6 +480,9 @@ void main() {
         expect(find.byType(HomeScreen), findsOneWidget);
         expect(adapter.signOutCalls, 0);
 
+        await tester.tap(find.byKey(const Key('home_tab_profile')));
+        await tester.pump();
+        await tester.ensureVisible(find.byIcon(Icons.logout_rounded));
         await tester.tap(find.byIcon(Icons.logout_rounded));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('logout_identity_only')));
@@ -710,19 +719,22 @@ void main() {
         expect(home.session.user.role, 'user');
         expect(home.session.user.status, 'active');
         expect(find.text('vietnam.dev@loccoc.vn'), findsNothing);
-        expect(find.text(AppStrings.welcomeBack), findsOneWidget);
+        expect(find.byTooltip('Chọn ảnh từ thư viện'), findsOneWidget);
         expect(find.text('USER'), findsNothing);
         expect(find.text('ACTIVE'), findsNothing);
 
-        // Test logout from HomeScreen using AppBar action
+        // Logout is available in the profile tab.
+        await tester.tap(find.byKey(const Key('home_tab_profile')));
+        await tester.pump();
+        await tester.ensureVisible(find.byIcon(Icons.logout_rounded));
         await tester.tap(find.byIcon(Icons.logout_rounded));
         await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('logout_identity_only')));
-        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('logout_retention_dialog')), findsNothing);
+        expect(await authService.vault.activeId(), isNull);
 
         // Verified: Navigated back to AuthScreen
         expect(find.byType(AuthScreen), findsOneWidget);
-        expect(fakeAdapter.signOutCalls, 1);
+        expect(fakeAdapter.signOutCalls, 0);
       },
     );
 

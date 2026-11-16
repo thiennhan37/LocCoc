@@ -138,6 +138,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('home_tab_profile')));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.byKey(const Key('home_account_search')));
       await tester.tap(find.byKey(const Key('home_account_search')));
       await tester.pumpAndSettle();

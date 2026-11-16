@@ -169,3 +169,9 @@ API tập trung trong lib/core/constants/api_constants.dart.
 Android USB hoặc emulator: adb reverse tcp:8080 tcp:8080, rồi flutter run.
 Nếu dùng Wi-Fi: flutter run --dart-define=API_BASE_URL=http://<IP-LAN-máy-tính>:8080.
 Ảnh lưu trên máy chạy post-service tại Downloads/LocCoc/posts, không phải Downloads của điện thoại.
+
+## Feed khi cuộn xuống
+
+Home hiển thị bài thật của bạn và bạn bè accepted. Đăng xong tự làm mới và cuộn tới feed. Cuộn gần cuối tải trang tiếp; kéo xuống làm mới để cập nhật thứ tự.
+Ảnh phải tải thành công, hiện ít nhất 50% trong 1 giây liên tục ở Home đang hoạt động mới ghi nhận đã xem. Trạng thái lưu server; bài đã xem chuyển cuối ở lượt tải mới, không nhảy khi đang đọc.
+Cần auth-service 8000, user-service 8081, post-service 8087 và gateway 8080. Chế độ demo chỉ hiện lời mời đăng nhập.

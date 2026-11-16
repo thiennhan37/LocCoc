@@ -55,6 +55,11 @@
       "key": "photoRequestId",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "feedCursor",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -345,7 +350,7 @@
           "response": []
         },
         {
-          "name": "Publish local photo",
+          "name": "Publish photo (JWT + S3)",
           "event": [
             {
               "listen": "prerequest",
@@ -377,10 +382,20 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{photoRequestId}}\",\n  \"ownerId\": \"11111111-1111-4111-8111-111111111111\",\n  \"imageBase64\": \"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAxSURBVFhH7c4hAQAACMAwItKI6OAJAGbi5mrRlf1Z7HEdAAAAAAAAAAAAAAAAAADAAPlINKZoOLjRAAAAAElFTkSuQmCC\",\n  \"caption\": \"Ảnh thử LocCoc\"\n}"
+              "raw": "{\n  \"requestId\": \"{{photoRequestId}}\",\n  \"ownerId\": \"{{userId}}\",\n  \"imageBase64\": \"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAxSURBVFhH7c4hAQAACMAwItKI6OAJAGbi5mrRlf1Z7HEdAAAAAAAAAAAAAAAAAADAAPlINKZoOLjRAAAAAElFTkSuQmCC\",\n  \"caption\": \"Ảnh thử LocCoc\"\n}"
             },
             "url": "{{gatewayUrl}}/posts/photos",
-            "description": "PNG tối đa 5 MiB; caption tối đa 200 ký tự. Giữ photoRequestId khi retry cùng ảnh. Xóa biến photoRequestId trước khi tạo bài mới. File lưu ở Downloads/LocCoc/posts trên máy chạy post-service."
+            "description": "JWT required. Set accessToken and userId from the same authenticated account. PNG max 5 MiB; caption max 200 chars. Preserve photoRequestId for retry; clear it for a new post. Images are stored in the private SeaweedFS/S3 post bucket.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           }
         },
         {
@@ -389,6 +404,85 @@
             "method": "GET",
             "header": [],
             "url": "{{gatewayUrl}}/posts/media/{{postId}}"
+          }
+        },
+        {
+          "name": "Get Feed",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{gatewayUrl}}/posts/feed?limit=20",
+            "description": "Requires login and a completed username. Own recent unseen, friends unseen, own older unseen, then seen. Use Get Feed to start a new traversal; cursor expires after one hour."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) { const body = pm.response.json(); pm.collectionVariables.set('feedCursor', body.nextCursor || ''); if (body.data.length) pm.collectionVariables.set('postId', body.data[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Next Feed Page",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{gatewayUrl}}/posts/feed?limit=20&cursor={{feedCursor}}",
+            "description": "Requires login and a completed username. Own recent unseen, friends unseen, own older unseen, then seen. Use Get Feed to start a new traversal; cursor expires after one hour."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) { const body = pm.response.json(); pm.collectionVariables.set('feedCursor', body.nextCursor || ''); if (body.data.length) pm.collectionVariables.set('postId', body.data[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mark Post Seen",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [],
+            "url": "{{gatewayUrl}}/posts/{{postId}}/seen",
+            "description": "Returns 204. Idempotent first view for authenticated viewer; checks current accepted-friend membership."
           }
         }
       ]
