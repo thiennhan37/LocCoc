@@ -12,6 +12,21 @@ were changed during implementation. Super-node policy remains deferred.
 2. Run `docker compose up -d neo4j`. Compose pins Neo4j 5.26.33 Community, mounts
    `neo4j_data`, binds HTTP/Bolt to loopback, enforces authentication, and limits
    transaction execution to three seconds. It does not publish a public graph API.
+   To start only Neo4j when unrelated database variables are not configured, use:
+   ```powershell
+   docker compose -f compose.neo4j.yaml pull neo4j
+   docker compose -f compose.neo4j.yaml up -d --wait neo4j
+   ```
+   Run from the repository root. This standalone file uses the same project,
+   service, and `neo4j_data` volume as the main Compose file. Keep its Neo4j
+   definition synchronized with `compose.yaml`. Do not use `--remove-orphans`
+   with the standalone file, or `down -v` when data must be retained.
+
+   Open `http://127.0.0.1:7474` and connect to `bolt://127.0.0.1:7687`
+   with username `neo4j` and the password in the root local `.env`.
+   Host-run UserService uses `NEO4J_HTTP_URL=http://127.0.0.1:7474`.
+   Restart UserService after changing its environment. Authentication stored in
+   an existing volume is not reset by changing `NEO4J_PASSWORD`.
 3. Apply UserService migrations with `npm --prefix user-service run db:migrate`
    using the existing database configuration. The database owner needs permission
    to install trusted `unaccent` and `pg_trgm` extensions into `public`.

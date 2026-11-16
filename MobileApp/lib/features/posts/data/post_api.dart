@@ -1,3 +1,4 @@
+import '../../users/data/user_api_client.dart';
 import '../../../core/constants/api_constants.dart';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -18,9 +19,21 @@ class PostApi {
         'Ảnh hoặc tin nhắn không hợp lệ. Ảnh tối đa 5 MB.',
       );
     }
-    final response = await _client.request(
+    final current = session;
+    if (current == null ||
+        !current.session.authenticated ||
+        current.session.accessToken.isEmpty ||
+        current.session.accessToken.startsWith('demo-') ||
+        current.session.user.id != ownerId) {
+      throw const ApiException(
+        'Hãy đăng nhập đúng tài khoản để gửi ảnh.',
+        statusCode: 401,
+      );
+    }
+    final response = await current.request(
       'POST',
-      baseUrl.resolve(ApiConstants.photoPostsPath),
+      'photos',
+      area: 'posts',
       body: {
         'requestId': requestId,
         'ownerId': ownerId,
@@ -34,9 +47,10 @@ class PostApi {
     return response;
   }
 
+  final UserApiClient? session;
   final Uri baseUrl;
   final ApiClient _client;
-  PostApi({Uri? baseUrl, ApiClient? client})
+  PostApi({Uri? baseUrl, ApiClient? client, this.session})
     : baseUrl = baseUrl ?? Uri.parse(ApiConstants.baseUrl),
       _client = client ?? ApiClient();
 

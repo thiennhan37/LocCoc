@@ -1,3 +1,4 @@
+import 'package:mobile_app/core/theme/app_theme.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -49,6 +50,47 @@ Future<void> loaded(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('caption text stays readable with the app light input theme', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: PhotoEditorScreen(photo: sample),
+      ),
+    );
+    await loaded(tester);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Thêm chữ'));
+    await tester.pumpAndSettle();
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('photo-caption')),
+    );
+    final decoration = field.decoration!.applyDefaults(
+      Theme.of(
+        tester.element(find.byKey(const ValueKey('photo-caption'))),
+      ).inputDecorationTheme,
+    );
+    final background = decoration.fillColor!;
+    final foreground = field.style!.color!;
+    final contrast =
+        (foreground.computeLuminance() + 0.05) /
+        (background.computeLuminance() + 0.05);
+    expect(contrast, greaterThanOrEqualTo(4.5));
+    await tester.enterText(
+      find.byKey(const ValueKey('photo-caption')),
+      'Lời nhắn dễ đọc',
+    );
+    expect(field.controller!.text, 'Lời nhắn dễ đọc');
+    await tester.tap(find.text('Xong'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'edited photo is retained on failure and retry reuses the same request',
     (tester) async {

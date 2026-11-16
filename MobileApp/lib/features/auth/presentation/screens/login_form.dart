@@ -64,7 +64,7 @@ class _LoginFormState extends State<LoginForm> {
     await _googleAuthService.acceptLogin(
       session,
       remember: true,
-      retain: false,
+      retain: true,
     );
     if (!mounted) return;
     _passwordController.clear();

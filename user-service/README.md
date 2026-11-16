@@ -14,6 +14,11 @@ npm start
 
 `npm start` chạy chế độ thường; dùng `npm run start:dev` để watch file.
 
+Nest giữ lại `dist` khi build/watch (`deleteOutDir: false`) để tránh lỗi Windows
+`EBUSY` khi log trong thư mục này đang được tiến trình khác mở. Nên ghi log local
+vào `logs/` thay vì `dist/`. Khi cần dọn các file build cũ sau khi đổi tên hoặc xóa
+source, hãy dừng các tiến trình đang dùng `dist` trước khi xóa thư mục và build lại.
+
 Set `USER_PORT` in `user-service/.env` if a different port is needed. The service validates its own database, Redis, and JWT public-key settings at startup.
 
 ## Verify

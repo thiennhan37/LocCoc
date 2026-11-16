@@ -1166,3 +1166,76 @@ Mobile API layer now includes all existing Auth endpoints and Post create/delete
 - Resolved five conflicts, preserving ranked feed alongside main chat, profile and session management. Feed activity and pagination use HomeTab.home after the navigation enum migration.
 - Auth API accepts both posts and chat, retaining Retry-After and display-name cooldown error metadata. Kept portable post media defaults and feed configuration.
 - Verification: Flutter analyzer clean; all 330 Flutter tests passed; post-service Maven tests completed successfully.
+
+
+### 2026-11-15: Post photos on SeaweedFS/S3 with authenticated publishing
+
+- New post photos use a private S3-compatible bucket and stable `posts/{uuid}.png` keys; database/media URLs remain unchanged. Added storage abstraction, independent PNG validation, bounded requests and conditional writes. Read-only legacy fallback applies only to NoSuchKey.
+- POST /posts/photos now requires Bearer JWT verified through user-service /users/me and rejects mismatching ownerId. Mobile passes its current UserApiClient through Home/camera/editor, sends Bearer tokens and retains refresh/retry/session invalidation behavior. Gateway forwarding and Postman examples updated.
+- Independent review identified lost-PUT-ack retry failure; fixed with verified owner/photo/caption metadata reconciliation. Recovered objects are never removed on DB rollback. Single-process publication locking remains; distributed exactly-once publishing is not claimed.
+- User explicitly authorized creating local-only storage credentials and a persistent SeaweedFS deployment. Credentials are in ignored `.env.post-media.local` (never printed or committed); standalone `compose.media.yaml` runs the existing media-store service with volume `loccoc_media_data` and loopback S3 port 9000.
+- Located 10 legacy PNGs in the user's Downloads/LocCoc/posts directory; D:/LocCoc/posts did not exist. Migrated all 10 into private `loccoc-posts`, verified SHA-256, and kept every original. Reverified identical=10, pending=0, failed=0 after both container and Docker Desktop restart. Local read fallback is now disabled.
+- Verification: 32 post-service tests including real SeaweedFS integration passed; 333 Flutter tests passed and analyzer clean; Nest gateway 5 tests and Spring gateway 21 tests passed; migration 7 tests passed including symlink rejection. Postman JSON and git diff checks passed. Production IAM cryptography is reused, not reimplemented; HTTP auth tests use a controlled IAM upstream.
+- Restart/rebuild post-service and MobileApp to use changed code. SeaweedFS remains running; no existing post metadata or source images were deleted. See ADR-016, docs/specs/post-s3-storage.md and post-service/README.md.
+
+
+### 2026-11-15: Repair local notification database setup
+
+- notification-service/.env correctly targeted PostgreSQL 127.0.0.1:5433, database notifications and dedicated notification_service role, but the existing local PostgreSQL volume contained neither. Confirmed authentication error 28P01 before repair.
+- Created only the missing role/database using the existing service-local password without changing any .env or existing database data. Applied the notification migration through a controlled TYPEORM_MIGRATIONS_RUN=true startup.
+- Verified authenticated database connection, TypeScript build and Nest application startup. Stopped the verification process so normal startup can bind port 8084. Existing Docker volumes were preserved.
+
+
+### 2026-11-15: Photo caption input contrast
+
+- Fixed white caption text inheriting the app light input background: the editor caption field now explicitly uses a dark fill and white cursor.
+- Regression test uses AppTheme.lightTheme and checks WCAG 4.5:1 text/background contrast; observed failure before fix, all four photo editor widget tests pass after fix.
+
+
+### 2026-11-15: Single-post vertical mobile feed
+
+- Removed duplicate caption under published photos; image-embedded captions remain. Feed now pages vertically with one post per viewport and prefetches near the end. Preserved retry/loading/empty/end and view dwell behavior.
+- Regression covers swipe to the next author without two posts visible, no duplicate caption, and feed refresh after publishing. All 335 Flutter tests passed; analyzer clean for changed Dart files.
+
+
+### 2026-11-15: Restore mobile login after restart
+
+- LoginForm previously passed retain=false for password and Google login, preventing secure active-session restoration. It now retains the active refresh credential through the existing origin-scoped AccountVault. Passwords/access tokens remain memory-only.
+- Restart restores through existing server-validated refresh rotation and ProfileGate/Home navigation; revoked/expired credentials fail closed and explicit logout clears auto-entry. Existing sessions without retained credentials need one new login after this update.
+- Regression simulates login followed by new vault/coordinator and automatic Home navigation. Updated Google logout expectation for an already retained session. All 335 Flutter tests passed; analyzer clean for login and restart regression files.
+
+### 2026-11-15 — Mobile camera-first Home
+- Home now embeds the capture surface on black, opens camera on entry, and exposes gallery, shutter, flash, flip, friends, notifications and profile. Four existing destinations remain in a dark capsule navigation.
+- “Một chút hôm nay” moved into the scrollable Friends list; entries remain the existing placeholder stories. History opens the vertical one-post feed, now readable on a dark background. Search/chat/logout remain available in Profile.
+- Camera ownership follows foreground, visible route and selected tab. Separate capture and editor suspension prevents notification refreshes from cancelling in-flight shots; failed capture preserves its error. Gallery reuses bounded image validation and forwards the authenticated UserApiClient to the editor.
+- Regression coverage includes lifecycle, gallery cancel/select, session forwarding, capture failure/concurrent parent refresh, feed refresh and 200% text layout.
+- Verification: 341 Flutter tests passed (concurrency 1); flutter analyze reports no issues. Widget layout verified at phone sizes and 200% text; native camera/gallery still require device runtime permissions.
+
+### 2026-11-15: Fix post-service compile and user-service locked logs
+
+- Corrected AWS SDK Region import from `software.amazon.awssdk.region` to `software.amazon.awssdk.regions`; existing Maven dependencies already include the required class.
+- Disabled Nest `deleteOutDir` in user-service so build/watch does not unlink locked local startup logs in dist on Windows. Documented logs/ placement and manual cleanup after source removal/rename.
+- Reproduced both failures before the fixes. Verified Nest build succeeds with the locked log retained; all 125 user-service unit tests passed. Maven test completed successfully: 31 passed, one S3 integration test skipped because POST_S3_TEST_ENDPOINT was not set.
+- No application services were restarted; the user will restart them manually.
+
+### 2026-11-16 — Inline Home feed and dark tabs
+- Camera is page zero of one vertical Home pager, followed by own/friend posts from the existing feed API, one post per page. History advances to page one; returning to page zero reactivates the camera. Pagination and dwell tracking reuse the feed controller/widgets.
+- Home, Friends, Memories and Profile now share black scaffold backgrounds, dark cards/input surfaces and high-contrast text through scoped HomeColors. Authentication routes retain their existing theme.
+- Added swipe-through-own/friend-posts and camera-return regression coverage; updated all-tab dark theme assertions.
+- Compact camera layouts explicitly advance to the feed after an upward drag past their internal scroll boundary. Missing/failed image tiles use themed dark surfaces. Full suite passed 341 tests before these two edge fixes; all 8 affected camera/feed tests passed after fixes.
+
+### 2026-11-16 — Centered posts, persisted reactions and author chat
+- Post pages now center a bounded square photo with author/relative time below and an interaction strip. Controls remain visible at 320px/200% text; existing vertical paging and dwell rules remain.
+- Message action opens the author's existing/direct chat via ChatApi and the current JWT session, then uses ChatDetailScreen's send/retry behavior. Self-message action is hidden; opening a conversation never sends text automatically.
+- User chose persisted post reactions. post-service now exposes authenticated GET /posts/{id}/reactions and idempotent PUT/DELETE /posts/{id}/reaction. Table post_reactions stores one emoji per viewer/post; current audience and soft-deletion checked on all operations, writes serialized on post row. Existing legacy reactions table/photos remain intact.
+- Supported emoji: 💛 🔥 😍 😂 👏; same selection removes, another replaces. Mobile displays confirmed counts/selection, keeps prior state on failure, and handles modal route reactivation before submitting expanded-picker choices.
+- Restart post-service to load API/create the new table with local ddl-auto=update; validate deployments apply the dedicated CREATE TABLE/INDEX documented in post-service README. Existing gateway proxy carries all methods without a production route change.
+- Verification: 346 Flutter tests passed; post-service reports 36 passed plus one unrelated S3 integration test skipped; Spring gateway 22 passed, including reaction GET/PUT/DELETE with bearer forwarding.
+- Final flutter analyze: no issues. Home-level regression verifies expanded reaction picker, JWT direct-conversation target, no automatic message on open, and explicit send.
+
+
+### 2026-11-16 — Local Neo4j activation
+- Pulled the existing project image neo4j:5.26.33-community and started loccoc-neo4j-1 with persistent loccoc_neo4j_data; HTTP 127.0.0.1:7474 and Bolt 127.0.0.1:7687.
+- Added compose.neo4j.yaml matching the main Neo4j service so it can run independently of missing unrelated PostgreSQL environment variables: docker compose -f compose.neo4j.yaml up -d --wait neo4j.
+- Configured generated local Neo4j credentials in root .env and user-service/.env, without committing or logging the password. UserService uses http://127.0.0.1:7474; restart it to reload environment. No business migrations were run.
+- Verified Compose configuration, container healthy state, authenticated HTTP RETURN 1 query, Bolt protocol handshake, and matching UserService credentials. Operations guide documents startup and persistence precautions.

@@ -1,3 +1,5 @@
+import 'home_screen_test.dart' show FakeCameraSession;
+import 'package:mobile_app/features/home/application/camera_session.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,11 @@ void main() {
   testWidgets(
     'Home reloads real feed after publish; failed images are not viewed',
     (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final camera = FakeCameraSession()..status = CameraStatus.ready;
       var loads = 0, views = 0;
       final api = fixtures.apiFor((request) async {
         if (request.url.path == '/posts/feed') {
@@ -31,6 +38,17 @@ void main() {
                 'mine': true,
                 'seen': false,
               },
+              {
+                'id': '33333333-3333-4333-8333-333333333333',
+                'ownerId': 'friend',
+                'mediaKey': '/posts/media/33333333-3333-4333-8333-333333333333',
+                'mediaType': 0,
+                'authorName': 'Bạn của tôi',
+                'createdAt': '2026-11-13T00:00:00Z',
+                'caption': '',
+                'mine': false,
+                'seen': false,
+              },
             ],
             'nextCursor': null,
           });
@@ -46,6 +64,7 @@ void main() {
         MaterialApp(
           home: HomeScreen(
             session: fixtures.session,
+            camera: camera,
             userApi: api,
             googleAuthService: GoogleAuthService(apiClient: api.auth),
           ),
@@ -53,33 +72,64 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(loads, 1);
-      await tester.ensureVisible(find.text('Gửi một khoảnh khắc'));
-      await tester.tap(find.text('Gửi một khoảnh khắc'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
       expect(find.byType(CaptureMomentScreen), findsOneWidget);
-      final context = tester.element(find.byType(CaptureMomentScreen));
-      Navigator.of(context).pop(
+      expect(
+        tester
+            .widget<CaptureMomentScreen>(find.byType(CaptureMomentScreen))
+            .userApi,
+        same(api),
+      );
+      tester
+          .widget<CaptureMomentScreen>(find.byType(CaptureMomentScreen))
+          .onPublished!(
         PublishedPhoto(Uint8List(0), '22222222-2222-4222-8222-222222222222'),
       );
       await tester.pumpAndSettle();
       expect(loads, 2);
-      await tester.scrollUntilVisible(
-        find.text('Bài vừa đăng'),
-        200,
-        scrollable: find
-            .descendant(
-              of: find.byType(CustomScrollView),
-              matching: find.byType(Scrollable),
-            )
-            .first,
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      await tester.drag(
+        find.byKey(const ValueKey('capture-moment')),
+        const Offset(0, -650),
       );
-      expect(find.text('Bài vừa đăng'), findsOneWidget);
-      expect(find.text('Bài trước'), findsNothing);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('22222222-2222-4222-8222-222222222222')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('11111111-1111-4111-8111-111111111111')),
+        findsNothing,
+      );
+      expect(find.text('Bài vừa đăng'), findsNothing);
+      expect(camera.stops, greaterThan(0));
+      await tester.drag(
+        find.byKey(const ValueKey('feed-pager')),
+        const Offset(0, -650),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Bạn của tôi').hitTestable(), findsOneWidget);
+      await tester.drag(
+        find.byKey(const ValueKey('feed-pager')),
+        const Offset(0, 650),
+      );
+      await tester.pumpAndSettle();
+      await tester.drag(
+        find.byKey(const ValueKey('feed-pager')),
+        const Offset(0, 650),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byTooltip('Chọn ảnh từ thư viện').hitTestable(),
+        findsOneWidget,
+      );
+      expect(camera.starts, greaterThan(1));
+
       await tester.pump(const Duration(seconds: 2));
       expect(views, 0);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
+      camera.dispose();
     },
   );
 }

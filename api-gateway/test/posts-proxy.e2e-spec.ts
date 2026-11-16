@@ -62,12 +62,18 @@ describe('Post proxy routes', () => {
     expect(options.method).toBe('PUT');
   });
 
+  it('preserves photo authentication rejection from post-service', async () => {
+    upstream.mockResolvedValueOnce(new Response('{"code":1001}', { status: 401 }));
+    await request(app.getHttpServer()).post('/posts/photos').send({}).expect(401);
+  });
+
   it('forwards photo JSON larger than the former body limit', async () => {
     const imageBase64 = 'A'.repeat(1500000);
     upstream.mockResolvedValueOnce(new Response('{"id":"post-id"}', { status: 201 }));
-    await request(app.getHttpServer()).post('/posts/photos').send({ imageBase64 }).expect(201);
+    await request(app.getHttpServer()).post('/posts/photos').set('Authorization', 'Bearer photo-token').send({ imageBase64 }).expect(201);
     const [url, options] = upstream.mock.calls.at(-1)!;
     expect(url.toString()).toBe('http://localhost:8087/posts/photos');
     expect(JSON.parse(options.body).imageBase64).toBe(imageBase64);
+    expect(options.headers.get('authorization')).toBe('Bearer photo-token');
   });
 });

@@ -13,3 +13,8 @@ Mobile counts a view only after a successfully loaded photo occupies >=50% of it
 Approach: server-ranked feed and server view state (selected). Client-only ranking cannot reliably paginate or persist views across devices; fan-out event infrastructure is unnecessary for this local project. Keep service boundaries and existing Google/profile/friend functions.
 
 Implementation decisions: cursor lifetime one hour; limit 1..50; source audience bounded at 10000 friends with explicit failure rather than silent truncation. Local image URLs remain compatible with the existing local-photo endpoint. Feed privacy is enforced at listing/seen; legacy photo publishing/media remains the prior development contract.
+
+
+### 2026-11-15: One post per vertical page
+
+User requested removing duplicate caption text below the photo and viewing one post at a time. Mobile uses a vertical PageView with one full page per post; the caption baked into the published image remains visible. Approaching the last posts loads the next server page; the final page retains loading/error/retry/end states. Photo cards fit their available page height, preserving author/time and existing view tracking.

@@ -23,6 +23,16 @@ CREATE TABLE IF NOT EXISTS post_views (
     UNIQUE (viewer_id, post_id)
 );
 
+-- Current reactions API; independent of the legacy reactions table below.
+CREATE TABLE IF NOT EXISTS post_reactions (
+    id VARCHAR(73) PRIMARY KEY,
+    viewer_id UUID NOT NULL,
+    post_id UUID NOT NULL,
+    emoji VARCHAR(8) NOT NULL,
+    CONSTRAINT uq_post_reaction_viewer UNIQUE (viewer_id, post_id)
+);
+CREATE INDEX IF NOT EXISTS idx_post_reactions_post ON post_reactions (post_id);
+
 -- Snapshot người nhận tại lúc gửi, giữ nguyên mô hình fan-out on write.
 CREATE TABLE IF NOT EXISTS moment_recipients (
     moment_id UUID NOT NULL,
