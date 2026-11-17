@@ -44,6 +44,14 @@ CREATE TABLE IF NOT EXISTS moment_recipients (
 );
 CREATE INDEX IF NOT EXISTS idx_feed ON moment_recipients (recipient_id, created_at DESC);
 
+-- Persist the claim before any paid AI request; no private image is stored here.
+CREATE TABLE IF NOT EXISTS ai_preview_attempts (
+    id UUID PRIMARY KEY,
+    owner_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_attempt_owner_created ON ai_preview_attempts (owner_id, created_at);
+
 CREATE TABLE IF NOT EXISTS reactions (
     moment_id UUID NOT NULL,
     user_id UUID NOT NULL,

@@ -46,6 +46,9 @@ class FakeChatApi implements ChatRepository {
   @override
   String accountId = 'me';
   @override
+  String get mediaOrigin => 'http://localhost';
+  final sentPostIds = <String?>[];
+  @override
   String accessToken = 'token';
   ChatConversation current = conversation();
   final sent = <String>[];
@@ -84,8 +87,10 @@ class FakeChatApi implements ChatRepository {
   Future<ChatMessage> send(
     String conversationId,
     String clientId,
-    String text,
-  ) async {
+    String text, {
+    String? postId,
+  }) async {
+    sentPostIds.add(postId);
     sent.add(clientId);
     return onSend == null
         ? message('1', client: clientId)
@@ -141,6 +146,87 @@ Future<void> flush() async {
 }
 
 void main() {
+  test(
+    'post attachment survives optimistic failure and retry with same message ID',
+    () async {
+      final api = FakeChatApi();
+      api.onSend = (_, _) async => throw Exception('offline');
+      final c = ChatController(
+        api: api,
+        socket: FakeRealtime(),
+        idGenerator: () => 'reply-id',
+      );
+      addTearDown(c.dispose);
+      await c.open('conversation');
+      const attachment = ChatPostAttachment(
+        postId: 'post',
+        mediaKey: '/posts/media/11111111-1111-4111-8111-111111111111',
+      );
+      expect(await c.sendText('Đẹp quá', postAttachment: attachment), isTrue);
+      await flush();
+      expect(
+        c.messages('conversation').single.message.postAttachment?.toJson(),
+        attachment.toJson(),
+      );
+      expect(c.messages('conversation').single.status, ChatSendStatus.failed);
+      api.onSend = (id, text) async => ChatMessage.fromJson({
+        ...message('1', client: id).toJson(),
+        'text': text,
+        'postAttachment': attachment.toJson(),
+      });
+      await c.retry('conversation', 'reply-id');
+      expect(api.sent, ['reply-id', 'reply-id']);
+      expect(api.sentPostIds, ['post', 'post']);
+      expect(
+        c.messages('conversation').single.message.postAttachment?.toJson(),
+        attachment.toJson(),
+      );
+      expect(c.messages('conversation').single.status, ChatSendStatus.sent);
+      expect(c.postImageUri(attachment)?.host, 'localhost');
+      expect(
+        c.postImageUri(
+          const ChatPostAttachment(
+            postId: 'post',
+            mediaKey: 'https://evil.example/image',
+          ),
+        ),
+        isNull,
+      );
+    },
+  );
+
+  test('history and realtime retain post attachment metadata', () async {
+    final attachment = {
+      'postId': 'post',
+      'mediaKey': '/posts/media/11111111-1111-4111-8111-111111111111',
+    };
+    final row = ChatMessage.fromJson({
+      ...message('1').toJson(),
+      'postAttachment': attachment,
+    });
+    expect(row.toJson()['postAttachment'], attachment);
+    final api = FakeChatApi()
+      ..onHistory = (_) async => ChatMessagePage([row], false);
+    final socket = FakeRealtime();
+    final c = ChatController(api: api, socket: socket);
+    addTearDown(c.dispose);
+    await c.open('conversation');
+    expect(
+      c.messages('conversation').single.message.toJson()['postAttachment'],
+      attachment,
+    );
+    socket.emit('message:new', {
+      'message': {
+        ...message('2', client: 'second', sender: 'peer').toJson(),
+        'postAttachment': attachment,
+      },
+    });
+    expect(
+      c.messages('conversation').last.message.toJson()['postAttachment'],
+      attachment,
+    );
+    expect(message('3').toJson()['postAttachment'], isNull);
+  });
   test(
     'profile dependency failure still loads participant history and disables sending',
     () async {

@@ -18,6 +18,8 @@ Tự đọc `.env` tại thư mục hiện tại hoặc thư mục cha; biến m
 |---|---|---|
 | /auth | AUTH_SERVICE_URL | http://localhost:8000 |
 | /users | USER_SERVICE_URL | http://localhost:8081 |
+| /posts | POST_SERVICE_URL | http://localhost:8087 |
+| /chat | CHAT_SERVICE_URL | http://127.0.0.1:8083 |
 | /admin | ADMIN_SERVICE_URL | http://localhost:8086 |
 | /payments, /subscriptions | PAYMENT_SERVICE_URL | http://localhost:8085 |
 
@@ -67,3 +69,7 @@ ErrorCode lưu mã ứng dụng, message và HTTP status. Service ném AppExcept
 | Upstream timeout | 504 | 1106 |
 
 Đây là thay đổi contract lỗi của gateway Spring: client đọc code/message thay cho statusCode/error. Service được gọi trực tiếp và gateway NestJS tiếp tục dùng contract riêng. ErrorCode.java chứa catalog đầy đủ và mapping HTTP status của downstream.
+
+Chat REST đi qua `/chat/**`, gồm lời nhắn kèm postId. Socket.IO vẫn kết nối trực tiếp cổng 8083 theo `CHAT_SOCKET_URL` của mobile; gateway Spring không xử lý WebSocket upgrade.
+
+Upstream HTTP client sử dụng HTTP/1.1: chat-service có Socket.IO/Engine.IO sẽ đóng các kết nối upgrade h2c không hỗ trợ, khiến client mặc định HTTP/2 trả 502. Route WebSocket vẫn kết nối trực tiếp chat-service.

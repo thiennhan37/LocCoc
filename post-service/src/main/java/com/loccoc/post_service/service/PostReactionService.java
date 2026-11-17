@@ -39,6 +39,8 @@ public class PostReactionService {
       var post=posts.lockById(postId).orElseThrow(()->new AppException(ErrorCode.ROUTE_NOT_FOUND));
       if(post.getDeletedAt()!=null || !audience.authors().containsKey(post.getOwnerId()))
         throw new AppException(ErrorCode.ROUTE_NOT_FOUND);
+      boolean ownPost=post.getOwnerId().equals(audience.viewerId());
+      if(mutate && ownPost) throw new AppException(ErrorCode.ACCESS_DENIED);
       var existing=reactions.findById(PostReaction.key(audience.viewerId(),postId));
       if(mutate) {
         if(emoji==null) existing.ifPresent(reactions::delete);
@@ -47,8 +49,8 @@ public class PostReactionService {
         reactions.flush();
       }
       var counts=new LinkedHashMap<String,Long>();
-      for(var count:reactions.counts(postId)) counts.put(count.getEmoji(),count.getTotal());
-      return new PostReactionSummary(Map.copyOf(counts),mutate?emoji:existing.map(PostReaction::getEmoji).orElse(null));
+      for(var count:reactions.counts(postId,post.getOwnerId())) counts.put(count.getEmoji(),count.getTotal());
+      return new PostReactionSummary(Map.copyOf(counts),ownPost?null:mutate?emoji:existing.map(PostReaction::getEmoji).orElse(null));
     });
   }
 }

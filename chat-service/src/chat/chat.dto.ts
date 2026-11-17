@@ -6,6 +6,9 @@ export class DirectChatDto {
   @IsUUID() peerId!: string;
 }
 export class SendMessageDto {
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => typeof value === 'string' ? value.toLowerCase() : value)
+  @IsUUID() postId?: string;
   @IsUUID() clientMessageId!: string;
   @Transform(({ value }: { value: unknown }) => typeof value === 'string' ? value.trim() : value)
   @IsString()

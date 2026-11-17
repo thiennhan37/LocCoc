@@ -1,15 +1,15 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
-import type { ChatMessage, HistoryQuery, Member } from './chat.types.js';
+import type { ChatMessage, HistoryQuery, Member, PostAttachment } from './chat.types.js';
 
 const messageColumns = `id, conversation_id AS "conversationId", sender_id AS "senderId",
-  client_message_id AS "clientMessageId",sequence::text,text,created_at AS "createdAt"`;
+  client_message_id AS "clientMessageId",sequence::text,text,post_attachment AS "postAttachment",created_at AS "createdAt"`;
 const memberSelect = `SELECT c.id, peer.account_id AS "peerId", me.last_read_sequence::text AS "lastReadSequence",
   peer.last_read_sequence::text AS "peerLastReadSequence", c.updated_at AS "updatedAt",
   (SELECT count(*)::int FROM messages m WHERE m.conversation_id=c.id AND m.sender_id<>$1 AND m.sequence>me.last_read_sequence) AS "unreadCount",
   (SELECT jsonb_build_object('id',m.id,'conversationId',m.conversation_id,'senderId',m.sender_id,
-    'clientMessageId',m.client_message_id,'sequence',m.sequence::text,'text',m.text,'createdAt',m.created_at)
+    'clientMessageId',m.client_message_id,'sequence',m.sequence::text,'text',m.text,'postAttachment',m.post_attachment,'createdAt',m.created_at)
     FROM messages m WHERE m.conversation_id=c.id ORDER BY m.sequence DESC LIMIT 1) AS "lastMessage"
   FROM conversations c JOIN conversation_members me ON me.conversation_id=c.id AND me.account_id=$1
   JOIN conversation_members peer ON peer.conversation_id=c.id AND peer.account_id<>me.account_id`;
@@ -70,7 +70,7 @@ export class ChatRepository {
     return { data: query.after ? data : data.reverse(), hasMore: rows.length > query.limit };
   }
 
-  async send(accountId: string, conversationId: string, clientMessageId: string, text: string): Promise<{ message: ChatMessage; created: boolean }> {
+  async send(accountId: string, conversationId: string, clientMessageId: string, text: string, attachment?: { postId: string; resolve: () => Promise<PostAttachment> }): Promise<{ message: ChatMessage; created: boolean }> {
     // PostgreSQL UUID equality ignores case; the lock key and retry comparison
     // must use that same canonical identity, including non-HTTP callers.
     accountId = accountId.toLowerCase();
@@ -82,14 +82,15 @@ export class ChatRepository {
       await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`${accountId}:${clientMessageId}`]);
       const existing: ChatMessage[] = await tx.query(`SELECT ${messageColumns} FROM messages WHERE sender_id=$1 AND client_message_id=$2`, [accountId, clientMessageId]);
       if (existing[0]) {
-        if (existing[0].conversationId !== conversationId || existing[0].text !== text) throw new ConflictException({ code: 'MESSAGE_ID_CONFLICT', message: 'Message ID was used for different content' });
+        if (existing[0].conversationId !== conversationId || existing[0].text !== text || (existing[0].postAttachment?.postId ?? null) !== (attachment?.postId.toLowerCase() ?? null)) throw new ConflictException({ code: 'MESSAGE_ID_CONFLICT', message: 'Message ID was used for different content' });
         return { message: message(existing[0]), created: false };
       }
+      const postAttachment = attachment ? await attachment.resolve() : null;
       const rows: { sequence: string }[] = await tx.query(`WITH updated AS (UPDATE conversations SET last_sequence=last_sequence+1,
         updated_at=date_trunc('milliseconds',clock_timestamp()) WHERE id=$1 RETURNING last_sequence)
         SELECT last_sequence::text AS sequence FROM updated`, [conversationId]);
-      const inserted: ChatMessage[] = await tx.query(`INSERT INTO messages(id,conversation_id,sender_id,client_message_id,sequence,text)
-        VALUES($1,$2,$3,$4,$5,$6) RETURNING ${messageColumns}`, [randomUUID(), conversationId, accountId, clientMessageId, rows[0]!.sequence, text]);
+      const inserted: ChatMessage[] = await tx.query(`INSERT INTO messages(id,conversation_id,sender_id,client_message_id,sequence,text,post_attachment)
+        VALUES($1,$2,$3,$4,$5,$6,$7::jsonb) RETURNING ${messageColumns}`, [randomUUID(), conversationId, accountId, clientMessageId, rows[0]!.sequence, text, postAttachment ? JSON.stringify(postAttachment) : null]);
       return { message: message(inserted[0]!), created: true };
     });
   }

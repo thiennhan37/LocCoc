@@ -24,7 +24,7 @@ export class ChatController {
   }
   @Post(':id/messages') @HttpCode(200)
   send(@Req() req: ChatRequest, @Param('id', ParseUUIDPipe) id: string, @Body() body: SendMessageDto, @Headers('authorization') token: string) {
-    return this.service.send(req.user.userId, id, body.clientMessageId, body.text, token);
+    return this.service.send(req.user.userId, id, body.clientMessageId, body.text, token, body.postId);
   }
   @Patch(':id/read')
   read(@Req() req: ChatRequest, @Param('id', ParseUUIDPipe) id: string, @Body() body: ReadChatDto, @Headers('authorization') token: string) {

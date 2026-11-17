@@ -32,6 +32,12 @@ class ApiGatewayApplicationTests {
       upstream.createContext(
           "/",
           exchange -> {
+            // Socket.IO/Engine.IO destroys unsupported h2c upgrade connections.
+            if (exchange.getRequestURI().getPath().endsWith("http1-only")
+                && exchange.getRequestHeaders().getFirst("Upgrade") != null) {
+              exchange.close();
+              return;
+            }
             if (exchange.getRequestURI().getPath().endsWith("disconnect")) {
               exchange.close();
               return;
@@ -46,7 +52,7 @@ class ApiGatewayApplicationTests {
                     + exchange.getRequestHeaders().getFirst("Authorization")
                     + " "
                     + exchange.getRequestHeaders().getFirst("X-Forwarded-For"));
-            if (exchange.getRequestURI().getPath().endsWith("slow")) {
+            if (exchange.getRequestURI().getPath().endsWith("slow") || exchange.getRequestURI().getPath().equals("/posts/photos/enhance")) {
               try {
                 Thread.sleep(900);
               } catch (InterruptedException e) {
@@ -54,6 +60,8 @@ class ApiGatewayApplicationTests {
               }
             }
             byte[] body = "{\"upstream\":true}".getBytes(StandardCharsets.UTF_8);
+            if (exchange.getRequestURI().getPath().equals("/posts/photos/enhance"))
+              body=("{\"imageBase64\":\""+"A".repeat(256)+"\"}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.getResponseHeaders().add("Set-Cookie", "a=1; HttpOnly");
             exchange.getResponseHeaders().add("Set-Cookie", "b=2; HttpOnly");
@@ -88,7 +96,7 @@ class ApiGatewayApplicationTests {
 
   @DynamicPropertySource
   static void properties(DynamicPropertyRegistry registry) {
-    for (String name : new String[] {"auth", "users", "admin", "payments", "subscriptions", "posts"})
+    for (String name : new String[] {"auth", "users", "admin", "payments", "subscriptions", "posts", "chat"})
       registry.add(
           "gateway.routes." + name, () -> "http://127.0.0.1:" + upstream.getAddress().getPort());
     registry.add("gateway.cors-origins", () -> "http://localhost:3000");
@@ -111,8 +119,35 @@ class ApiGatewayApplicationTests {
   }
 
   @Test
+  void aiPreviewAllowsLongerDeadlineAndResponseWithoutChangingOtherLimits() throws Exception {
+    mvc.perform(post("/posts/photos/enhance").header("Authorization","Bearer viewer")
+        .contentType("application/json").content("{}"))
+        .andExpect(status().isCreated()).andExpect(jsonPath("imageBase64").value("A".repeat(256)));
+    Assertions.assertTrue(received.get().contains("Bearer viewer"));
+  }
+
+  @Test
+  void forwardsChatReplyBodyAndAuthorization() throws Exception {
+    String body = "{\"clientMessageId\":\"message\",\"text\":\"hello\",\"postId\":\"post\"}";
+    mvc.perform(post("/chat/conversations/peer/messages").header("Authorization", "Bearer viewer")
+        .contentType("application/json").content(body)).andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("POST /chat/conversations/peer/messages " + body));
+    Assertions.assertTrue(received.get().contains("Bearer viewer"));
+    mvc.perform(get("/chat/conversations/peer/messages?limit=25").header("Authorization", "Bearer viewer"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().startsWith("GET /chat/conversations/peer/messages?limit=25"));
+  }
+
+  @Test
+  void chatServerRejectingH2cStillReceivesRestRequests() throws Exception {
+    mvc.perform(get("/chat/conversations/http1-only").header("Authorization", "Bearer viewer"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().contains("Bearer viewer"));
+  }
+
+  @Test
   void allPrefixesPreserved() throws Exception {
-    for (String prefix : new String[] {"auth", "users", "admin", "payments", "subscriptions", "posts"}) {
+    for (String prefix : new String[] {"auth", "users", "admin", "payments", "subscriptions", "posts", "chat"}) {
       mvc.perform(
               get(java.net.URI.create("/" + prefix + "/check?q=a%20b"))
                   .header("Authorization", "Bearer test")

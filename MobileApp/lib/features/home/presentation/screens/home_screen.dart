@@ -1,3 +1,10 @@
+import '../../../posts/data/author_feed_api.dart';
+import '../widgets/author_picker.dart';
+import '../../../posts/application/gallery_controller.dart';
+import '../../../posts/presentation/photo_gallery_screen.dart';
+import '../../application/memories_controller.dart';
+import '../widgets/memories_calendar.dart';
+import '../../../chat/domain/chat_models.dart';
 import '../../../posts/data/post_reaction_api.dart';
 import '../../application/camera_session.dart';
 import '../../../posts/application/feed_controller.dart';
@@ -67,11 +74,17 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late final FeedController _feed = FeedController(
-    SessionFeedApi(_effectiveUserApi),
+    AuthorFeedApi(SessionFeedApi(_effectiveUserApi), () => _selectedAuthor.id),
   );
   late final PostReactionApi _reactions = PostReactionApi(_effectiveUserApi);
+  late final MemoriesController _memories = MemoriesController(
+    SessionFeedApi(_effectiveUserApi),
+    session.user.id,
+  );
   final PageController _homePages = PageController();
   int _homePage = 0;
+  AuthorChoice _selectedAuthor = const AuthorChoice(null, 'Tất cả bạn bè');
+  bool _authorMenuOpen = false;
 
   Future<void> _refreshHome() async {
     await Future.wait([
@@ -153,6 +166,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           builder: (_) => ChatDetailScreen(
             controller: controller,
             conversationId: conversation.id,
+            postAttachment: ChatPostAttachment(
+              postId: post.id,
+              mediaKey: post.mediaKey,
+            ),
           ),
         ),
       );
@@ -174,6 +191,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     _authService.updateSession(session);
     if (_realSession) unawaited(_feed.refresh());
+    if (_realSession && _currentTab == HomeTab.memories) {
+      unawaited(_memories.refresh());
+    }
     _authService.addReplacementCleanup(_prepareSessionReplacement);
     WidgetsBinding.instance.addObserver(this);
     if (_realSession) {
@@ -281,6 +301,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     _homePages.dispose();
     _feed.dispose();
+    _memories.dispose();
     _authService.removeReplacementCleanup(_prepareSessionReplacement);
     _chat?.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -786,10 +807,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
       bottomNavigationBar: HomeNavigation(
         selected: _currentTab,
-        onSelected: (tab) {
-          setState(() => _currentTab = tab);
-          if (tab == HomeTab.profile) unawaited(_refreshSocialSummary());
-        },
+        onSelected: _selectTab,
       ),
     );
   }
@@ -809,24 +827,47 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ),
   );
 
-  Widget _buildHomeTab() => RefreshIndicator(
-    onRefresh: _refreshHome,
-    child: FeedPages(
-      controller: _feed,
-      pageController: _homePages,
-      selectedPage: _homePage,
-      reactions: _realSession ? _reactions : null,
-      onMessage: _messageAuthor,
-      postHeader: _buildHomeHeader(),
-      active:
-          _currentTab == HomeTab.home &&
-          _homePage > 0 &&
-          !_isLoggingOut &&
-          !_isDeletingAccount &&
-          (ModalRoute.isCurrentOf(context) ?? true),
-      onPageChanged: (page) => setState(() => _homePage = page),
-      leading: _buildCameraTab(),
-    ),
+  Future<void> _openPhotoGallery() async {
+    final controller = GalleryController(
+      SessionFeedApi(_effectiveUserApi),
+      session.user.id,
+    );
+    if (_realSession) unawaited(controller.refresh());
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => PhotoGalleryScreen(controller: controller),
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Widget _buildHomeTab() => Column(
+    children: [
+      Expanded(
+        child: RefreshIndicator(
+          onRefresh: _refreshHome,
+          child: FeedPages(
+            controller: _feed,
+            pageController: _homePages,
+            selectedPage: _homePage,
+            reactions: _realSession ? _reactions : null,
+            onMessage: _messageAuthor,
+            postHeader: _buildHomeHeader(),
+            active:
+                _currentTab == HomeTab.home &&
+                _homePage > 0 &&
+                !_isLoggingOut &&
+                !_isDeletingAccount &&
+                (ModalRoute.isCurrentOf(context) ?? true),
+            onPageChanged: (page) => setState(() => _homePage = page),
+            leading: _buildCameraTab(),
+          ),
+        ),
+      ),
+    ],
   );
 
   Widget _buildCameraTab() => CaptureMomentScreen(
@@ -849,30 +890,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     header: _buildHomeHeader(),
   );
 
+  Future<void> _chooseHomeAuthor() async {
+    setState(() => _authorMenuOpen = true);
+    final choice = await showAuthorPicker(
+      context,
+      api: _effectiveUserApi,
+      selfName: _displayName,
+      selfAvatar: _profile?['avatarUrl'] as String?,
+    );
+    if (!mounted) return;
+    setState(() => _authorMenuOpen = false);
+    if (choice == null || choice.id == _selectedAuthor.id) return;
+    setState(() {
+      _selectedAuthor = choice;
+      _homePage = 0;
+    });
+    if (_homePages.hasClients) _homePages.jumpToPage(0);
+    await _feed.refresh();
+  }
+
   Widget _buildHomeHeader() => Row(
     children: [
       IconButton.filledTonal(
-        tooltip: 'Thông báo',
-        onPressed: _realSession ? _openNotifications : null,
+        key: const ValueKey('open-photo-gallery'),
+        tooltip: 'Thư viện ảnh',
+        onPressed: _openPhotoGallery,
         style: IconButton.styleFrom(backgroundColor: const Color(0xFF202020)),
-        icon: Badge(
-          isLabelVisible: _unseenCount > 0,
-          label: Text('$_unseenCount'),
-          child: const Icon(Icons.campaign_outlined, color: Colors.white),
-        ),
+        icon: const Icon(Icons.grid_view_rounded, color: Colors.white),
       ),
       const SizedBox(width: 12),
       Expanded(
         child: FilledButton.icon(
-          onPressed: _openRetainedFriends,
+          onPressed: _realSession ? _chooseHomeAuthor : null,
           style: FilledButton.styleFrom(
             backgroundColor: const Color(0xFF202020),
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           ),
-          icon: const Icon(Icons.people_rounded),
+          icon: Icon(_authorMenuOpen ? Icons.expand_less : Icons.expand_more),
           label: Text(
-            _friendCount == null ? 'Bạn bè' : '$_friendCount Bạn bè',
+            _selectedAuthor.name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
@@ -1101,132 +1158,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildMemoriesTab() {
-    final memories = [
-      {
-        'tag': 'Hôm nay',
-        'asset': 'assets/images/p1_sunset.png',
-        'desc': 'Hoàng hôn bên hồ',
-      },
-      {
-        'tag': '24 tháng 10',
-        'asset': 'assets/images/p2_cat.png',
-        'desc': 'Mèo cưng phơi nắng',
-      },
-      {
-        'tag': '23 tháng 10',
-        'asset': 'assets/images/p3_coffee.png',
-        'desc': 'Cà phê sớm',
-      },
-    ];
-
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Bản xem trước · Nội dung khoảnh khắc mẫu'),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  const Text(
-                    AppStrings.memoryGallery,
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color: HomeColors.textPrimary,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: HomeColors.coralLight,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Text(
-                      '3 kỷ niệm gần đây',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: HomeColors.primary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              ...memories.map((m) {
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 18),
-                  decoration: BoxDecoration(
-                    color: HomeColors.surface,
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: HomeColors.border),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SizedBox(
-                        height: 220,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            _buildSafeAssetImage(m['asset']!),
-                            Positioned(
-                              top: 12,
-                              left: 12,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 5,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.65),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  m['tag']!,
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Text(
-                          m['desc']!,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: HomeColors.textPrimary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-            ],
-          ),
-        ),
-      ),
-    );
+  void _selectTab(HomeTab tab) {
+    setState(() => _currentTab = tab);
+    if (tab == HomeTab.memories && _realSession) {
+      unawaited(_memories.refresh());
+    }
+    if (tab == HomeTab.profile) unawaited(_refreshSocialSummary());
   }
+
+  Widget _buildMemoriesTab() =>
+      MemoriesCalendar(controller: _memories, enabled: _realSession);
 
   // ==========================================
   // TAB 2: HỒ SƠ CÁ NHÂN (PROFILE PAGE)
@@ -1253,6 +1194,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         onPressed: _realSession ? _openChat : null,
                         icon: const Icon(Icons.chat_bubble_outline_rounded),
                         label: const Text('Tin nhắn'),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Thông báo',
+                      onPressed: _realSession ? _openNotifications : null,
+                      icon: Badge(
+                        isLabelVisible: _unseenCount > 0,
+                        label: Text('$_unseenCount'),
+                        child: const Icon(Icons.notifications_outlined),
                       ),
                     ),
                     IconButton(
@@ -1483,8 +1433,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     GestureDetector(
-                      onTap: () =>
-                          setState(() => _currentTab = HomeTab.memories),
+                      onTap: () => _selectTab(HomeTab.memories),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: const [

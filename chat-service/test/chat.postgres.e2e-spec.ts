@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { ChatRepository } from '../src/chat/chat.repository.js';
+import { AddPostAttachment1794787200000 } from '../src/database/migrations/1794787200000-AddPostAttachment.js';
 import { CreateChat1794528000000 } from '../src/database/migrations/1794528000000-CreateChat.js';
 
 const url = process.env.CHAT_TEST_DB_URL;
@@ -12,7 +13,7 @@ describe.skipIf(!url)('chat repository on isolated PostgreSQL', () => {
   beforeAll(async () => {
     admin = await new DataSource({ type: 'postgres', url }).initialize();
     await admin.query(`CREATE SCHEMA "${schema}"`);
-    db = await new DataSource({ type: 'postgres', url, schema, extra: { options: `-c search_path=${schema}` }, migrations: [CreateChat1794528000000], migrationsRun: true }).initialize();
+    db = await new DataSource({ type: 'postgres', url, schema, extra: { options: `-c search_path=${schema}` }, migrations: [CreateChat1794528000000, AddPostAttachment1794787200000], migrationsRun: true }).initialize();
     repo = new ChatRepository(db);
   });
   afterAll(async () => { if (db?.isInitialized) await db.destroy(); if (admin?.isInitialized) { await admin.query(`DROP SCHEMA "${schema}" CASCADE`); await admin.destroy(); } });
@@ -77,7 +78,7 @@ describe.skipIf(!url)('chat repository on isolated PostgreSQL', () => {
     const id = await repo.openDirect(a!, b!);
     const sent = await repo.send(a!, id, randomUUID(), 'survives reconnect');
     await db.destroy();
-    db = await new DataSource({ type: 'postgres', url, schema, extra: { options: `-c search_path=${schema}` }, migrations: [CreateChat1794528000000], migrationsRun: true }).initialize();
+    db = await new DataSource({ type: 'postgres', url, schema, extra: { options: `-c search_path=${schema}` }, migrations: [CreateChat1794528000000, AddPostAttachment1794787200000], migrationsRun: true }).initialize();
     repo = new ChatRepository(db);
     expect((await repo.history(b!, id, { limit: 25 })).data).toEqual([sent.message]);
   });

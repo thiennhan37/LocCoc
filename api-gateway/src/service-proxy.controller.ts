@@ -140,7 +140,8 @@ export class ServiceProxyController {
       const upstream = await fetch(target, {
         method: request.method, headers,
         body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
-        redirect: 'manual', signal: AbortSignal.timeout(mediaUpload ? 60000 : 15000),
+        redirect: 'manual', signal: AbortSignal.timeout(
+          request.method === 'POST' && request.path === '/posts/photos/enhance' ? 75000 : mediaUpload ? 60000 : 15000),
       });
       response.status(upstream.status);
       this.copyResponseHeaders(upstream.headers, response);

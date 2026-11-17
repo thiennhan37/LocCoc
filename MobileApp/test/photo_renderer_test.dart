@@ -4,6 +4,29 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_app/features/posts/application/photo_renderer.dart';
 
 void main() {
+  testWidgets('export preserves transparent AI sticker background', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final recorder = ui.PictureRecorder();
+      Canvas(
+        recorder,
+      ).drawCircle(const Offset(16, 16), 4, Paint()..color = Colors.red);
+      final picture = recorder.endRecording();
+      final source = await picture.toImage(32, 32);
+      final png = await PhotoRenderer.render(source, PhotoFilter.original, '');
+      final codec = await ui.instantiateImageCodec(png);
+      final image = (await codec.getNextFrame()).image;
+      final data = (await image.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      ))!;
+      expect(data.getUint8(3), 0);
+      image.dispose();
+      codec.dispose();
+      source.dispose();
+      picture.dispose();
+    });
+  });
   testWidgets('export applies filter and visible text to square PNG', (
     tester,
   ) async {

@@ -7,6 +7,7 @@ import '../../auth/data/services/auth_api_client.dart';
 import '../../users/data/user_api_client.dart';
 import '../application/photo_renderer.dart';
 import '../data/post_api.dart';
+import 'ai_preview_screen.dart';
 
 class PublishedPhoto {
   const PublishedPhoto(this.bytes, this.postId);
@@ -32,6 +33,8 @@ class PhotoEditorScreen extends StatefulWidget {
 
 class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
   ui.Image? _image;
+  ui.Image? _originalImage;
+  bool _preparingAi = false;
   String? _error;
   String _caption = '';
   final _captionController = TextEditingController();
@@ -64,7 +67,10 @@ class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
         image.dispose();
         return;
       }
-      setState(() => _image = image);
+      setState(() {
+        _image = image;
+        _originalImage = image;
+      });
     } catch (_) {
       if (mounted) setState(() => _error = 'Không đọc được ảnh. Hãy chụp lại.');
     }
@@ -74,6 +80,7 @@ class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
   void dispose() {
     _captionController.dispose();
     _image?.dispose();
+    if (!identical(_originalImage, _image)) _originalImage?.dispose();
     super.dispose();
   }
 
@@ -81,6 +88,56 @@ class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
     _exported = null;
     _requestId = null;
     _error = null;
+  }
+
+  Future<void> _openAi() async {
+    if (_sending || _preparingAi || _originalImage == null) return;
+    setState(() => _preparingAi = true);
+    try {
+      final source = await PhotoRenderer.render(
+        _originalImage!,
+        PhotoFilter.original,
+        '',
+      );
+      if (!mounted) return;
+      final accepted = await Navigator.push<Uint8List>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AiPreviewScreen(source: source, api: _api),
+        ),
+      );
+      if (!mounted || accepted == null) return;
+      final codec = await ui.instantiateImageCodec(
+        accepted,
+        targetWidth: 1600,
+        allowUpscaling: false,
+      );
+      late final ui.Image next;
+      try {
+        next = (await codec.getNextFrame()).image;
+      } finally {
+        codec.dispose();
+      }
+      if (!mounted) {
+        next.dispose();
+        return;
+      }
+      final previous = _image;
+      setState(() {
+        _image = next;
+        _filter = PhotoFilter.original;
+        _invalidate();
+      });
+      if (!identical(previous, _originalImage)) previous?.dispose();
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error = 'Không mở được ảnh AI. Ảnh hiện tại vẫn được giữ.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _preparingAi = false);
+    }
   }
 
   String _newId() {
@@ -145,7 +202,7 @@ class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
   }
 
   Future<void> _send() async {
-    if (_sending || _image == null) return;
+    if (_sending || _preparingAi || _image == null) return;
     final ownerId = widget.ownerId ?? widget.userApi?.session.user.id;
     if (ownerId == null || ownerId.isEmpty) {
       setState(() => _error = 'Hãy đăng nhập để gửi ảnh.');
@@ -260,6 +317,27 @@ class _PhotoEditorScreenState extends State<PhotoEditorScreen> {
                       ),
                     ),
                     const SizedBox(height: 18),
+                    TextButton.icon(
+                      onPressed: _sending || _preparingAi || _image == null
+                          ? null
+                          : _openAi,
+                      icon: const Icon(Icons.auto_awesome),
+                      label: const Text('Sửa ảnh bằng AI'),
+                    ),
+                    if (_image != _originalImage)
+                      TextButton(
+                        onPressed: _sending || _preparingAi
+                            ? null
+                            : () {
+                                final previous = _image;
+                                setState(() {
+                                  _image = _originalImage;
+                                  _invalidate();
+                                });
+                                previous?.dispose();
+                              },
+                        child: const Text('Khôi phục ảnh gốc'),
+                      ),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(

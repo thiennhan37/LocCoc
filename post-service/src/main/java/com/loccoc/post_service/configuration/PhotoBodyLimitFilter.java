@@ -10,7 +10,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class PhotoBodyLimitFilter extends OncePerRequestFilter {
   private static final int LIMIT=8*1024*1024;
   @Override protected boolean shouldNotFilter(HttpServletRequest request) {
-    return !request.getRequestURI().equals("/posts/photos") || !request.getMethod().equals("POST");
+    return !(request.getRequestURI().equals("/posts/photos") || request.getRequestURI().equals("/posts/photos/enhance")) || !request.getMethod().equals("POST");
   }
   @Override protected void doFilterInternal(HttpServletRequest request,HttpServletResponse response,FilterChain chain)
       throws IOException,ServletException {

@@ -147,3 +147,27 @@ SDK conditional writes và endpoint override theo [AWS PutObject](https://docs.a
 `./mvnw.cmd test`: unit/API/auth/rollback; S3 integration tự skip nếu không có endpoint test.
 Để kiểm thử S3 thật dùng kho test riêng, đặt `POST_S3_TEST_ENDPOINT`, `POST_S3_TEST_ACCESS_KEY`, `POST_S3_TEST_SECRET_KEY` rồi chạy `./mvnw.cmd -Dtest=S3PhotoIntegrationTests test`. Test tự tạo/xóa bucket tên ngẫu nhiên, không dùng bucket production.
 `node --test scripts/post-media-migration.test.mjs` (từ root) kiểm tra migration.
+
+Self-reactions are forbidden: PUT/DELETE on your own post return 403. GET remains available for received counts. Historical self-reactions are excluded from summaries without deleting stored rows. Inspect `public.post_reactions` in database `posts`; the legacy `reactions` table is not written by these endpoints.
+
+Chat replies use authenticated `GET /posts/{id}/chat-reference`, returning `{postId, ownerId, mediaKey}` with Cache-Control: no-store. Only currently visible, undeleted peer posts with supported local media paths are returned. Own posts return 403; invisible/missing/deleted/unsupported posts return 404. chat-service forwards the sender JWT and checks ownerId against the conversation peer.
+
+## AI preview before publishing (2026-11-17)
+
+- Mobile composer: **Sửa ảnh bằng AI** -> select diary/sticker -> explicitly generate
+  -> compare by holding -> **Dùng ảnh này** -> publish normally. Restore original
+  remains available. Every explicit generation shows the stated 2,000 VND API cost.
+- Authenticated `POST /posts/photos/enhance` takes requestId (UUID), imageBase64
+  (PNG <=5 MiB, <=2048 px), filterId. Returns imageBase64 and mimeType, no post/S3 write.
+- `AI_SERVICE_URL` configures the internal AI origin (default http://127.0.0.1:8082).
+  Gemini credentials/model stay in ai-service; no new provider API is required.
+- Apply the additive `ai_preview_attempts` table/index from schema-postgresql.sql
+  when Hibernate schema update is disabled. Attempts persist before the provider
+  call. Duplicate IDs return 409, including failed/uncertain attempts; new explicit
+  generation uses a new ID and can incur another fee. No automatic retry.
+- Preview deadlines: provider client 65s, either Gateway 75s, mobile 90s. The normal
+  publish path retains its existing behavior. Five attempts/user/minute per instance;
+  multi-instance quota coordination is not included. Ledger contains no images.
+- Test with mocks only. A successful mock proves protocol/flow, not real Gemini
+  compatibility or visual quality. Canceling a preview cannot undo provider billing.
+- Contract and decision: docs/specs/post-ai-preview.md, docs/adr/ADR-020-post-ai-preview.md.

@@ -5,6 +5,54 @@ import 'dart:typed_data';
 import '../../../core/network/api_client.dart';
 
 class PostApi {
+  Future<Uint8List> enhancePhoto({
+    required String requestId,
+    required Uint8List png,
+    required String filterId,
+  }) async {
+    final current = session;
+    if (current == null ||
+        !current.isCurrent ||
+        !current.session.authenticated ||
+        current.session.accessToken.isEmpty ||
+        current.session.accessToken.startsWith('demo-')) {
+      throw const ApiException('Hãy đăng nhập để sửa ảnh bằng AI.');
+    }
+    if (png.isEmpty ||
+        png.length > 5 * 1024 * 1024 ||
+        !['handwritten_diary', 'subject_sticker'].contains(filterId)) {
+      throw const ApiException('Ảnh hoặc kiểu sửa không hợp lệ.');
+    }
+    // Refresh on this unpaid IAM read, never replay a paid generation request.
+    await current.me();
+    final result = await current.request(
+      'POST',
+      'photos/enhance',
+      area: 'posts',
+      allowRefresh: false,
+      body: {
+        'requestId': requestId,
+        'imageBase64': base64Encode(png),
+        'filterId': filterId,
+      },
+    );
+    final data = result['imageBase64'];
+    if (data is! String ||
+        data.length > 27962028 ||
+        ![
+          'image/png',
+          'image/jpeg',
+          'image/webp',
+        ].contains(result['mimeType'])) {
+      throw const ApiException('AI trả về ảnh không hợp lệ.');
+    }
+    final bytes = base64Decode(data);
+    if (bytes.isEmpty || bytes.length > 20 * 1024 * 1024) {
+      throw const ApiException('AI trả về ảnh không hợp lệ.');
+    }
+    return bytes;
+  }
+
   Future<Map<String, dynamic>> publishPhoto({
     required String ownerId,
     required String requestId,

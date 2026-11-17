@@ -65,11 +65,12 @@ public class ProxyService {
     try {
       boolean mediaUpload = request.getMethod().equals("PUT")
           && path.matches("/users/me/media/(avatar|cover)");
+      boolean aiPreview = request.getMethod().equals("POST") && path.equals("/posts/photos/enhance");
       if (mediaUpload && (!Set.of("image/jpeg", "image/png", "image/webp").contains(String.valueOf(request.getContentType()))
           || request.getHeader("Content-Encoding") != null)) throw new AppException(ErrorCode.UNSUPPORTED_MEDIA_TYPE);
       int uploadLimit = path.endsWith("/avatar") ? 5 * 1024 * 1024 : 10 * 1024 * 1024;
       int bodyLimit = mediaUpload ? uploadLimit : properties.maxBodyBytes();
-      long timeout = mediaUpload ? 60000 : properties.requestTimeoutMs();
+      long timeout = aiPreview ? 75000 : mediaUpload ? 60000 : properties.requestTimeoutMs();
       if (request.getContentLengthLong() > bodyLimit) throw new AppException(ErrorCode.REQUEST_TOO_LARGE);
       byte[] body = readBounded(request.getInputStream(), 413, bodyLimit);
       long started = System.nanoTime();
@@ -112,7 +113,7 @@ public class ProxyService {
       try (InputStream stream = upstream.body()) {
         byte[] result;
         try {
-          result = readBounded(stream, 502);
+          result = readBounded(stream, 502, aiPreview ? 28 * 1024 * 1024 : properties.maxBodyBytes());
         } catch (IOException e) {
           if (expired.get()) throw new AppException(ErrorCode.UPSTREAM_TIMEOUT);
           throw e;

@@ -232,7 +232,12 @@ class AuthApiClient {
         'x-platform': _detectPlatform(),
     });
     if (body != null) request.body = jsonEncode(body);
-    return _sendServiceRequest(request, requestTimeout);
+    return _sendServiceRequest(
+      request,
+      area == 'posts' && path == 'photos/enhance'
+          ? const Duration(seconds: 90)
+          : requestTimeout,
+    );
   }
 
   Future<Map<String, dynamic>> uploadMedia(
