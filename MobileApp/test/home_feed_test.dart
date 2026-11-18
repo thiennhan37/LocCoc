@@ -24,9 +24,14 @@ void main() {
         });
       }
       if (request.url.path == '/posts/feed') {
+        final ownerId = request.url.queryParameters['ownerId'];
+        if (ownerId != null) expect(request.url.queryParameters['limit'], '10');
         return fixtures.json({
           'data': [
-            for (final owner in [fixtures.session.user.id, 'friend'])
+            for (final owner
+                in ownerId == null
+                    ? [fixtures.session.user.id, 'friend']
+                    : [ownerId])
               {
                 'id': owner,
                 'ownerId': owner,

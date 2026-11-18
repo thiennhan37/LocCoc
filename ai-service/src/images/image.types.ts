@@ -20,5 +20,6 @@ export interface GeneratedImage {
 export interface FilterPrompt {
   id: ImageFilterId;
   prompt: string;
+  /** Final API output format, after provider-specific local processing. */
   requiredOutputMime?: 'image/png';
 }

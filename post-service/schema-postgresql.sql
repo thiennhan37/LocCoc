@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS moments (
     deleted_at TIMESTAMPTZ(3)
 );
 CREATE INDEX IF NOT EXISTS idx_moments_owner ON moments (owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_moments_owner_active_page ON moments (owner_id, deleted_at, created_at DESC, id DESC);
 
 -- First-view history includes the owner's own posts, independently of delivery snapshots.
 CREATE TABLE IF NOT EXISTS post_views (

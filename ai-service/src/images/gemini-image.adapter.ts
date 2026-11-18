@@ -2,6 +2,7 @@ import { GoogleGenAI, Interactions } from '@google/genai';
 import { FilterPrompt, GeneratedImage, ValidatedImage } from './image.types.js';
 import { ImageProvider } from './image-provider.js';
 import { ImageEnhancementError } from './image-enhancement.error.js';
+import { createTransparentSticker } from './sticker-output.js';
 
 export class GeminiImageAdapter implements ImageProvider {
   private readonly client: GoogleGenAI;
@@ -26,7 +27,7 @@ export class GeminiImageAdapter implements ImageProvider {
     };
 
     if (prompt.requiredOutputMime === 'image/png') {
-      request.response_format = { type: 'image', mime_type: 'image/png' };
+      request.response_format = { type: 'image', mime_type: 'image/jpeg' };
     }
 
     if (signal.aborted) {
@@ -72,6 +73,14 @@ export class GeminiImageAdapter implements ImageProvider {
       // Decoded output above 20 MiB
       if (decodedBytes.length > 20971520) {
         throw new ImageEnhancementError('PROVIDER_OUTPUT_TOO_LARGE', 'Provider output too large');
+      }
+
+      if (prompt.requiredOutputMime === 'image/png') {
+        const sticker = await createTransparentSticker(decodedBytes, signal);
+        if (signal.aborted) {
+          throw signal.reason instanceof ImageEnhancementError ? signal.reason : new ImageEnhancementError('CANCELLED', 'Cancelled');
+        }
+        return sticker;
       }
 
       return {

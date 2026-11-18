@@ -23,9 +23,13 @@ alter the primary subject, add a logo, or add a watermark.`,
     prompt: `Identify the single primary subject in the supplied image. Remove the entire
 background precisely while preserving the subject's recognizable appearance,
 edges, proportions, details, and natural colors. Return only the isolated
-subject as a PNG with a genuinely transparent background. Add one clean,
-continuous, evenly thick white outline around the subject. Do not add text,
-shadow, decoration, a replacement background, a logo, or a watermark.`,
+subject on a perfectly flat, solid chroma-key green background (RGB 0, 255, 0).
+Add one clean, continuous, closed, evenly thick white outline around the
+subject, including any green subject details. Leave a generous green margin
+on all four sides; the subject and outline must not touch the canvas edges.
+The green background will be removed by software. Do not simulate transparency
+with a checkerboard. Do not add text, shadow, gradients, texture, decoration,
+a logo, or a watermark.`,
     requiredOutputMime: 'image/png',
   }),
 });

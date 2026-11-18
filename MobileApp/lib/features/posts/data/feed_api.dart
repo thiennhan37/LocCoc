@@ -47,10 +47,14 @@ class SessionFeedApi implements FeedApi {
   final UserApiClient account;
   SessionFeedApi(this.account);
   @override
-  Future<FeedPage> page({String? cursor}) async {
+  Future<FeedPage> page({String? cursor, String? ownerId}) async {
     final path = ApiConstants.feedPath.substring('/posts/'.length);
     final query = Uri(
-      queryParameters: {'limit': '20', 'cursor': ?cursor},
+      queryParameters: {
+        'limit': ownerId == null ? '20' : '10',
+        'cursor': ?cursor,
+        'ownerId': ?ownerId,
+      },
     ).query;
     final json = await account.request('GET', '$path?$query', area: 'posts');
     final rows = json['data'];

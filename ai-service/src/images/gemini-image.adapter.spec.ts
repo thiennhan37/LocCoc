@@ -1,5 +1,6 @@
 import { FilterPromptRegistry } from './filter-prompt.registry.js';
 import { GeminiImageAdapter } from './gemini-image.adapter.js';
+import sharp from 'sharp';
 import { GoogleGenAI } from '@google/genai';
 
 const source = { bytes: Buffer.from('source-image-secret'), mimeType: 'image/png' as const };
@@ -28,10 +29,14 @@ describe('GeminiImageAdapter', () => {
     }, { fetchOptions: { signal }, maxRetries: 0 });
   });
 
-  it('requests PNG for the sticker filter', async () => {
-    const { create, adapter } = fixture();
-    await adapter.enhance(source, prompts.get('subject_sticker'), new AbortController().signal);
-    expect(create.mock.calls[0][0].response_format).toEqual({ type: 'image', mime_type: 'image/png' });
+  it('requests JPEG once and returns a genuinely transparent PNG sticker', async () => {
+    const bytes = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#00ff00' } }).composite([{ input: await sharp({ create: { width: 32, height: 32, channels: 3, background: '#ffffff' } }).png().toBuffer(), left: 16, top: 16 }]).jpeg().toBuffer();
+    const { create, adapter } = fixture({ steps: [{ type: 'model_output', content: [{ ...output, mime_type: 'image/jpeg', data: bytes.toString('base64') }] }] });
+    const result = await adapter.enhance(source, prompts.get('subject_sticker'), new AbortController().signal);
+    expect(create.mock.calls[0][0].response_format).toEqual({ type: 'image', mime_type: 'image/jpeg' });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(result.mimeType).toBe('image/png');
+    expect((await sharp(result.bytes).raw().toBuffer())[3]).toBe(0);
   });
 
   it.each([

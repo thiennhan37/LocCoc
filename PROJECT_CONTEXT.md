@@ -1318,3 +1318,23 @@ A lower-left grid button appears after leaving camera page zero in the main home
 ## 2026-11-17 — Home author menu and gallery shortcut relocation
 
 Gallery shortcut now occupies the top-left home header position, including camera header; bottom-left shortcut removed. The center All friends button opens a dark rounded menu of actual friends with avatars/names plus All friends and You. Friend list paginates and retries failures. Choosing an author resets pager and filters authorized feed pages by owner ID, skipping empty matching pages. Notifications remain available from profile. Gallery and calendar remain independent. See home-author-filter spec / ADR-023. Verification: 18 focused regression tests plus one new selection integration test passed; six-file analysis clean; review found no concrete issues. Physical-device appearance not inspected.
+
+
+## 2026-11-18 — Gemini sticker output compatibility
+
+ai-service requests supported JPEG provider output for stickers and converts border-connected chroma green to transparent PNG locally. Post-service API is unchanged. Single provider call, no retries; bounded local processing yields for cancellation. See UC-07 design amendment for quality limitations. Verification uses mocked provider responses only; no additional paid generation.
+
+## 2026-11-18 — Indexed author post pagination
+
+The feed endpoint accepts optional ownerId, checks the current audience on every
+page and uses chronological keyset pagination for author views. Existing ranked
+feed behavior is unchanged without ownerId. Added the composite moments index
+(owner_id, deleted_at, created_at DESC, id DESC), schema/entity definitions and
+an idempotent concurrent SQL migration; applied and verified valid in local posts
+PostgreSQL. Mobile now requests ten posts for the selected author directly and
+loads more near the end of the vertical pager instead of scanning global pages.
+See docs/specs/author-post-pagination.md and ADR-024. Verification: 50 backend
+tests, 7 feed tests on real PostgreSQL, 6 gateway tests, 375 Flutter tests and
+scoped Dart analysis passed; independent review found no actionable issues.
+Updated the stale inbox test to start on the profile tab. Deploy backend before
+mobile; running apps were not restarted and physical-device UX was not inspected.

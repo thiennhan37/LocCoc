@@ -42,6 +42,7 @@ CREATE TABLE moments (
     CONSTRAINT fk_moment_owner FOREIGN KEY (owner_id) REFERENCES users(id)
 );
 CREATE INDEX idx_moments_owner ON moments (owner_id, created_at DESC);
+CREATE INDEX idx_moments_owner_active_page ON moments (owner_id, deleted_at, created_at DESC, id DESC);
 
 -- Snapshot người nhận tại lúc gửi, giữ nguyên mô hình fan-out on write.
 CREATE TABLE moment_recipients (

@@ -7,7 +7,10 @@ import java.util.UUID;
 import lombok.Getter;
 
 @Entity
-@Table(name = "moments", indexes = @Index(name = "idx_moments_owner", columnList = "owner_id,created_at"))
+@Table(name = "moments", indexes = {
+    @Index(name = "idx_moments_owner", columnList = "owner_id,created_at"),
+    @Index(name = "idx_moments_owner_active_page", columnList = "owner_id,deleted_at,created_at DESC,id DESC")
+})
 @Getter
 public class Post {
   @Id private UUID id;
