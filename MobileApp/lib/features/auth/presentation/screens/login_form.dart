@@ -13,6 +13,7 @@ import '../../domain/models/auth_result.dart';
 import '../../domain/models/auth_session.dart';
 import '../widgets/auth_divider.dart';
 import '../widgets/google_sign_in_button.dart';
+import 'registration_screen.dart';
 
 class LoginForm extends StatefulWidget {
   final GoogleAuthService? googleAuthService;
@@ -61,11 +62,7 @@ class _LoginFormState extends State<LoginForm> {
   }
 
   Future<void> _onSuccess(AuthSession session, [String? message]) async {
-    await _googleAuthService.acceptLogin(
-      session,
-      remember: true,
-      retain: true,
-    );
+    await _googleAuthService.acceptLogin(session, remember: true, retain: true);
     if (!mounted) return;
     _passwordController.clear();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -195,6 +192,30 @@ class _LoginFormState extends State<LoginForm> {
     }
   }
 
+  Future<void> _openRegistration() async {
+    if (_isLoading || _isGoogleLoading) return;
+    final email = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => RegistrationScreen(
+          api: _apiClient,
+          initialEmail: _identifierController.text.trim(),
+        ),
+      ),
+    );
+    if (!mounted || email == null) return;
+    _identifierController.text = email;
+    _passwordController.clear();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: AppColors.success,
+        content: Text(
+          'Xác thực email thành công! Đăng nhập bằng mật khẩu bạn vừa tạo.',
+        ),
+      ),
+    );
+    _passwordFocusNode.requestFocus();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Form(
@@ -239,6 +260,13 @@ class _LoginFormState extends State<LoginForm> {
             text: AppStrings.loginButton,
             isLoading: _isLoading,
             onPressed: (_isLoading || _isGoogleLoading) ? null : _submit,
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: (_isLoading || _isGoogleLoading)
+                ? null
+                : _openRegistration,
+            child: const Text('Đăng ký'),
           ),
           const SizedBox(height: 24),
           const AuthDivider(),

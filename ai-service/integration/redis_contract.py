@@ -11,7 +11,7 @@ from app.services.quota import Quota
 
 @pytest.mark.asyncio
 async def test_concurrent_quota_reservations_are_atomic_and_zero_is_closed():
-    assert os.environ.get("MOMENT_DATABASE_URL", "").endswith("/moment_test"), "Use isolated runner only"
+    assert os.environ.get("POST_TEST_DB_URL", "").endswith("/moment_test"), "Use isolated runner only"
     redis = Redis.from_url(os.environ["REDIS_URL"])
     settings = Settings(
         _env_file=None,

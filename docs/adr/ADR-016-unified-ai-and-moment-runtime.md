@@ -1,3 +1,5 @@
+> Historical runtime document: the Nest Moments deployment is superseded by [Java Post/Moments](../specs/unified-post-moments.md).
+
 # ADR-016: Unified AI service and durable moment search runtime
 
 Date: 2026-11-14. Status: runtime implemented, tested and activated locally after

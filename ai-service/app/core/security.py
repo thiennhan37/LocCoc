@@ -21,7 +21,7 @@ def actor(request: Request, operation: str) -> str:
             settings.AI_ACTOR_SECRET.get_secret_value(),
             algorithms=["HS256"],
             audience="loccoc-ai",
-            issuer="moment-service",
+            issuer="post-service",
             options={"require": ["sub", "exp", "iat", "jti", "aud", "iss", "op"]},
         )
         if claims["op"] != operation or claims["exp"] - claims["iat"] > 60:

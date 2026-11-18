@@ -2,10 +2,8 @@ packages:
   - api-gateway
   - auth-service
   - user-service
-  - ai-enhancement-service
   - chat-service
   - notification-service
-  - moment-service
   - admin-dashboard
   - libs/common
 syncInjectedDepsAfterScripts:

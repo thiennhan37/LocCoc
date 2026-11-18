@@ -25,22 +25,30 @@ const fields = {
   USER_SERVICE_URL: Joi.string()
     .uri({ scheme: ["http", "https"] })
     .default("http://127.0.0.1:8081"),
-  MOMENT_SERVICE_URL: Joi.string()
-    .uri({ scheme: ["http", "https"] })
-    .default("http://127.0.0.1:8088"),
   POST_SERVICE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://127.0.0.1:8089'),
   CHAT_SERVICE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .default('http://127.0.0.1:8083'),
   AI_SERVICE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
-    .default('http://127.0.0.1:8082'),
+    .default('http://127.0.0.1:8087'),
+  AI_SERVICE_TOKEN: Joi.string().allow("").min(32),
   AI_RATE_LIMIT_MAX: Joi.number().integer().positive().default(5),
   AI_RATE_LIMIT_WINDOW_MS: Joi.number().integer().positive().default(60000),
   INTERNAL_SERVICE_TOKEN: Joi.string().min(32),
   SERVICE_BIND_HOST: Joi.string().default("127.0.0.1"),
   KAFKA_BROKERS: Joi.string().default("127.0.0.1:9092"),
   ACCOUNT_EVENTS_TOPIC: Joi.string().default("account.events"),
+  OTP_EVENTS_TOPIC: Joi.string().pattern(/^[A-Za-z0-9._-]+$/).invalid('.', '..').default('auth.email-otp.v1'),
+  OTP_EVENT_SECRET: Joi.string().min(32).allow(''),
+  OTP_CONSUMER_GROUP: Joi.string().pattern(/^[A-Za-z0-9._-]+$/).default('notification-email-otp-v1'),
+  EMAIL_OTP_ENABLED: Joi.string().valid('true', 'false'),
+  BREVO_MAIL_API_KEY: Joi.string().allow(''),
+  BREVO_SENDER_EMAIL: Joi.string().email().allow(''),
+  BREVO_SENDER_NAME: Joi.string().max(100).default('LocCoc'),
+  KAFKA_SSL: Joi.string().valid('true', 'false').default('false'),
+  KAFKA_SASL_USERNAME: Joi.string().allow(''),
+  KAFKA_SASL_PASSWORD: Joi.string().allow(''),
   DISCOVERY_ENABLED: Joi.string().valid("true", "false").default("true"),
   MEDIA_ENABLED: Joi.string().valid("true", "false").default("false"),
   MEDIA_S3_ENDPOINT: Joi.string().uri({ scheme: ["http", "https"] }).allow(""),
@@ -136,6 +144,7 @@ const gatewayKeys = [
   "POST_SERVICE_URL",
   "CHAT_SERVICE_URL",
   "AI_SERVICE_URL",
+  "AI_SERVICE_TOKEN",
   "AI_RATE_LIMIT_MAX",
   "AI_RATE_LIMIT_WINDOW_MS",
   "AUTH_SERVICE_URL",
@@ -143,7 +152,6 @@ const gatewayKeys = [
   "NOTIFICATION_SERVICE_URL",
   "ADMIN_SERVICE_URL",
   "PAYMENT_SERVICE_URL",
-  "MOMENT_SERVICE_URL",
   "REDIS_URL",
   "CORS_ORIGINS",
   "RATE_LIMIT_TTL_MS",
@@ -151,6 +159,7 @@ const gatewayKeys = [
 ] as const;
 
 const authKeys = [
+  'OTP_EVENT_SECRET', 'OTP_EVENTS_TOPIC', 'KAFKA_SSL', 'KAFKA_SASL_USERNAME', 'KAFKA_SASL_PASSWORD',
   "NODE_ENV",
   "AUTH_PORT",
   "DB_HOST",
@@ -217,6 +226,9 @@ const userKeys = [
 ] as const;
 
 const notificationKeys = [
+  'OTP_EVENT_SECRET', 'OTP_EVENTS_TOPIC', 'OTP_CONSUMER_GROUP', 'EMAIL_OTP_ENABLED',
+  'BREVO_MAIL_API_KEY', 'BREVO_SENDER_EMAIL', 'BREVO_SENDER_NAME',
+  'KAFKA_SSL', 'KAFKA_SASL_USERNAME', 'KAFKA_SASL_PASSWORD',
   "NODE_ENV",
   "NOTIFICATION_PORT",
   "DB_HOST",

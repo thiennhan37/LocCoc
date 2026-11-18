@@ -20,13 +20,14 @@ class QdrantService:
     async def ensure_collection(self):
         if not await self.client.collection_exists(self.collection):
             await self.client.create_collection(
-                self.collection, vectors_config=m.VectorParams(size=768, distance=m.Distance.COSINE)
+                self.collection,
+                vectors_config=m.VectorParams(size=self.settings.EMBEDDING_DIM, distance=m.Distance.COSINE),
             )
         info = await self.client.get_collection(self.collection)
         vectors = info.config.params.vectors
         if (
             not isinstance(vectors, m.VectorParams)
-            or vectors.size != 768
+            or vectors.size != self.settings.EMBEDDING_DIM
             or vectors.distance != m.Distance.COSINE
         ):
             raise SemanticError("INDEX_SCHEMA_MISMATCH")

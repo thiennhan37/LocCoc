@@ -13,29 +13,25 @@ import org.springframework.stereotype.Repository;
 public class FeedRepository {
   private final NamedParameterJdbcTemplate jdbc;
   public FeedRepository(NamedParameterJdbcTemplate jdbc) { this.jdbc=jdbc; }
-  public List<FeedItem> page(Audience audience, Instant snapshot, long hours, FeedCursor cursor, int limit) {
+  public List<FeedItem> page(Audience audience, Instant snapshot, FeedCursor cursor, int limit) {
     var params=new HashMap<String,Object>();
     params.put("viewer",audience.viewerId()); params.put("authors",audience.authors().keySet());
-    params.put("snapshot",Timestamp.from(snapshot)); params.put("cutoff",Timestamp.from(snapshot.minusSeconds(hours*3600)));
+    params.put("snapshot",Timestamp.from(snapshot));
     params.put("limit",limit);
     String after="";
     if(cursor!=null) {
-      params.put("rank",cursor.priority()); params.put("created",Timestamp.from(cursor.createdAt())); params.put("id",cursor.id());
-      after="WHERE priority > :rank OR (priority = :rank AND (created_at < :created OR (created_at = :created AND id < :id)))";
+      params.put("captured",Timestamp.from(cursor.capturedAt())); params.put("id",cursor.id());
+      after=" AND (coalesce(p.captured_at,p.created_at) < :captured OR (coalesce(p.captured_at,p.created_at) = :captured AND p.id < :id))";
     }
     return jdbc.query("""
-      WITH ranked AS (
-        SELECT p.*, CASE
-          WHEN v.seen_at IS NOT NULL AND v.seen_at <= :snapshot THEN 3
-          WHEN p.owner_id = :viewer AND p.created_at >= :cutoff THEN 0
-          WHEN p.owner_id <> :viewer THEN 1 ELSE 2 END AS priority
+        SELECT p.*, coalesce(p.captured_at,p.created_at) AS feed_at,
+          CASE WHEN v.seen_at IS NOT NULL THEN 1 ELSE 0 END AS already_seen
         FROM moments p LEFT JOIN post_views v ON v.post_id=p.id AND v.viewer_id=:viewer
-        WHERE p.owner_id IN (:authors) AND p.deleted_at IS NULL AND p.created_at <= :snapshot
-      ) SELECT * FROM ranked
-      """+after+" ORDER BY priority ASC, created_at DESC, id DESC LIMIT :limit",params,(rs,n)-> {
+        WHERE p.owner_id IN (:authors) AND p.deleted_at IS NULL AND p.state='active' AND (p.owner_id=:viewer OR p.visibility='FRIENDS') AND p.created_at <= :snapshot
+      """+after+" ORDER BY coalesce(p.captured_at,p.created_at) DESC, p.id DESC LIMIT :limit",params,(rs,n)-> {
         var owner=rs.getObject("owner_id",UUID.class); var author=audience.authors().get(owner);
         String label=author.displayName()==null || author.displayName().isBlank() ? author.username() : author.displayName();
-        return new FeedItem(rs.getObject("id",UUID.class),owner,rs.getString("media_key"),rs.getShort("media_type"),rs.getString("caption"),rs.getTimestamp("created_at").toInstant(),label,owner.equals(audience.viewerId()),rs.getInt("priority")==3,rs.getInt("priority"));
+        return new FeedItem(rs.getObject("id",UUID.class),owner,rs.getString("media_key"),rs.getShort("media_type"),rs.getString("caption"),rs.getTimestamp("created_at").toInstant(),rs.getTimestamp("feed_at").toInstant(),label,owner.equals(audience.viewerId()),rs.getInt("already_seen")==1,0);
       });
   }
 }

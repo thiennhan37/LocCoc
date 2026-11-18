@@ -30,7 +30,8 @@ paths:
               $ref: '#/components/schemas/Register'
       description: >-
         5/phút/IP theo metadata. Email trim/lowercase; response không xác nhận account đã tồn tại. Không tự
-        cấp token.
+        cấp token. OTP được chuyển qua Kafka và notification-service gửi bằng Brevo. registrationId ngẫu nhiên
+        gắn mã OTP với mật khẩu của đúng lần đăng ký; tài khoản active không bị thay đổi.
       responses:
         '201':
           description: Thành công
@@ -54,8 +55,9 @@ paths:
             schema:
               $ref: '#/components/schemas/VerifyOtp'
       description: >-
-        10/phút/IP. email/phone đều optional ở DTO; nếu thiếu destination, OTP sai/hết hạn vẫn trả200 với
-        verified:false. Nếu có cả hai, service ưu tiên email. Xác minh email kích hoạt account pending.
+        10/phút/IP. Xác minh email cần email + registrationId từ response đăng ký + OTP 6 chữ số.
+        Thiếu challenge, OTP sai/hết hạn/đã dùng trả200 với verified:false. Xác minh thành công kích hoạt
+        account pending và áp dụng mật khẩu của challenge; không cấp token. Sau đó gọi login.
       responses:
         '200':
           description: Thành công
@@ -78,7 +80,10 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ResendOtp'
-      description: 5/phút/IP; trả thông báo chung kể cả không có account/destination. Hạn mức OTP riêng vẫn áp dụng.
+      description: >-
+        5/phút/IP; email + registrationId phải khớp challenge đang chờ. Cooldown 60 giây, tối đa 5 lần/email/giờ
+        và 20 lần/IP/giờ; mã mới vô hiệu mã cũ trong cùng challenge. Challenge hết hạn sau 1 giờ.
+        Response thông báo chung, expiresIn và retryAfter; lỗi429 có retryAfter theo giây trong body.
       responses:
         '200':
           description: Thành công
@@ -662,17 +667,30 @@ components:
       type: object
       required:
         - message
+        - registrationId
+        - expiresIn
+        - retryAfter
       properties:
         message:
           type: string
-        userId:
+        registrationId:
           type: string
           format: uuid
+        expiresIn:
+          type: integer
+          example: 300
+        retryAfter:
+          type: integer
+          example: 60
     VerifyOtp:
       type: object
       required:
         - otp
       properties:
+        registrationId:
+          type: string
+          format: uuid
+          description: Bắt buộc về nghiệp vụ khi xác minh email đăng ký
         email:
           type: string
           format: email
@@ -684,11 +702,16 @@ components:
           type: string
           minLength: 6
           maxLength: 6
-          description: OTP 6 ký tự được cấp thật; không phải giá trị seed
+          pattern: '^\d{6}$'
+          description: OTP 6 chữ số nhận qua email Brevo
       additionalProperties: false
     ResendOtp:
       type: object
       properties:
+        registrationId:
+          type: string
+          format: uuid
+          description: Mã challenge nhận khi đăng ký
         email:
           type: string
           format: email

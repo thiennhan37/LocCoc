@@ -1,3 +1,136 @@
+## Newest-first feed and phone image lookahead (2026-11-18)
+
+- User confirmed newest-first ordering. Superseded own/friend/unseen buckets with `coalesce(captured_at,created_at) DESC,id DESC`; seen is informational only. Added response `capturedAt`, matching mobile displayed date, and versioned `time-v2` keyset cursor. Old cursors return 400 and use the existing mobile refresh recovery. See ADR-023 and docs/specs/ranked-feed.md.
+- Added asynchronous current-plus-two image prefetch immediately after metadata and on pager changes, one background batch at a time. Rapid swipes follow the latest window; failed warmups do not fail metadata or mark views. Starts page retrieval four posts before the boundary. Uses the existing six-image session preview cache.
+- Verified 22 Java and 17 Flutter tests; six feed tests additionally passed on PostgreSQL 17 in an independent disposable container (removed). Checks cover 35-photo capture-vs-upload ordering across pages, seen writes, snapshot exclusion, legacy cursors, bounded prefetch, cached reverse swipes and early pagination. Focused Flutter analyzer and diff check clean.
+- Live process on 8089 was still PID 29436 from 08:20. Normal Maven packaging could not repackage the in-use JAR, so built a full Boot JAR in ignored logs/feed-runtime-build-20261118. Applied the checked SHA-256 copy and restarted only Post through scripts/start-post.mjs; new JVM PID 27156, launcher/runtime record in logs/feed-updated-runtime.json. Startup preserved semantic enabled/credentials configured; unauthenticated feed remains protected.
+- Built APK with the existing LAN gateway `http://10.251.43.53:8080`, installed with `adb install -r -t` on physical device 69ifauirprauypyh at 09:27 +07 (success), and launched the app. Data/session storage preserved; previous APK is backed up in ignored logs/mobile-before-prefetch-20261118.apk. No login token was transferred over ADB. Actual authenticated Wi-Fi download speed still requires observation on the phone.
+
+## Share existing test photos with friends (2026-11-18)
+
+- User requested making the private test photos visible and asked why no privacy selector exists in the app. The existing model supports PRIVATE (gallery `/moments`) and FRIENDS (social `/posts/photos`), not anonymous/global PUBLIC. Seed/evaluation uploads used `/moments`, which sets PRIVATE in the service; no mobile visibility selector is implemented.
+- Applied a guarded transaction to exactly 32 active, undeleted PRIVATE photos owned by `ngoclinh_hn` (`cfd428d1-a06a-4346-96ee-3514a5a77217`), changing only visibility to FRIENDS. Saved before/after metadata in ignored `logs/test-photo-visibility-{before,after}-20261118-090433.json`. Verified IDs, owner, state, index status, asset ID/version and creation timestamps unchanged; owner now has 34 active FRIENDS photos. No other accounts/photos or global defaults changed.
+- This data update takes effect on the next feed refresh without restarting any server. The image-performance code update described below still requires its separate backend/mobile rollout. The app continues paginating feed results at 20 per page.
+
+## Friend photo loading on a physical phone (2026-11-18)
+
+- Confirmed the intended account is `duc_anh_ng`. Its three active, nonblocked friends are included in the audience. At measurement, feed returned all three eligible posts (two by a friend, one own); 32 PRIVATE test photos are correctly excluded. User confirmed new friend posts are visible and narrowed the issue to slow image loading.
+- Local gateway measurements: audience 18ms, feed 17ms, PNG media 39–84ms; the largest original was 2,186,458 bytes. Phone APK targets LAN gateway `10.251.43.53:8080`; public HTTP connectivity from the USB-connected phone works. Authenticated phone throughput was not measured: automatic review rejected transferring a diagnostic token over ADB, and no token was sent to the device.
+- Added optional protected JPEG feed rendition (`?preview=true`, max 960px, quality 0.82), keeping original PNG, private visibility and AI input unchanged. Flutter shares/bounds downloads to six in-memory images per feed instance; refresh/dispose/friend changes/session checks clear them, and failed requests remain retryable.
+- Verification: Java 17 tests, Flutter 13 tests, gateway 6 tests passed; focused Flutter analyzer clean. No deployment or phone installation performed; restart Post and rebuild/reinstall Mobile to activate. See docs/reports/2026-11-18-friend-photo-loading.md.
+
+## Search recovery for IDE starts (2026-11-18)
+
+- Reported `người`=1 and `people`=0 matched caption-only results exactly. All 33 photos/points remained active/ready; today's provider usage was 0, so budget exhaustion was not the cause. Post was started from IDE without the Node launcher's local AI protocol inheritance, defaulting the semantic branch off.
+- Added a Spring environment postprocessor inheriting only four missing local protocol values for IDE/Maven starts, preserving explicit/blank configuration and skipping production profiles/opt-out. No provider keys or budgets are imported and no secrets/.env values changed. Added safe availability reasons/startup diagnostics and clearer caption-only empty messaging.
+- Translation failures now retain image search through the original query; hard budget failures remain closed. Owner-scoped completed-query cache precedes translation and coalesces concurrent identical requests; fallback cache expires in 30 seconds.
+- Python 107 passed; Java 81 passed/2 skipped; Flutter 7 related tests passed and analyzer clean. Isolated full JAR built, SHA-256 copy verified, Post/AI restarted; startup confirms semantic enabled. Authenticated internal AI API: both queries HTTP 200 with 33 candidates, date filter returned the correct 6, repeated query cached (11 ms), AI readiness 200. Four provider reservations, no image uploads/reindexing, quota changes or data deletion. Public mobile session not exercised by the diagnostic harness. See docs/reports/2026-11-18-search-semantic-recovery.md.
+
+## English visual queries and fuzzy original captions (2026-11-17)
+
+- User requested automatic search-results scroll-to-top, English normalization for visual queries, and fuzzy caption matching in the user's original language. Implemented ADR-022/spec without changing image embeddings or public routes.
+- Python translation uses `gemini-3.1-flash-lite` via the existing explicitly configured embedding credential, bounded owner-scoped cache and existing query/daily/monthly budgets. Fixed provider minimum 10-second transport deadline while retaining the shorter application timeout; real translation returned `người -> person`. Original text remains in Mobile/Post and captions remain unchanged.
+- Post now performs accent-insensitive bounded fuzzy caption/tags/place matching, including older matches beyond the first 200 eligible rows, with owner/date/state filters and final rehydration. Mobile scrolls successful new searches to top and ignores stale responses without changing input text/selection.
+- Verification: Python 105 passed; Java 74 passed/2 skipped; Flutter 7 related tests passed and focused analyzer clean. On the same 20-photo diagnostic, native-768 vector-only Precision@3 improved from 0/3 (`người`) to 2/3 (`person`), but a mountain still ranks first. No general relevance guarantee. Six additional provider reservations; no image reindexing, key changes or quota increases. Recovered a locked normal Maven packaging attempt with an isolated full-JAR build, verified its copy by SHA-256, and restarted only Post/AI through existing launchers. AI liveness=200 and Post unauthenticated Moments=401 verified. See docs/reports/2026-11-17-english-query-fuzzy-caption.md. Backend is updated; hot-restart/rebuild Mobile to apply the scroll behavior.
+
+## Memories gallery pagination (2026-11-17)
+
+- Diagnosed Home showing more own photos than Memories: the database has 33 active managed photos, but the Memories tab fetched only the first 20 and discarded `nextCursor`.
+- Added “Xem thêm kỷ niệm” to append remaining pages, deduplicate IDs, prevent concurrent load-more requests and retain loaded photos/cursor on failure for retry. Refresh resets to the first page.
+- Verification: reproduced missing pagination before the fix; all 14 related Flutter tests pass, including 20-to-33 pagination and a failed-page retry. Targeted Flutter analysis reports no issues. The running mobile app needs reload/rebuild to use this source change; no database or media records were changed.
+
+## Dimension and temporal evaluation (2026-11-17)
+
+Authorized live experiment downloaded/uploaded 20 additional photos through
+Gateway, tested 1536 then 3072 on the same album/assets and compared exact scores.
+Mean nDCG@5 on seven core queries: 1536=0.7246, 3072=0.7773; normalized 768 MRL
+prefix control also 0.7773 (not a full independent native-768 API benchmark).
+Broad Vietnamese `người` and no-answer still fail; an English photo-of-person
+probe ranks portraits correctly. Dimension alone is insufficient. Runtime stays
+768; all 33 photos are ready, both experimental collections retained, new test
+images backfilled with MRL prefixes. No old data was deleted.
+
+Added selectable 768/1536/3072 dimensions with profile/schema validation and
+Vietnamese prompt day/week/month/range parsing. All 16 live temporal cases passed,
+invalid date API cases returned 400. Java: 69 passed/2 skipped; Python: 91 passed.
+User approved temporary daily cap 150 after reaching 100; two nonsecret override
+fields expire at 2026-11-18T00:00:00+07:00, leaving the base cap and usage counters
+intact. See docs/reports/2026-11-17-dimension-and-date-evaluation.md and the visual
+review in logs/moment-dimensions/visual-review.html.
+
+## Smart Moments relevance assessment (2026-11-17)
+
+Follow-up live evaluation confirmed functioning ingestion does not imply search
+quality. On the 13-image corpus, `xe` ranks flowers/coffee above the bicycle;
+`người` ranks the actual footballer tenth in hybrid search. Specific queries
+`xe đạp`/`cầu thủ bóng đá` rank their intended images first in vector-only exact
+search. Current retrieval returns every candidate, discards cosine scores and
+uses uncalibrated RRF over substring/date-ranked metadata. Evaluation/report only:
+no runtime algorithms, environment or indexes changed. Recommended next steps:
+query/ranking evaluation, grounded visual tags/captions, bounded reranking and
+calibrated rejection. See docs/reports/2026-11-17-moment-search-quality.md.
+
+## Smart Moments search recovery (2026-11-17)
+
+Live diagnosis after Java unification found 13 active images pending with zero
+index-job attempts and zero Qdrant points. Python's local semantic configuration
+was enabled, but Post's launch did not inherit its flag/service credentials, so
+visual searches degraded to metadata-only and could not find dogs/cats absent
+from captions. `npm run start:post` and the local stack launcher now share the
+allowlisted internal protocol settings through `scripts/start-post.mjs`; explicit
+Post configuration wins and Gemini keys/budgets stay with Python. No secret/env
+files were edited. Restarted local Post and resumed the existing durable jobs;
+all 13 images reached ready, all index jobs completed, and Qdrant contains 13
+points. Existing 5-RPM ingest limits were preserved throughout recovery.
+Live Gateway searches for `chó` and `mèo` with `requireSemantic=true` returned
+hybrid/available, with the corresponding seeded image ranked first. Regression
+checks: 5 local configuration tests and all 86 Python tests passed. See the
+current deployment guide in docs/specs/unified-post-moments.md. Direct Maven/IDE
+launches still require their own explicit semantic settings.
+
+## Chat database environment setup (2026-11-17)
+
+Chat provisioning already exists in docker/postgres/init-databases.sh (fresh
+PostgreSQL volumes) and init-chat-database.sh (additive setup for existing
+volumes). Both create the fixed chat_service role and configured chat database
+without changing an existing role password. Root CHAT_DB_NAME/CHAT_DB_PASSWORD
+must match chat-service/.env; service DB_PORT must match POSTGRES_HOST_PORT.
+Added the missing local root fields without changing existing secret values,
+clarified both env examples and documented PowerShell/Bash helper commands.
+At initial setup, no database provisioning or migration was run; the user filled
+credentials afterward. Follow-up verification found the chat role/database existed
+but the stored role password differed from both matching env files. With explicit
+user approval, synchronized only the chat role password to chat-service/.env and
+successfully ran pnpm db:migrate:chat. Verified a service-role connection and the
+conversations, conversation_members, messages and migration tables. Existing data
+and environment secret values were preserved.
+
+## Unified Python AI (2026-11-17)
+
+`ai-service/app/enhancement` replaces Nest `ai-enhancement-service`, preserving
+NhanTr's original fixed image filters and `/ai/images/enhance` contract. One
+Python process on 8087 owns enhancement plus internal embedding/search. Gateway
+AI_SERVICE_URL now targets 8087 and injects configured AI_SERVICE_TOKEN for the
+fixed image route; Java's internal AI URL remains unchanged. Image generation
+has its own feature flag, key/model and Redis budgets. Existing local secrets
+are not modified; configure the updated examples before enabling the feature.
+Verification: 86 Python tests, 54 Gateway E2E, workspace build and real isolated HTTP/Redis/PostgreSQL/S3/Qdrant checks passed; Docker built and offline smoke-tested. See docs/reports/2026-11-17-unified-ai.md, docs/specs/unified-ai.md and docs/adr/ADR-020-unified-python-ai.md.
+
+## Compose consolidation (2026-11-17)
+
+Root `compose.yaml` is the single deployment entry point. Duplicate standalone
+media/Neo4j files were removed; services, pinned images, port mappings and volume
+keys remain the same. Profile `moments` includes SeaweedFS and runs Java Post +
+Python AI. No separate Nest Moments runtime remains. Legacy ignored local files
+are archived under `logs/retired-moment-service-*`. Current instructions are in
+README and docs/specs/unified-post-moments.md; older entries below are history.
+
+## Current change: unified Java Post/Moments (2026-11-16)
+
+On `feature/smartly-seeking-moments`, merge `b264cd6` incorporated main `01aefa1` before unification. Java `post-service` (:8089) now owns `/posts` and `/moments`, S3 display images, private gallery, feed/reactions, hybrid search, durable indexing/erasure and account-deletion fences. Python AI (:8087) remains internal and enhancement (:8082) remains separate. Nest Moments and its deployment scripts are retired; source history remains in Git. Gateway ignores obsolete MOMENT_SERVICE_URL.
+
+Deployment requires the additive Post migration and coordinated backend/mobile update. Legacy private data is copied only by an explicit dry-run/apply importer; source DB/bucket and local secrets are untouched. See [current guide](docs/specs/unified-post-moments.md) and [ADR-019](docs/adr/ADR-019-unified-post-moments.md). Verification: Java/PostgreSQL/S3/Python/Gateway/Flutter passed; see [test report](docs/reports/2026-11-16-post-moments-unification.md). Live personal-data migration has not been applied. Earlier entries below describe historical states.
+
 # LocCoc Project Context & Knowledge Base (Admin & Payment Module)
 
 ### 2026-11-16: Repository presentation cleanup
@@ -1429,3 +1562,18 @@ Mobile API layer now includes all existing Auth endpoints and Post create/delete
 - Added compose.neo4j.yaml matching the main Neo4j service so it can run independently of missing unrelated PostgreSQL environment variables: docker compose -f compose.neo4j.yaml up -d --wait neo4j.
 - Configured generated local Neo4j credentials in root .env and user-service/.env, without committing or logging the password. UserService uses http://127.0.0.1:7474; restart it to reload environment. No business migrations were run.
 - Verified Compose configuration, container healthy state, authenticated HTTP RETURN 1 query, Bolt protocol handshake, and matching UserService credentials. Operations guide documents startup and persistence precautions.
+
+### 2026-11-18 — Email registration through Kafka and Brevo
+
+- Added Flutter registration (email/password/confirmation) and email OTP verification with resend countdown, retry/error handling, and email-prefilled return to login. Verification does not create a session; users log in with the verified registration password. Updated both mobile auth API clients and Postman/OpenAPI contracts with registrationId.
+- Replaced console OTP delivery with an encrypted PostgreSQL outbox in auth-service, Kafka topic auth.email-otp.v1, and a durable deduplicated email queue in notification-service. Brevo transactional HTTP delivery uses the existing root BREVO_MAIL_API_KEY, discovers the single active verified sender, and retries until OTP expiry. Service-local .env overrides the root fallback; no secrets were changed.
+- Registration challenges bind the chosen password hash and pending account to a random registrationId. Atomic Redis rate reservations/OTP consumption and a locked account activation prevent concurrent replay and adoption of an earlier unverified password. Codes expire after 300 seconds, allow five failed attempts, and have a 60-second resend cooldown. Kafka/outbox payloads use authenticated AES-GCM encryption; OTP hashes use a purpose-derived HMAC key in configured services.
+- Added append-only auth email-outbox and notification email-jobs migrations. Restart auth-service and notification-service to load the implementation and apply migrations (both local migration flags were already true); rebuild/hot restart Flutter. Existing running services were not restarted, and feature migrations were exercised only in isolated test schemas.
+- Verification: common/auth/notification builds passed; auth 82 unit and 25 HTTP tests passed; notification 19 tests passed; gateway 6 unit and 55 HTTP tests passed. Targeted Flutter auth/widget/account regression batches and analyzer passed. Three real-infrastructure integration tests passed through Gateway using PostgreSQL, Redis and Kafka with random schemas, Redis namespaces and Kafka topics, then cleaned their test resources. Covered provider retry, event replay/deduplication, parallel OTP consumption/rate limits, real session token issuance and pending-registration password binding.
+- Brevo read-only sender API validated the existing key and an active verified sender. No real OTP email was sent; provider delivery was controlled in tests. Other pre-existing database suites still skip without their dedicated disposable DB settings. See ADR-024 and docs/specs/auth/email-registration.md.
+
+### 2026-11-18 — Restore live OTP email delivery
+
+- Investigated a real pending registration: auth had queued and published the OTP at 10:15:27–10:15:28 Asia/Bangkok, but notification-service was still the process started at 07:57:31 before email delivery was implemented. Its database lacked email_otp_jobs; Brevo initially had no sending events.
+- Built and restarted only notification-service on port 8084, preserving secrets and other services. Startup applied the pending email-jobs migration and joined notification-email-otp-v1 on auth.email-otp.v1. The queued job was accepted by Brevo; provider events confirmed Gmail delivery at 10:20:02. The original OTP expired at 10:20:27, so the user should request a new code in the app.
+- Added read-only scripts/inspect-email-otp.mjs and an operations note for checking queues/provider delivery with masked addresses and no OTP/password/API key output. Runtime stdout/stderr are under ignored notification-service/logs/email-otp-runtime*.log. Notification-service remains running with email delivery enabled.

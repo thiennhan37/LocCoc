@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import io
+import logging
 import time
 from contextlib import asynccontextmanager
 from uuid import UUID
@@ -19,6 +20,10 @@ from app.schemas.search import SearchRequest, IndexMetadata
 from app.services.gemini_service import GeminiService
 from app.services.qdrant_service import QdrantService
 from app.services.quota import Quota
+from app.enhancement.router import router as enhancement_router
+from app.enhancement.provider import GeminiImageProvider
+from app.enhancement.service import EnhancementService
+from app.enhancement.errors import EnhancementError
 
 
 def check_image(data: bytes):
@@ -31,18 +36,22 @@ def check_image(data: bytes):
         raise HTTPException(400, detail="Invalid processed image") from None
 
 
-def create_app(settings=None, provider=None, vectors=None, redis=None):
+def create_app(settings=None, provider=None, vectors=None, redis=None, image_provider=None):
     settings = settings or Settings()
 
     @asynccontextmanager
     async def lifespan(app):
         app.state.ready = False
         app.state.schema_error = False
-        if settings.SEMANTIC_SEARCH_ENABLED:
+        if settings.SEMANTIC_SEARCH_ENABLED or settings.IMAGE_ENHANCEMENT_ENABLED:
             app.state.redis = redis or Redis.from_url(
                 settings.REDIS_URL, socket_timeout=0.5, socket_connect_timeout=0.5
             )
             app.state.quota = Quota(settings, app.state.redis)
+        if settings.IMAGE_ENHANCEMENT_ENABLED:
+            app.state.image_provider = image_provider or GeminiImageProvider(settings)
+            app.state.enhancement = EnhancementService(settings, app.state.image_provider, app.state.quota)
+        if settings.SEMANTIC_SEARCH_ENABLED:
             app.state.vectors = vectors or QdrantService(settings)
             app.state.provider = provider or GeminiService(settings, app.state.quota)
             try:
@@ -57,13 +66,23 @@ def create_app(settings=None, provider=None, vectors=None, redis=None):
         if settings.SEMANTIC_SEARCH_ENABLED:
             await app.state.provider.close()
             await app.state.vectors.client.close()
+        if settings.IMAGE_ENHANCEMENT_ENABLED:
+            await app.state.image_provider.close()
+        if settings.SEMANTIC_SEARCH_ENABLED or settings.IMAGE_ENHANCEMENT_ENABLED:
             await app.state.redis.aclose()
 
     app = FastAPI(
         title="LocCoc AI Service", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
     )
+    app.include_router(enhancement_router)
     app.state.settings = settings
     app.add_middleware(BodyLimit, settings=settings)
+
+    @app.exception_handler(EnhancementError)
+    async def enhancement_error(request, exc):
+        from app.core.body_limit import image_error
+
+        return image_error(exc.status, exc.code, exc.message, request.scope)
 
     @app.exception_handler(SemanticError)
     async def semantic_error(_request, exc):
@@ -93,16 +112,23 @@ def create_app(settings=None, provider=None, vectors=None, redis=None):
                     info = await app.state.vectors.client.get_collection(settings.QDRANT_COLLECTION_NAME)
                     params = info.config.params.vectors
                     if (
-                        getattr(params, "size", None) != 768
+                        getattr(params, "size", None) != settings.EMBEDDING_DIM
                         or str(getattr(params, "distance", "")) != "Cosine"
                     ):
                         app.state.ready = False
                         raise SemanticError("INDEX_SCHEMA_MISMATCH")
         except SemanticError:
             raise
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Semantic readiness dependency failure: %s", type(exc).__name__
+            )
             app.state.ready = False
             raise SemanticError("INDEX_UNAVAILABLE") from None
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
 
     @app.get("/health/live")
     async def live():
@@ -134,7 +160,7 @@ def create_app(settings=None, provider=None, vectors=None, redis=None):
     @app.post("/internal/search")
     async def search(body: SearchRequest, request: Request):
         owner = actor(request, "search")
-        async with asyncio.timeout(3.8):
+        async with asyncio.timeout(9):
             await ready()
             await app.state.quota.reserve_search(owner)
             vector = await app.state.provider.embed_query(owner, body.query)

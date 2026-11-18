@@ -1,7 +1,8 @@
+# Single Compose entry point for infrastructure and optional Post/AI runtime.
 services:
   media-store:
     image: chrislusf/seaweedfs:4.53@sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0
-    profiles: [media]
+    profiles: [media, moments]
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-ec"]
     command:
@@ -47,8 +48,6 @@ services:
       POST_DB_NAME: ${POST_DB_NAME:-posts}
       NOTIFICATION_DB_NAME: ${NOTIFICATION_DB_NAME:-notifications}
       NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:-}
-      MOMENT_DB_NAME: ${MOMENT_DB_NAME:-moments}
-      MOMENT_DB_PASSWORD: ${MOMENT_DB_PASSWORD:-}
       CHAT_DB_NAME: ${CHAT_DB_NAME:-chat}
       CHAT_DB_PASSWORD: ${CHAT_DB_PASSWORD:-}
       USER_DB_PASSWORD: ${USER_DB_PASSWORD:?Set USER_DB_PASSWORD in .env}
@@ -177,29 +176,34 @@ services:
       redis:
         condition: service_healthy
 
-  moment-service:
+  post-service:
     profiles: [moments]
-    build:
-      context: .
-      dockerfile: moment-service/Dockerfile
+    build: ./post-service
     restart: unless-stopped
     env_file:
-      - path: ./moment-service/.env
+      - path: ./post-service/.env
         required: false
     environment:
-      SERVICE_BIND_HOST: 0.0.0.0
-      AI_SERVICE_URL: http://ai-service:8087
-      AUTH_SERVICE_URL: http://host.docker.internal:${AUTH_PORT:-8000}
+      POST_PORT: 8089
+      POST_DB_URL: jdbc:postgresql://db:5432/${POST_DB_NAME:-posts}
+      POST_DB_USER: ${POST_DB_USER:-postgres}
+      POST_DB_PASSWORD: ${POST_DB_PASSWORD:-postgres}
+      USER_SERVICE_URL: http://host.docker.internal:${USER_PORT:-8081}
+      POST_AI_SERVICE_URL: http://ai-service:8087
+      POST_S3_ENDPOINT: http://media-store:8333
+      POST_S3_BUCKET: ${POST_S3_BUCKET:-loccoc-posts}
+      POST_S3_ACCESS_KEY: ${POST_S3_ACCESS_KEY:-${MEDIA_S3_ACCESS_KEY:-}}
+      POST_S3_SECRET_KEY: ${POST_S3_SECRET_KEY:-${MEDIA_S3_SECRET_KEY:-}}
       KAFKA_BROKERS: kafka:19092
     ports:
-      - "127.0.0.1:8088:8088"
-    volumes:
-      - ./secrets/jwt-public.pem:/run/secrets/jwt-public.pem:ro
+      - "127.0.0.1:8089:8089"
     depends_on:
       db:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      media-store:
+        condition: service_started
 
 volumes:
   media_data:

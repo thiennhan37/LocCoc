@@ -32,3 +32,7 @@ export {
 } from './decorators/ownership.decorator.js';
 export type { OwnershipOptions } from './decorators/ownership.decorator.js';
 export { REDIS_CLIENT } from './security/redis-tokens.js';
+export {
+  EMAIL_OTP_TOPIC, otpSecret, deriveOtpKey, encryptEmailOtp, decryptEmailOtp, parseEmailOtpEvent,
+  type EmailOtpEvent, type EmailOtpPayload,
+} from './security/email-otp-event.js';

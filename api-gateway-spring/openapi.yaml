@@ -12,7 +12,7 @@ info:
     prefix gốc và đường dẫn con), giữ nguyên path/query. Không có prefix /api.
     Không có route /ai, /chat, /notifications hoặc /internal trong phiên bản hiện tại.
     Upstream mặc định: auth localhost:8000, users localhost:8081, admin localhost:8086,
-    payments/subscriptions localhost:8085, moments localhost:8088, posts localhost:8089; có thể đổi bằng biến cấu hình service.
+    payments/subscriptions localhost:8085, moments/posts localhost:8089 (Java Post); có thể đổi bằng biến cấu hình service.
 
     Spring gateway không xác minh JWT hoặc tài khoản/phiên tại gateway; chuyển
     Authorization xuống downstream để service thực thi chính sách xác thực của mình.

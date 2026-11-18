@@ -29,7 +29,8 @@ class TwoCallQuota:
 
 
 async def main():
-    settings = Settings(PROVIDER_TIMEOUT_SECONDS=10)
+    # This explicit smoke authorizes exactly two embedding calls, no generation.
+    settings = Settings(PROVIDER_TIMEOUT_SECONDS=10, QUERY_TRANSLATION_ENABLED=False)
     if not settings.GEMINI_EMBEDDING_API_KEY.get_secret_value().strip():
         print("NOT RUN: configure GEMINI_EMBEDDING_API_KEY in ai-service/.env")
         return 2

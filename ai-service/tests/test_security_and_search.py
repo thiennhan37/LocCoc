@@ -26,6 +26,7 @@ ASSET = str(uuid4())
 
 
 def settings(**kwargs):
+    kwargs.setdefault("QUERY_TRANSLATION_ENABLED", False)
     return Settings(
         _env_file=None,
         SEMANTIC_SEARCH_ENABLED=True,
@@ -41,7 +42,7 @@ def headers(op="search", owner=OWNER, **claims):
     token = jwt.encode(
         {
             "sub": owner,
-            "iss": "moment-service",
+            "iss": "post-service",
             "aud": "loccoc-ai",
             "iat": now,
             "exp": now + 45,
@@ -91,6 +92,7 @@ def test_no_public_ai_or_legacy_endpoints():
         {"exp": 0},
         {"aud": "other"},
         {"iss": "other"},
+        {"iss": "moment-service"},
         {"sub": "not-a-uuid"},
         {"op": "delete:wrong"},
         {"exp": int(time.time()) + 5000},

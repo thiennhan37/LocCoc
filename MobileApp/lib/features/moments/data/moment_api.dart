@@ -3,7 +3,7 @@ import '../../users/data/user_api_client.dart';
 
 const momentsEnabled = bool.fromEnvironment(
   'MOMENTS_ENABLED',
-  defaultValue: false,
+  defaultValue: true,
 );
 
 class MomentApi {

@@ -1,4 +1,4 @@
-import { All, Controller, Req, Res, Put, Post, NotFoundException, PayloadTooLargeException, BadRequestException } from '@nestjs/common';
+import { All, Controller, Req, Res, Put, Post, NotFoundException, ServiceUnavailableException, PayloadTooLargeException, BadRequestException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
 import { Readable } from 'node:stream';
@@ -176,6 +176,11 @@ export class ServiceProxyController {
   private async forwardRaw(service: ServiceName, request: RequestWithId, response: Response): Promise<void> {
     const target = this.buildTarget(service, request);
     const headers = this.buildRequestHeaders(request);
+    if (service === 'ai' && this.getPath(request) === 'images/enhance') {
+      const token = this.config.get<string>('AI_SERVICE_TOKEN');
+      if (!token || token.length < 32) throw new ServiceUnavailableException('AI service authentication unavailable');
+      headers.set('x-service-token', token);
+    }
     const hasBody = !['GET', 'HEAD'].includes(request.method);
     const abortController = new AbortController();
     let clientDisconnected = false;
@@ -241,7 +246,7 @@ export class ServiceProxyController {
       ...HOP_BY_HOP_HEADERS,
       ...REQUEST_ONLY_HEADERS,
       'x-service-token',
-      'x-ai-actor',
+      'x-ai-actor', 'x-ai-metadata',
       'x-user-id',
       'x-user-role',
       'x-user-roles',

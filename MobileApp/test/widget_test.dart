@@ -10,7 +10,7 @@ void main() {
 
     expect(find.text('Email'), findsOneWidget);
     expect(find.text('Mật khẩu'), findsOneWidget);
-    expect(find.text('Đăng ký'), findsNothing);
+    expect(find.text('Đăng ký'), findsOneWidget);
     expect(find.text('HOẶC'), findsOneWidget);
     expect(find.text('Đăng nhập với Google'), findsOneWidget);
     expect(find.byType(TextFormField), findsNWidgets(2));

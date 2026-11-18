@@ -1,24 +1,18 @@
-# Running AI, Moments, posts and chat together
+# Unified AI and Java Post runtime
 
-Current allocation: [ADR-017](../adr/ADR-017-merge-moments-with-main.md), 2026-11-16.
+The former Nest image runtime is merged into Python `ai-service`. See
+[ADR-020](../adr/ADR-020-unified-python-ai.md) and [deployment guide](unified-ai.md).
 
-| Service directory | Default port | Gateway variable | Gateway route |
-| --- | --- | --- | --- |
-| `ai-enhancement-service` (NestJS image filters) | 8082 | AI_SERVICE_URL | /ai/* |
-| `chat-service` | 8083 | CHAT_SERVICE_URL | /chat/* |
-| `ai-service` (Python embeddings/search) | 8087 | None | Internal only |
-| `moment-service` | 8088 | MOMENT_SERVICE_URL | /moments and /moments/* |
-| `post-service` | 8089 | POST_SERVICE_URL | /posts and /posts/* |
+| Runtime | Port | Responsibility |
+| --- | --- | --- |
+| Python ai-service | 8087 | Enhancement module and internal embeddings/Qdrant search |
+| Java post-service | 8089 | Social posts, private Moments, S3/ACL and indexing/erasure jobs |
+| Nest chat-service | 8083 | Conversations/messages |
 
-Python is called only by MomentService with a service token and a signed actor
-capability. No /ai-search route is enabled. The old experimental ai-service-2 and
-AI_SEARCH_SERVICE_URL reservation are superseded by ADR-016/017.
+Gateway AI_SERVICE_URL and Java POST_AI_SERVICE_URL both target Python (:8087).
+Public image path remains `/ai/images/enhance`; Gateway injects AI_SERVICE_TOKEN
+only for that operation. `/internal/*` also requires the signed Post actor and
+is never exposed through Gateway. Both `/posts` and `/moments` route to Java.
 
-From the root, `pnpm start:ai` starts Python on Windows; `pnpm dev:ai-enhancement`
-(or `pnpm dev:ai`) starts image enhancement. `pnpm start:moment` and
-`pnpm start:chat` retain their independent Node runtimes.
-
-Ignored .env files and live processes are preserved. If an existing Post env uses
-8087, explicitly set POST_PORT=8089 and matching POST_SERVICE_URL in each gateway
-env before running it alongside Python. Image enhancement reads root .env;
-Python reads ai-service/.env and uses its dedicated GEMINI_EMBEDDING_API_KEY only.
+The `moments` Compose profile starts Python + Java and S3 dependencies. No
+ai-service-2, separate Nest enhancement process, or Nest Moments process is needed.

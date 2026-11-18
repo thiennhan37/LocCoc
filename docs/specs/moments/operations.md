@@ -1,3 +1,5 @@
+> Historical runtime document: the Nest Moments deployment is superseded by [Java Post/Moments](../unified-post-moments.md).
+
 # Smart moments: configuration, API and recovery
 
 Date: 2026-11-14. Runtime decisions: [ADR-016](../../adr/ADR-016-unified-ai-and-moment-runtime.md).

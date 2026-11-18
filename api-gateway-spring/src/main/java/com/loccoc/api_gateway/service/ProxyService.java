@@ -79,7 +79,7 @@ public class ProxyService {
       for (String name : Collections.list(request.getHeaderNames())) {
         String lower = name.toLowerCase(Locale.ROOT);
         if (excluded.contains(lower)
-            || Set.of("x-service-token", "x-ai-actor", "x-user-id", "x-user-role", "x-user-roles").contains(lower)
+            || Set.of("x-service-token", "x-ai-actor", "x-ai-metadata", "x-user-id", "x-user-role", "x-user-roles").contains(lower)
             || lower.equals("forwarded")
             || lower.startsWith("x-forwarded-")
             || lower.equals("x-real-ip")
@@ -114,7 +114,7 @@ public class ProxyService {
         byte[] result;
         try {
           result = readBounded(stream, 502, request.getMethod().equals("GET") && path.matches("/moments/[0-9a-f-]{36}/image")
-              ? 2 * 1024 * 1024 : properties.maxBodyBytes());
+              ? 5 * 1024 * 1024 : properties.maxBodyBytes());
         } catch (IOException e) {
           if (expired.get()) throw new AppException(ErrorCode.UPSTREAM_TIMEOUT);
           throw e;

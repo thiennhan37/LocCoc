@@ -1,3 +1,5 @@
+> Historical runtime document: the Nest Moments deployment is superseded by [Java Post/Moments](../unified-post-moments.md).
+
 # Đánh giá và kế hoạch tìm kiếm khoảnh khắc thông minh
 
 > Runtime implementation now exists under [ADR-016](../../adr/ADR-016-unified-ai-and-moment-runtime.md).

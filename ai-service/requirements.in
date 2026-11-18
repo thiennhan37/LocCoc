@@ -6,3 +6,4 @@ qdrant-client
 redis
 PyJWT
 Pillow
+python-multipart

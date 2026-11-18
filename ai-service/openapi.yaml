@@ -1,0 +1,155 @@
+openapi: 3.0.3
+info:
+  title: LocCoc Unified AI - Image Enhancement
+  version: 1.0.0
+  description: |
+    Public image API through Nest Gateway. Python AI runs on 8087 and also owns
+    internal semantic search; internal endpoints are never Gateway routes.
+    Gateway injects its configured service token, never caller-supplied credentials.
+    Current enhancement MVP remains public at Gateway with IP rate limiting;
+    it does not implement account-based access. Direct Python enhancement calls
+    require x-service-token and are for trusted backend callers only.
+servers:
+  - url: http://localhost:8080
+    description: Nest Gateway - clients do not send the internal service token
+security: []
+paths:
+  /health:
+    get:
+      operationId: getAiServiceHealth
+      summary: Process liveness; does not call Gemini or verify model credentials
+      servers:
+        - url: http://localhost:8087
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+  /ai/images/enhance:
+    post:
+      operationId: enhanceImage
+      summary: Apply one fixed image filter
+      description: |
+        Exactly one file image and one text field filterId; no additional or
+        duplicate fields, URLs or free-form prompts. Input JPEG/PNG/WebP must
+        match the declared MIME and fully decode. Input defaults to 10 MiB,
+        output 20 MiB, and decoded image limit 40 million pixels (single frame).
+        Configured limits may be lower. Multipart overhead is bounded to 64 KiB.
+        handwritten_diary overlays the original fixed diary prompt;
+        subject_sticker requires a PNG with at least one transparent pixel.
+        Returns image bytes. No business record/image is persisted.
+        Deadline defaults to 60 seconds including upload/parsing; disconnect
+        cancels provider processing. Gateway retains its AI rate limit; Python
+        additionally reserves an atomic Redis budget before each provider call.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [image, filterId]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                filterId:
+                  type: string
+                  enum: [handwritten_diary, subject_sticker]
+      responses:
+        '200':
+          description: Generated image bytes; sticker is always transparent PNG
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            x-request-id:
+              schema:
+                type: string
+          content:
+            image/png:
+              schema: {type: string, format: binary}
+            image/jpeg:
+              schema: {type: string, format: binary}
+            image/webp:
+              schema: {type: string, format: binary}
+        '400':
+          description: Invalid multipart or filter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Direct service call lacks trusted credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Input file or total request too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '415':
+          description: Invalid image, MIME mismatch, animated or excessive decoded pixels
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: Invalid provider image or opaque sticker
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '429':
+          description: Gateway rate limit or image generation budget exhausted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '499':
+          description: Client disconnected; response may not reach client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '502':
+          description: Provider failure or output exceeds configured byte limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Enhancement disabled, service credentials missing at Gateway or Redis unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '504':
+          description: Whole image request deadline exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+components:
+  schemas:
+    ApiError:
+      type: object
+      required: [statusCode, error, message, requestId]
+      properties:
+        statusCode: {type: integer}
+        error: {type: string}
+        message: {type: string}
+        code:
+          type: string
+          description: Python enhancement machine-readable code; Gateway errors may omit it
+        requestId: {type: string}

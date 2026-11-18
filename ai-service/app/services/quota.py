@@ -24,6 +24,12 @@ class Quota:
         self.settings = settings
         self.redis = redis
 
+    def daily_request_cap(self, now):
+        expiry = self.settings.GEMINI_DAILY_REQUEST_CAP_OVERRIDE_UNTIL
+        if expiry is not None and now < expiry:
+            return self.settings.GEMINI_DAILY_REQUEST_CAP_OVERRIDE
+        return self.settings.GEMINI_DAILY_REQUEST_CAP
+
     async def reserve_search(self, owner: str):
         now = datetime.now(timezone.utc)
         digest = cache_key(self.settings.AI_ACTOR_SECRET.get_secret_value(), owner, "rate", "")
@@ -50,7 +56,7 @@ class Quota:
                 *keys,
                 limit,
                 120,
-                self.settings.GEMINI_DAILY_REQUEST_CAP,
+                self.daily_request_cap(now),
                 172800,
                 self.settings.GEMINI_MONTHLY_REQUEST_CAP,
                 32 * 86400,
@@ -59,3 +65,31 @@ class Quota:
             raise SemanticError("QUOTA_UNAVAILABLE") from None
         if allowed != 1:
             raise SemanticError("PROVIDER_QUOTA_EXHAUSTED", 429)
+
+    async def reserve_enhancement(self):
+        now = datetime.now(timezone.utc)
+        keys = [
+            f"ai:enhancement:minute:{now:%Y%m%d%H%M}",
+            f"ai:enhancement:day:{now:%Y%m%d}",
+            f"ai:enhancement:month:{now:%Y%m}",
+        ]
+        from app.enhancement.errors import EnhancementError
+
+        try:
+            allowed = await self.redis.eval(
+                RESERVE,
+                3,
+                *keys,
+                self.settings.GEMINI_ENHANCEMENT_RPM,
+                120,
+                self.settings.GEMINI_ENHANCEMENT_DAILY_CAP,
+                172800,
+                self.settings.GEMINI_ENHANCEMENT_MONTHLY_CAP,
+                32 * 86400,
+            )
+        except Exception:
+            raise EnhancementError(
+                "QUOTA_UNAVAILABLE", 503, "Image budget verification unavailable"
+            ) from None
+        if allowed != 1:
+            raise EnhancementError("PROVIDER_QUOTA_EXHAUSTED", 429, "Image request budget exhausted")

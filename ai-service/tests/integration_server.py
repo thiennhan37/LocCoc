@@ -28,4 +28,17 @@ class FixtureProvider:
         return [1.0] + [0.0] * 767 if mean[0] > mean[2] else [0.0, 1.0] + [0.0] * 766
 
 
-app = create_app(Settings(), provider=FixtureProvider())
+class FixtureImageProvider:
+    async def close(self):
+        pass
+
+    async def enhance(self, data, mime, prompt, sticker):
+        output = io.BytesIO()
+        image = Image.open(io.BytesIO(data)).convert("RGBA")
+        if sticker:
+            image.putalpha(128)
+        image.save(output, "PNG")
+        return output.getvalue()
+
+
+app = create_app(Settings(), provider=FixtureProvider(), image_provider=FixtureImageProvider())

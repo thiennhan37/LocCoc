@@ -1,7 +1,11 @@
 /// Known AuthService rules only. Deployment-specific breached lists stay server-owned.
-String? newPasswordError(String password, String? email) {
-  if (password.length < 10 || password.length > 128) {
-    return 'Mật khẩu mới cần từ 10 đến 128 ký tự.';
+String? newPasswordError(
+  String password,
+  String? email, {
+  int minimumLength = 10,
+}) {
+  if (password.length < minimumLength || password.length > 128) {
+    return 'Mật khẩu mới cần từ $minimumLength đến 128 ký tự.';
   }
   final normalized = password.trim().toLowerCase();
   const common = [

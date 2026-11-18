@@ -73,28 +73,28 @@ class FeedApiTests {
     mvc.perform(get("/posts/feed")).andExpect(status().isUnauthorized());
     mvc.perform(put("/posts/11111111-1111-4111-8111-111111111111/seen")).andExpect(status().isUnauthorized());
   }
-  @Test void ranksOwnFreshFriendsOwnOldThenSeenAndExcludesStrangersAndDeleted() throws Exception {
+  @Test void newestFirstAcrossOwnersAndSeenStateExcludesStrangersAndDeleted() throws Exception {
     UUID self=seed(SELF,2),friend=seed(FRIEND,1),old=seed(SELF,25),seen=seed(FRIEND,0);
     seed(STRANGER,0); UUID deleted=seed(FRIEND,0); jdbc.update("UPDATE moments SET deleted_at=? WHERE id=?",Timestamp.from(Instant.now()),deleted);
     mvc.perform(put("/posts/{id}/seen",seen).header("Authorization","Bearer valid")).andExpect(status().isNoContent());
     mvc.perform(put("/posts/{id}/seen",seen).header("Authorization","Bearer valid")).andExpect(status().isNoContent());
     var data=page(null,20).get("data");
     assertThat(data.size()).isEqualTo(4);
-    assertThat(data.get(0).get("id").asText()).isEqualTo(self.toString());
+    assertThat(data.get(0).get("id").asText()).isEqualTo(seen.toString());
     assertThat(data.get(1).get("id").asText()).isEqualTo(friend.toString());
-    assertThat(data.get(2).get("id").asText()).isEqualTo(old.toString());
-    assertThat(data.get(3).get("id").asText()).isEqualTo(seen.toString());
-    assertThat(data.get(3).get("seen").asBoolean()).isTrue();
+    assertThat(data.get(2).get("id").asText()).isEqualTo(self.toString());
+    assertThat(data.get(3).get("id").asText()).isEqualTo(old.toString());
+    assertThat(data.get(0).get("seen").asBoolean()).isTrue();
     assertThat(jdbc.queryForObject("SELECT count(*) FROM post_views",Integer.class)).isEqualTo(1);
   }
-  @Test void stablePaginationDoesNotRepeatSeenItemsAndRefreshDemotesThem() throws Exception {
+  @Test void stablePaginationAndRefreshKeepViewedItemsInChronologicalOrder() throws Exception {
     UUID first=seed(SELF,0); seed(FRIEND,1); seed(SELF,26);
     var a=page(null,1); var cursor=a.get("nextCursor").asText();
     mvc.perform(put("/posts/{id}/seen",first).header("Authorization","Bearer valid")).andExpect(status().isNoContent());
     var rest=page(cursor,20).get("data");
     assertThat(rest.size()).isEqualTo(2);
     for(var item:rest) assertThat(item.get("id").asText()).isNotEqualTo(first.toString());
-    assertThat(page(null,20).get("data").get(2).get("id").asText()).isEqualTo(first.toString());
+    assertThat(page(null,20).get("data").get(0).get("id").asText()).isEqualTo(first.toString());
   }
   @Test void rechecksFriendshipAndRejectsInvalidCursorAndSeenOutsideAudience() throws Exception {
     UUID id=seed(FRIEND,0); seed(SELF,1);
@@ -116,7 +116,36 @@ class FeedApiTests {
       cursor=response.get("nextCursor").isNull()?null:response.get("nextCursor").asText();
     } while(cursor!=null);
     assertThat(ids).containsExactlyInAnyOrder(a.toString(),b.toString(),c.toString());
-    var expired=new com.loccoc.post_service.service.FeedCursor(Instant.now().minusSeconds(7200),1,Instant.now().minusSeconds(8000),a).encode();
+    var expired=new com.loccoc.post_service.service.FeedCursor(Instant.now().minusSeconds(7200),Instant.now().minusSeconds(8000),a).encode();
     mvc.perform(get("/posts/feed").header("Authorization","Bearer valid").param("cursor",expired)).andExpect(status().isBadRequest());
+  }
+  @Test void captureTimeDrivesAllPagesAndLegacyRankedCursorsAreRejected() throws Exception {
+    Instant captured=Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS).minusSeconds(5000);
+    var expected=new ArrayList<UUID>();
+    // Upload order is deliberately opposite to capture order, across both owners.
+    for(int i=0;i<35;i++) {
+      UUID id=seed(i%2==0?SELF:FRIEND,40-i);
+      jdbc.update("UPDATE moments SET captured_at=? WHERE id=?",Timestamp.from(captured.minusSeconds(i*60)),id);
+      expected.add(id);
+    }
+    var actual=new ArrayList<UUID>();String cursor=null;
+    do {
+      var response=page(cursor,20);
+      for(var item:response.get("data")) {
+        actual.add(UUID.fromString(item.get("id").asText()));
+        assertThat(Instant.parse(item.get("capturedAt").asText())).isEqualTo(captured.minusSeconds((actual.size()-1)*60));
+      }
+      cursor=response.get("nextCursor").isNull()?null:response.get("nextCursor").asText();
+      if(actual.size()==20) {
+        // Seen writes cannot change the second page's boundary.
+        mvc.perform(put("/posts/{id}/seen",expected.get(21)).header("Authorization","Bearer valid")).andExpect(status().isNoContent());
+        UUID newPost=seed(FRIEND,0);
+        var snapshot=com.loccoc.post_service.service.FeedCursor.decode(cursor,Instant.now()).snapshot();
+        jdbc.update("UPDATE moments SET created_at=?,captured_at=? WHERE id=?",Timestamp.from(snapshot.plusSeconds(1)),Timestamp.from(captured.minusSeconds(22*60)),newPost);
+      }
+    } while(cursor!=null);
+    assertThat(actual).containsExactlyElementsOf(expected);
+    String old=Base64.getUrlEncoder().withoutPadding().encodeToString((Instant.now().minusSeconds(1)+"|1|"+captured+"|"+expected.getFirst()).getBytes(StandardCharsets.UTF_8));
+    mvc.perform(get("/posts/feed").header("Authorization","Bearer valid").param("cursor",old)).andExpect(status().isBadRequest());
   }
 }

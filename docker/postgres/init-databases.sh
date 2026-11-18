@@ -49,18 +49,6 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'notification_datab
 SQL
 fi
 
-# Optional moment domain: independent role/database; never reuses IAM tables.
-if [ -n "${MOMENT_DB_PASSWORD:-}" ]; then
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
-  --set="moment_password=$MOMENT_DB_PASSWORD" \
-  --set="moment_database=${MOMENT_DB_NAME:-moments}" <<'SQL'
-SELECT format('CREATE ROLE moment_service LOGIN PASSWORD %L', :'moment_password')
-WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'moment_service') \gexec
-SELECT format('CREATE DATABASE %I OWNER moment_service', :'moment_database')
-WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'moment_database') \gexec
-SQL
-fi
-
 # Optional Chat Service database, also runnable independently for existing volumes.
 if [ -n "${CHAT_DB_PASSWORD:-}" ]; then
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \

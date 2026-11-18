@@ -18,9 +18,10 @@ public class PhotoPostController {
     var post=service.publish(request, authorization);
     return ResponseEntity.created(URI.create("/posts/"+post.id())).body(post);
   }
-  @GetMapping(value="/media/{id}",produces=MediaType.IMAGE_PNG_VALUE)
-  public ResponseEntity<byte[]> read(@PathVariable UUID id) {
-    return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-        .header("X-Content-Type-Options","nosniff").body(service.read(id));
+  @GetMapping("/media/{id}")
+  public ResponseEntity<byte[]> read(@PathVariable UUID id,@RequestHeader(value="Authorization",required=false) String token,
+      @RequestParam(defaultValue="false") boolean preview) {
+    return ResponseEntity.ok().contentType(preview?MediaType.IMAGE_JPEG:MediaType.IMAGE_PNG).cacheControl(CacheControl.noStore())
+        .header("X-Content-Type-Options","nosniff").body(preview?service.preview(id,token):service.read(id,token));
   }
 }

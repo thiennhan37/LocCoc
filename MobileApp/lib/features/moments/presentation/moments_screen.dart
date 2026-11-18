@@ -17,6 +17,7 @@ class MomentsScreen extends StatefulWidget {
 class _MomentsScreenState extends State<MomentsScreen> {
   final query = TextEditingController();
   final place = TextEditingController();
+  final resultsScroll = ScrollController();
   List<Map<String, dynamic>> items = [];
   final images = <String, Future<Uint8List>>{};
   String appliedQuery = '';
@@ -95,6 +96,16 @@ class _MomentsScreenState extends State<MomentsScreen> {
         error = null;
         images.removeWhere((id, _) => !items.any((x) => x['id'] == id));
       });
+      if (search) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (current &&
+              widget.active &&
+              revision == epoch &&
+              resultsScroll.hasClients) {
+            resultsScroll.jumpTo(0);
+          }
+        });
+      }
       if (items.any(
         (m) => m['indexStatus'] == 'pending' && m['state'] == 'active',
       )) {
@@ -219,6 +230,7 @@ class _MomentsScreenState extends State<MomentsScreen> {
     images.clear();
     query.dispose();
     place.dispose();
+    resultsScroll.dispose();
     super.dispose();
   }
 
@@ -319,6 +331,8 @@ class _MomentsScreenState extends State<MomentsScreen> {
             child: RefreshIndicator(
               onRefresh: () => load(),
               child: ListView.builder(
+                key: const Key('moment_search_results'),
+                controller: resultsScroll,
                 padding: const EdgeInsets.all(16),
                 itemCount: items.isEmpty
                     ? (loaded ? 1 : 0)
@@ -330,6 +344,8 @@ class _MomentsScreenState extends State<MomentsScreen> {
                       child: Text(
                         appliedQuery.isEmpty
                             ? 'Chưa có khoảnh khắc. Hãy thêm ảnh đầu tiên.'
+                            : degraded
+                            ? 'Chưa có kết quả theo chú thích. Tìm kiếm nội dung ảnh đang tạm gián đoạn.'
                             : 'Không tìm thấy khoảnh khắc phù hợp.',
                       ),
                     );

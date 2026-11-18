@@ -216,17 +216,22 @@ class UserApiClient {
     _checkCurrent();
     final token = session.accessToken;
     try {
-      final result = await send(token);
+      try {
+        final result = await send(token);
+        _checkCurrent();
+        return result;
+      } on AuthApiException catch (e) {
+        _checkCurrent();
+        if (e.statusCode != 401) rethrow;
+        await _retryWithRefresh('GET', 'users', 'me', token, null);
+        _checkCurrent();
+        final result = await send(session.accessToken);
+        _checkCurrent();
+        return result;
+      }
+    } catch (_) {
       _checkCurrent();
-      return result;
-    } on AuthApiException catch (e) {
-      _checkCurrent();
-      if (e.statusCode != 401) rethrow;
-      await _retryWithRefresh('GET', 'users', 'me', token, null);
-      _checkCurrent();
-      final result = await send(session.accessToken);
-      _checkCurrent();
-      return result;
+      rethrow;
     }
   }
 
@@ -235,6 +240,9 @@ class UserApiClient {
     List<int> bytes,
     String mime,
   ) => _momentBinary((token) => auth.uploadMoment(id, bytes, mime, token));
+
+  Future<Uint8List> postImage(String id, {bool preview = false}) =>
+      _momentBinary((token) => auth.postImage(id, token, preview: preview));
 
   Future<Uint8List> momentImage(String id) =>
       _momentBinary((token) => auth.momentImage(id, token));

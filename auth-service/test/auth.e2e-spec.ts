@@ -36,10 +36,12 @@ describe('Auth HTTP API (e2e)', () => {
   let users: Account[];
   let sent: Array<{ destination: string; code: string; channel: 'email' | 'phone' }>;
   let repository: TestRepository;
+  let registrationIds: Record<string, string>;
 
   beforeEach(async () => {
     users = [];
     sent = [];
+    registrationIds = {};
     repository = {
       findOne: async ({ where }) => users.find((candidate) =>
         Object.entries(where).every(([key, value]) => (candidate as any)[key] === value),
@@ -94,7 +96,9 @@ describe('Auth HTTP API (e2e)', () => {
   });
 
   async function register(email = 'person@example.com', password = 'correct horse battery staple 2026') {
-    return request(app.getHttpServer()).post('/auth/register').send({ email, password });
+    const response = await request(app.getHttpServer()).post('/auth/register').send({ email, password });
+    if (response.status === 201) registrationIds[email.trim().toLowerCase()] = response.body.registrationId;
+    return response;
   }
 
   it('registers a user and sends an email OTP', async () => {
@@ -102,14 +106,15 @@ describe('Auth HTTP API (e2e)', () => {
 
     expect(response.status).toBe(201);
     expect(response.body.message).toMatch(/verify the otp/i);
-    expect(response.body.userId).toBeTypeOf('string');
+    expect(response.body.registrationId).toBeTypeOf('string');
+    expect(response.body.userId).toBeUndefined();
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ destination: 'person@example.com', channel: 'email' });
     expect(sent[0].code).toMatch(/^\d{6}$/);
     expect(users[0].status).toBe(AccountStatus.PENDING_VERIFICATION);
 
     const verified = await request(app.getHttpServer()).post('/auth/verify-otp').send({
-      email: 'person@example.com', otp: sent[0].code,
+      email: 'person@example.com', registrationId: registrationIds['person@example.com'], otp: sent[0].code,
     });
     expect(verified.status).toBe(200);
     expect(verified.body.verified).toBe(true);
@@ -143,24 +148,27 @@ describe('Auth HTTP API (e2e)', () => {
       email: 'second-phone@example.com', password: 'correct horse battery staple 2026', phone: '+84375456123',
     });
     expect(second.status).toBe(201);
-    expect(second.body).toEqual({ message: expect.stringMatching(/registration accepted/i) });
+    expect(second.body).toMatchObject({ message: expect.stringMatching(/registration accepted/i), registrationId: expect.any(String) });
     expect(users).toHaveLength(1);
     expect(sent).toHaveLength(1);
   });
 
   it('uses the same accepted response for an existing email', async () => {
     const first = await register('duplicate@example.com');
+    await request(app.getHttpServer()).post('/auth/verify-otp').send({
+      email: 'duplicate@example.com', registrationId: first.body.registrationId, otp: sent[0].code,
+    }).expect(200);
     const second = await register('DUPLICATE@example.com');
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
-    expect(second.body).toEqual({ message: expect.stringMatching(/registration accepted/i) });
+    expect(second.body).toEqual({ ...first.body, registrationId: second.body.registrationId });
     expect(sent).toHaveLength(1);
-    // Registration retries do not send another code; resend is an explicit action.
+    // Active accounts do not receive registration or resend codes.
     const otps = app.get(OtpService);
     const issue = vi.spyOn(otps, 'issue').mockResolvedValue({ expiresIn: 300 });
     await request(app.getHttpServer()).post('/auth/resend-otp')
-      .send({ email: 'duplicate@example.com' }).expect(200);
-    expect(issue).toHaveBeenCalledWith('duplicate@example.com', expect.any(String), 'email');
+      .send({ email: 'duplicate@example.com', registrationId: second.body.registrationId }).expect(200);
+    expect(issue).not.toHaveBeenCalled();
   });
 
   it('invalidates an OTP after more than five incorrect submissions', async () => {
@@ -168,13 +176,13 @@ describe('Auth HTTP API (e2e)', () => {
     const wrongCode = sent[0].code === '000000' ? '000001' : '000000';
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const response = await request(app.getHttpServer()).post('/auth/verify-otp').send({
-        email: 'person@example.com', otp: wrongCode,
+        email: 'person@example.com', registrationId: registrationIds['person@example.com'], otp: wrongCode,
       });
       expect(response.status).toBe(200);
       expect(response.body.verified).toBe(false);
     }
     const final = await request(app.getHttpServer()).post('/auth/verify-otp').send({
-      email: 'person@example.com', otp: sent[0].code,
+      email: 'person@example.com', registrationId: registrationIds['person@example.com'], otp: sent[0].code,
     });
     expect(final.body.verified).toBe(false);
     expect(final.body.message).toMatch(/invalid or expired/i);
@@ -185,7 +193,7 @@ describe('Auth HTTP API (e2e)', () => {
     const now = Date.now();
     vi.spyOn(Date, 'now').mockReturnValue(now + 5 * 60 * 1000 + 1);
     const response = await request(app.getHttpServer()).post('/auth/verify-otp').send({
-      email: 'expired@example.com', otp: sent[0].code,
+      email: 'expired@example.com', registrationId: registrationIds['expired@example.com'], otp: sent[0].code,
     });
     expect(response.body.verified).toBe(false);
     expect(response.body.message).toMatch(/invalid or expired/i);
@@ -194,7 +202,7 @@ describe('Auth HTTP API (e2e)', () => {
   it('blocks resend spam without sending another OTP', async () => {
     await register('spam@example.com');
     const before = sent.length;
-    const response = await request(app.getHttpServer()).post('/auth/resend-otp').send({ email: 'spam@example.com' });
+    const response = await request(app.getHttpServer()).post('/auth/resend-otp').send({ email: 'spam@example.com', registrationId: registrationIds['spam@example.com'] });
     expect(response.status).toBe(429);
     expect(sent).toHaveLength(before);
   });
@@ -202,7 +210,7 @@ describe('Auth HTTP API (e2e)', () => {
   it('returns the same generic login error for wrong and unknown accounts', async () => {
     await register('active@example.com');
     await request(app.getHttpServer()).post('/auth/verify-otp').send({
-      email: 'active@example.com', otp: sent[0].code,
+      email: 'active@example.com', registrationId: registrationIds['active@example.com'], otp: sent[0].code,
     });
     const wrong = await request(app.getHttpServer()).post('/auth/login').send({
       email: 'active@example.com', password: 'wrong-password-123',
@@ -218,7 +226,7 @@ describe('Auth HTTP API (e2e)', () => {
   it('locks login after reaching maximum failed attempts (5)', async () => {
     await register('locked@example.com');
     await request(app.getHttpServer()).post('/auth/verify-otp').send({
-      email: 'locked@example.com', otp: sent[0].code,
+      email: 'locked@example.com', registrationId: registrationIds['locked@example.com'], otp: sent[0].code,
     });
     for (let i = 0; i < 5; i++) {
       const res = await request(app.getHttpServer()).post('/auth/login').send({

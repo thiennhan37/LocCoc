@@ -40,7 +40,9 @@ void main() {
     await tester.pump();
     // Image codecs complete on the engine thread; allow them real time without
     // advancing the fake clock to a network timeout while a spinner animates.
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
     await tester.pump();
     expect(imageCalls, greaterThan(0));
     expect(imageCalls, lessThan(10));
@@ -98,7 +100,12 @@ void main() {
     await tester.tap(find.byTooltip('Tìm kiếm'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Đang tìm theo chú thích'), findsOneWidget);
-    expect(find.text('Không tìm thấy khoảnh khắc phù hợp.'), findsOneWidget);
+    expect(
+      find.text(
+        'Chưa có kết quả theo chú thích. Tìm kiếm nội dung ảnh đang tạm gián đoạn.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('does not issue requests for an inactive tab', (tester) async {

@@ -2,6 +2,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import net from "node:net";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 
 // Only disposable containers named in this run are removed. No compose volumes,
 // repository .env files, production databases or existing collections are touched.
@@ -97,7 +98,18 @@ try {
     NODE_ENV: "test",
     MOMENTS_ENABLED: "true",
     SEMANTIC_SEARCH_ENABLED: "true",
-    MOMENT_DATABASE_URL: `postgres://postgres:${dbPassword}@127.0.0.1:${db}/moment_test`,
+    IMAGE_ENHANCEMENT_ENABLED: "true",
+    GEMINI_API_KEY: "fixture-not-real",
+    GEMINI_IMAGE_MODEL: "fixture-model",
+    GEMINI_ENHANCEMENT_RPM: "30",
+    GEMINI_ENHANCEMENT_DAILY_CAP: "100",
+    GEMINI_ENHANCEMENT_MONTHLY_CAP: "100",
+    POST_TEST_DB_URL: `jdbc:postgresql://127.0.0.1:${db}/moment_test`,
+    POST_TEST_DB_PASSWORD: dbPassword,
+    POST_S3_TEST_ENDPOINT: `http://127.0.0.1:${s3}`,
+    POST_S3_TEST_ACCESS_KEY: "fixture-access",
+    POST_S3_TEST_SECRET_KEY: storageKey,
+    POST_AI_TEST_URL: `http://127.0.0.1:${aiPort}`,
     REDIS_URL: `redis://127.0.0.1:${redis}`,
     QDRANT_URL: `http://127.0.0.1:${qdrant}`,
     QDRANT_API_KEY: qdrantKey,
@@ -161,31 +173,21 @@ try {
     const r = await fetch(env.AI_SERVICE_URL + "/health/live");
     if (!r.ok) throw new Error();
   });
-  await child(
-    process.execPath,
-    ["dist/migrate.js"],
-    env,
-    resolve(root, "moment-service"),
-  );
-  await child(
-    python,
-    ["-m", "pytest", "-q", "integration/redis_contract.py"],
-    env,
-    resolve(root, "ai-service"),
-  );
-  await child(
-    process.execPath,
-    [
-      resolve(root, "moment-service/node_modules/vitest/vitest.mjs"),
-      "run",
-      "--config",
-      "vitest.integration.config.ts",
-    ],
-    env,
-    resolve(root, "moment-service"),
-  );
+  // Validate the production SQL, twice, before Hibernate validate and concurrency tests.
+  for (const file of ["post-service/schema-postgresql.sql", "post-service/migrations/002-unified-moments.sql", "post-service/migrations/002-unified-moments.sql"]) {
+    execFileSync("docker", ["exec", "-i", `${prefix}-postgres`, "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "moment_test"], {
+      input: readFileSync(resolve(root, file)), stdio: ["pipe", "pipe", "pipe"], timeout: 30000,
+    });
+  }
+  await child(python,["-m","pytest","-q","integration/redis_contract.py"],env,resolve(root,"ai-service"));
+  await child(process.execPath,["scripts/verify-unified-ai-gateway.mjs"],env);
+  if (process.platform === "win32") {
+    await child("powershell.exe", ["-NoProfile", "-Command", "& mvn -B -q -f post-service/pom.xml '-Dtest=UnifiedMomentsTests,S3PhotoIntegrationTests,AiProtocolIntegrationTests' test; exit $LASTEXITCODE"],env);
+  } else {
+    await child("mvn",["-B","-q","-f","post-service/pom.xml","-Dtest=UnifiedMomentsTests,S3PhotoIntegrationTests,AiProtocolIntegrationTests","test"],env);
+  }
   process.stdout.write(
-    "Isolated moments integration verification PASS (fake provider; no live Gemini calls).\n",
+    "Isolated Java Post/Moments integration verification PASS (fake provider; no live Gemini calls).\n",
   );
 } finally {
   if (ai) {

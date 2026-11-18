@@ -5,9 +5,10 @@ New-Item -ItemType Directory -Path $taskLogDir -Force | Out-Null
 $taskRecords = @()
 $taskServices = @(
   @{ Name = 'auth-service'; Port = 8000; File = (Get-Command node).Source; Args = @('dist/main.js') },
+  @{ Name = 'user-service'; Port = 8081; File = (Get-Command node).Source; Args = @('dist/main.js') },
   @{ Name = 'api-gateway'; Port = 8080; File = (Get-Command node).Source; Args = @('dist/main.js') },
   @{ Name = 'ai-service'; Port = 8087; File = (Join-Path $taskRoot 'ai-service/.venv/Scripts/python.exe'); Args = @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8087','--no-access-log') },
-  @{ Name = 'moment-service'; Port = 8088; File = (Get-Command node).Source; Args = @('dist/main.js') }
+  @{ Name = 'post-service'; Port = 8089; File = (Get-Command node).Source; Args = @('../scripts/start-post.mjs','--jar') }
 )
 foreach ($taskService in $taskServices) {
   $taskListening = Get-NetTCPConnection -State Listen -LocalPort $taskService.Port -ErrorAction SilentlyContinue

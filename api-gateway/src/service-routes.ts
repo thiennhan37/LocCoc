@@ -38,7 +38,7 @@ export const SERVICE_ROUTES = {
   },
   moments: {
     prefix: '/moments',
-    urlConfigKey: 'MOMENT_SERVICE_URL',
+    urlConfigKey: 'POST_SERVICE_URL',
   },
 } as const;
 
