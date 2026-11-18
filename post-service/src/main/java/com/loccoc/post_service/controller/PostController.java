@@ -16,14 +16,14 @@ public class PostController {
   public PostController(PostService service) { this.service = service; }
 
   @PostMapping
-  public ResponseEntity<PostResponse> create(@Valid @RequestBody CreatePostRequest request) {
-    PostResponse post = service.create(request);
+  public ResponseEntity<PostResponse> create(@Valid @RequestBody CreatePostRequest request, @RequestHeader(value="Authorization",required=false) String token) {
+    PostResponse post = service.create(request,token);
     return ResponseEntity.created(URI.create("/posts/" + post.id())).body(post);
   }
 
   @DeleteMapping("/{id}")
-  public ResponseEntity<Void> delete(@PathVariable UUID id, @RequestParam UUID ownerId) {
-    service.delete(id, ownerId);
+  public ResponseEntity<Void> delete(@PathVariable UUID id, @RequestParam(required=false) UUID ownerId, @RequestHeader(value="Authorization",required=false) String token) {
+    service.delete(id, ownerId, token);
     return ResponseEntity.noContent().build();
   }
 }

@@ -34,6 +34,11 @@
       "type": "string"
     },
     {
+      "key": "registrationId",
+      "value": "",
+      "type": "string"
+    },
+    {
       "key": "userId",
       "value": "",
       "type": "string"
@@ -145,7 +150,7 @@
                   "  pm.expect([200, 201, 409, 429]).to.include(pm.response.code);",
                   "});",
                   "const body = pm.response.json();",
-                  "if (body.userId) pm.collectionVariables.set('userId', body.userId);"
+                  "if (body.registrationId) pm.collectionVariables.set('registrationId', body.registrationId);"
                 ]
               }
             }
@@ -177,7 +182,7 @@
                 "register"
               ]
             },
-            "description": "Đăng ký tài khoản mới. Trạng thái khởi tạo là PENDING_VERIFICATION. Mã OTP được gửi qua email/SMS (in ra console ở môi trường dev)."
+            "description": "Đăng ký email/password, nhận registrationId tự lưu vào Collection Variables. OTP gửi qua Kafka → notification-service → Brevo. Không cấp token và không trả userId."
           },
           "response": []
         },
@@ -209,7 +214,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{email}}\",\n  \"otp\": \"{{otp}}\"\n}",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"registrationId\": \"{{registrationId}}\",\n  \"otp\": \"{{otp}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -226,7 +231,7 @@
                 "verify-otp"
               ]
             },
-            "description": "Xác thực mã OTP để kích hoạt tài khoản sang trạng thái ACTIVE."
+            "description": "Nhập OTP từ email Brevo và registrationId của lần đăng ký. verified:true kích hoạt tài khoản ACTIVE; sau đó gọi Login, không tự cấp session ở đây."
           },
           "response": []
         },
@@ -255,7 +260,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{email}}\",\n  \"channel\": \"email\"\n}",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"registrationId\": \"{{registrationId}}\",\n  \"channel\": \"email\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2316,11 +2321,22 @@
           }
         },
         {
-          "name": "Read local photo",
+          "name": "Read protected photo",
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{gatewayUrl}}/posts/media/{{postId}}"
+            "url": "{{gatewayUrl}}/posts/media/{{postId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Requires a live Bearer token. Owner or current friend may read FRIENDS posts; PRIVATE moments are owner-only. Deleted/unauthorized images return 404."
           }
         },
         {

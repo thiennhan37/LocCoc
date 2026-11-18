@@ -19,11 +19,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     "spring.jpa.hibernate.ddl-auto=create-drop"})
 @AutoConfigureMockMvc
 class PostApiTests {
+  @org.springframework.test.context.bean.override.mockito.MockitoBean com.loccoc.post_service.service.UserIdentityClient identity;
   @Autowired MockMvc mvc;
   @Autowired PostRepository repository;
   private final UUID owner = UUID.randomUUID();
 
-  @BeforeEach void clean() { repository.deleteAll(); }
+  @BeforeEach void clean() { repository.deleteAll();
+    org.mockito.Mockito.when(identity.resolve("Bearer valid")).thenReturn(owner);
+    org.mockito.Mockito.when(identity.resolve(null)).thenThrow(new com.loccoc.post_service.exception.AppException(com.loccoc.post_service.exception.ErrorCode.UNAUTHENTICATED));
+  }
 
   private String body(int type) {
     return """
@@ -32,8 +36,8 @@ class PostApiTests {
         """.formatted(owner, type);
   }
 
-  @Test void createPersistsImageAndReturnsLocationWithoutToken() throws Exception {
-    mvc.perform(post("/posts").contentType(MediaType.APPLICATION_JSON).content(body(0)))
+  @Test void createPersistsImageWithAuthenticatedOwner() throws Exception {
+    mvc.perform(post("/posts").header("Authorization","Bearer valid").contentType(MediaType.APPLICATION_JSON).content(body(0)))
         .andExpect(status().isCreated()).andExpect(header().exists("Location"))
         .andExpect(jsonPath("ownerId").value(owner.toString()))
         .andExpect(jsonPath("caption").value("Xin chào"))
@@ -44,7 +48,7 @@ class PostApiTests {
   }
 
   @Test void videoIsAccepted() throws Exception {
-    mvc.perform(post("/posts").contentType(MediaType.APPLICATION_JSON).content(body(1)))
+    mvc.perform(post("/posts").header("Authorization","Bearer valid").contentType(MediaType.APPLICATION_JSON).content(body(1)))
         .andExpect(status().isCreated()).andExpect(jsonPath("mediaType").value(1));
   }
 
@@ -52,32 +56,32 @@ class PostApiTests {
     for (String invalid : new String[]{"{}", body(2), body(0).replace("1080", "0"),
         body(0).replace("moments/photo.jpg", " "), body(0).replace(owner.toString(), "invalid"),
         body(0).replace("Xin chào", "a".repeat(201)), "{"}) {
-      mvc.perform(post("/posts").contentType(MediaType.APPLICATION_JSON).content(invalid))
+      mvc.perform(post("/posts").header("Authorization","Bearer valid").contentType(MediaType.APPLICATION_JSON).content(invalid))
           .andExpect(status().isBadRequest());
     }
     assertThat(repository.count()).isZero();
   }
 
   @Test void deleteIsOwnerScopedAndIdempotent() throws Exception {
-    mvc.perform(post("/posts").contentType(MediaType.APPLICATION_JSON).content(body(0)))
+    mvc.perform(post("/posts").header("Authorization","Bearer valid").contentType(MediaType.APPLICATION_JSON).content(body(0)))
         .andExpect(status().isCreated());
     UUID id = repository.findAll().getFirst().getId();
-    mvc.perform(delete("/posts/{id}", id).param("ownerId", UUID.randomUUID().toString()))
-        .andExpect(status().isNotFound());
+    mvc.perform(delete("/posts/{id}", id).header("Authorization","Bearer valid").param("ownerId", UUID.randomUUID().toString()))
+        .andExpect(status().isForbidden());
     assertThat(repository.findById(id).orElseThrow().getDeletedAt()).isNull();
-    mvc.perform(delete("/posts/{id}", id).param("ownerId", owner.toString()))
+    mvc.perform(delete("/posts/{id}", id).header("Authorization","Bearer valid").param("ownerId", owner.toString()))
         .andExpect(status().isNoContent()).andExpect(content().string(""));
     var deletedAt = repository.findById(id).orElseThrow().getDeletedAt();
     assertThat(deletedAt).isNotNull();
-    mvc.perform(delete("/posts/{id}", id).param("ownerId", owner.toString()))
+    mvc.perform(delete("/posts/{id}", id).header("Authorization","Bearer valid").param("ownerId", owner.toString()))
         .andExpect(status().isNoContent());
     assertThat(repository.findById(id).orElseThrow().getDeletedAt()).isEqualTo(deletedAt);
   }
 
   @Test void deleteUnknownOrMalformedRequests() throws Exception {
-    mvc.perform(delete("/posts/{id}", UUID.randomUUID()).param("ownerId", owner.toString()))
+    mvc.perform(delete("/posts/{id}", UUID.randomUUID()).header("Authorization","Bearer valid").param("ownerId", owner.toString()))
         .andExpect(status().isNotFound());
-    mvc.perform(delete("/posts/{id}", UUID.randomUUID())).andExpect(status().isBadRequest());
+    mvc.perform(delete("/posts/{id}", UUID.randomUUID())).andExpect(status().isUnauthorized());
     mvc.perform(delete("/posts/invalid").param("ownerId", owner.toString()))
         .andExpect(status().isBadRequest());
   }

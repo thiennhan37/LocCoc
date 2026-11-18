@@ -1,3 +1,7 @@
+> Historical design proposal. Current local runtime uses the single root `compose.yaml`.
+> See [current Post/Moments operations](unified-post-moments.md). Nest remains the
+> primary gateway until the Spring gateway parity gaps are addressed.
+
 # Full-stack local Docker design
 
 Run the backend and admin dashboard as a Compose stack. Flutter remains a native mobile client. Use the Spring gateway by default; the alternative Nest gateway must not compete for port 8080.
@@ -9,7 +13,7 @@ Run the backend and admin dashboard as a Compose stack. Flutter remains a native
 | User | 8081 | 8081 |
 | Admin | 8086 | 8086 |
 | Payment | 8085 | 8085 |
-| Post | 8087 | 8087 |
+| Post | 8089 | 8089 |
 | Admin dashboard | 3005 | 3000 |
 | PostgreSQL IAM | 5433 | 5432 |
 | PostgreSQL posts | 5434 | 5432 |

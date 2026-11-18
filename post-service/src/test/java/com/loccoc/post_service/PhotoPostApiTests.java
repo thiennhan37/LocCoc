@@ -31,11 +31,13 @@ class PhotoPostApiTests {
   @Autowired PostRepository repository;
   @MockitoBean PhotoStorage storage;
   @MockitoBean UserIdentityClient identity;
+  @MockitoBean FeedAudienceClient audience;
   final Map<UUID,byte[]> objects=new HashMap<>();
   final UUID owner = UUID.randomUUID();
   @BeforeEach void clean() {
     repository.deleteAll(); objects.clear();
     when(identity.resolve("Bearer valid")).thenReturn(owner);
+    when(audience.resolve("Bearer valid")).thenReturn(new FeedAudienceClient.Audience(owner,Map.of(owner,new FeedAudienceClient.Author(owner,"owner",null))));
     doAnswer(c->{ objects.put(c.getArgument(0),c.getArgument(1)); return true; }).when(storage).save(any(),any(),any(),any());
     when(storage.read(any())).thenAnswer(c->objects.get(c.getArgument(0)));
   }
@@ -55,12 +57,12 @@ class PhotoPostApiTests {
       .andExpect(jsonPath("width").value(16)).andExpect(jsonPath("caption").value("Hello"));
     assertThat(repository.count()).isEqualTo(1);
     assertThat(objects).containsKey(id);
-    mvc.perform(get("/posts/media/{id}",id)).andExpect(status().isOk())
+    mvc.perform(get("/posts/media/{id}",id).header("Authorization","Bearer valid")).andExpect(status().isOk())
       .andExpect(content().contentType("image/png"));
     mvc.perform(post("/posts/photos").header("Authorization","Bearer valid").contentType("application/json").content(body.replace("Hello","changed")))
       .andExpect(status().isConflict());
-    mvc.perform(delete("/posts/{id}",id).param("ownerId",owner.toString())).andExpect(status().isNoContent());
-    mvc.perform(get("/posts/media/{id}",id)).andExpect(status().isNotFound());
+    mvc.perform(delete("/posts/{id}",id).header("Authorization","Bearer valid").param("ownerId",owner.toString())).andExpect(status().isNoContent());
+    mvc.perform(get("/posts/media/{id}",id).header("Authorization","Bearer valid")).andExpect(status().isNotFound());
     assertThat(objects).containsKey(id);
   }
   @Test void rejectsCorruptOversizeAndMissingImagesWithoutRows() throws Exception {
@@ -76,5 +78,37 @@ class PhotoPostApiTests {
     mvc.perform(post("/posts/photos").header("Authorization","Bearer valid").contentType("application/json").content("x".repeat(8*1024*1024+1)))
       .andExpect(status().isPayloadTooLarge()).andExpect(jsonPath("code").value(1102));
     assertThat(repository.count()).isZero();
+  }
+  @Test void feedPreviewIsSmallerWhileOriginalAndAuthorizationArePreserved() throws Exception {
+    var source=new BufferedImage(1024,1024,BufferedImage.TYPE_INT_RGB);
+    var random=new Random(42);
+    for(int y=0;y<1024;y++) for(int x=0;x<1024;x++) source.setRGB(x,y,random.nextInt());
+    var buffer=new ByteArrayOutputStream();ImageIO.write(source,"png",buffer);
+    UUID id=UUID.randomUUID();
+    mvc.perform(post("/posts/photos").header("Authorization","Bearer valid").contentType("application/json")
+        .content(body(id,Base64.getEncoder().encodeToString(buffer.toByteArray())))).andExpect(status().isCreated());
+    var original=objects.get(id).clone();
+    clearInvocations(audience);
+    var preview=mvc.perform(get("/posts/media/{id}",id).param("preview","true").header("Authorization","Bearer valid"))
+        .andExpect(status().isOk()).andExpect(content().contentType("image/jpeg"))
+        .andExpect(header().string("Cache-Control","no-store")).andReturn().getResponse().getContentAsByteArray();
+    var decoded=ImageIO.read(new java.io.ByteArrayInputStream(preview));
+    assertThat(decoded.getWidth()).isEqualTo(960);assertThat(decoded.getHeight()).isEqualTo(960);
+    assertThat(preview.length).isLessThan(original.length/3);
+    verify(audience,times(2)).resolve("Bearer valid");
+    mvc.perform(get("/posts/media/{id}",id).header("Authorization","Bearer valid"))
+        .andExpect(content().contentType("image/png")).andExpect(content().bytes(original));
+    assertThat(objects.get(id)).isEqualTo(original);
+    // A former friend cannot obtain a rendition, either.
+    UUID stranger=UUID.randomUUID();
+    when(audience.resolve("Bearer valid")).thenReturn(new FeedAudienceClient.Audience(stranger,
+        Map.of(stranger,new FeedAudienceClient.Author(stranger,"stranger",null))));
+    clearInvocations(storage);
+    mvc.perform(get("/posts/media/{id}",id).param("preview","true").header("Authorization","Bearer valid"))
+        .andExpect(status().isNotFound());
+    verify(storage,never()).read(any());
+    when(audience.resolve(null)).thenThrow(new com.loccoc.post_service.exception.AppException(
+        com.loccoc.post_service.exception.ErrorCode.UNAUTHENTICATED));
+    mvc.perform(get("/posts/media/{id}",id).param("preview","true")).andExpect(status().isUnauthorized());
   }
 }

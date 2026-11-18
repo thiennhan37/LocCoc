@@ -70,4 +70,49 @@ describe('OtpService', () => {
       vi.useRealTimers();
     }
   });
+
+  it('consumes a code once even when verifications arrive concurrently', async () => {
+    const { service, sent } = setup();
+    await service.issue('parallel@example.com');
+    const results = await Promise.all(Array.from({ length: 10 }, () => service.verify('parallel@example.com', sent[0]!.code)));
+    expect(results.filter(Boolean)).toHaveLength(1);
+  });
+
+  it('reserves destination limits atomically across concurrent sends', async () => {
+    const { service, sent } = setup();
+    const results = await Promise.allSettled(Array.from({ length: 10 }, () => service.issue('limit@example.com')));
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(sent).toHaveLength(1);
+  });
+
+  it('binds registration to its email, challenge and candidate password', async () => {
+    const { service, sent } = setup();
+    await service.createRegistration('first-id', { email: 'owner@example.com', accountId: 'account-id', passwordHash: 'candidate-hash' }, '127.0.0.1');
+    expect(await service.verifyRegistration('other@example.com', 'first-id', sent[0]!.code)).toBeNull();
+    expect(await service.verifyRegistration('owner@example.com', 'another-id', sent[0]!.code)).toBeNull();
+    expect(await service.verifyRegistration('owner@example.com', 'first-id', sent[0]!.code)).toEqual({
+      email: 'owner@example.com', accountId: 'account-id', passwordHash: 'candidate-hash',
+    });
+    expect(await service.verifyRegistration('owner@example.com', 'first-id', sent[0]!.code)).toBeNull();
+  });
+
+  it('resend invalidates the old code and preserves the chosen password', async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, sent } = setup();
+      await service.createRegistration('id', { email: 'owner@example.com', accountId: 'account-id', passwordHash: 'candidate-hash' }, '127.0.0.1');
+      vi.advanceTimersByTime(60_001);
+      expect(await service.resendRegistration('other@example.com', 'id', '127.0.0.1')).toBeNull();
+      await service.resendRegistration('owner@example.com', 'id', '127.0.0.1');
+      if (sent[0]!.code !== sent[1]!.code) expect(await service.verifyRegistration('owner@example.com', 'id', sent[0]!.code)).toBeNull();
+      expect(await service.verifyRegistration('owner@example.com', 'id', sent[1]!.code)).toMatchObject({ passwordHash: 'candidate-hash' });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('invalidates a code if durable email enqueue fails', async () => {
+    const { service, store, sender } = setup();
+    vi.mocked(sender.send).mockRejectedValueOnce(new Error('queue unavailable'));
+    await expect(service.issue('queue@example.com')).rejects.toThrow('queue unavailable');
+    expect(await store.hgetall('auth:otp:queue@example.com')).toEqual({});
+  });
 });

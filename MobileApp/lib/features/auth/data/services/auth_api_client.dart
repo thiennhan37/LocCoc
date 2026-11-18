@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:io' show Platform, SocketException, HttpDate;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
@@ -7,6 +8,7 @@ import 'package:http/http.dart' as http;
 import '../../../../core/constants/api_constants.dart';
 import '../../domain/models/auth_result.dart';
 import '../../domain/models/auth_session.dart';
+import '../../domain/models/registration_challenge.dart';
 
 class AuthApiException implements Exception {
   final int statusCode;
@@ -70,6 +72,54 @@ class AuthApiClient {
     required String password,
     String? platform,
   }) => _login('/auth/login', {'email': email, 'password': password}, platform);
+
+  Future<Map<String, dynamic>> _registrationRequest(
+    String path,
+    Map<String, dynamic> body,
+  ) {
+    final request = http.Request('POST', Uri.parse('$_baseUrl/auth/$path'));
+    request.headers.addAll({
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    });
+    request.body = jsonEncode(body);
+    return _sendServiceRequest(request, requestTimeout);
+  }
+
+  Future<RegistrationChallenge> registerWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    final normalized = email.trim().toLowerCase();
+    final data = await _registrationRequest('register', {
+      'email': normalized,
+      'password': password,
+    });
+    return RegistrationChallenge.fromJson(normalized, data);
+  }
+
+  Future<bool> verifyRegistrationOtp(
+    RegistrationChallenge challenge,
+    String otp,
+  ) async {
+    final data = await _registrationRequest('verify-otp', {
+      'email': challenge.email,
+      'registrationId': challenge.registrationId,
+      'otp': otp.trim(),
+    });
+    return data['verified'] == true;
+  }
+
+  Future<Duration> resendRegistrationOtp(
+    RegistrationChallenge challenge,
+  ) async {
+    final data = await _registrationRequest('resend-otp', {
+      'email': challenge.email,
+      'registrationId': challenge.registrationId,
+      'channel': 'email',
+    });
+    return Duration(seconds: (data['retryAfter'] as num?)?.toInt() ?? 60);
+  }
 
   Future<AuthResult> _login(
     String path,
@@ -219,7 +269,14 @@ class AuthApiClient {
     String accessToken, {
     Map<String, dynamic>? body,
   }) async {
-    if (!['users', 'notifications', 'auth', 'chat', 'posts'].contains(area)) {
+    if (![
+      'users',
+      'notifications',
+      'auth',
+      'moments',
+      'chat',
+      'posts',
+    ].contains(area)) {
       throw ArgumentError('Invalid API area');
     }
     final suffix = path.isEmpty || path.startsWith('?') ? path : '/$path';
@@ -257,6 +314,74 @@ class AuthApiClient {
     return _sendServiceRequest(request, const Duration(seconds: 60));
   }
 
+  Future<Map<String, dynamic>> uploadMoment(
+    String id,
+    List<int> bytes,
+    String contentType,
+    String accessToken,
+  ) {
+    if (!RegExp(r'^[0-9a-f-]{36}$').hasMatch(id) ||
+        bytes.length > 10 * 1024 * 1024) {
+      throw ArgumentError('Invalid moment image');
+    }
+    final request = http.Request(
+      'PUT',
+      Uri.parse('$_baseUrl/moments/$id/image'),
+    );
+    request.headers.addAll({
+      'Authorization': 'Bearer $accessToken',
+      'Content-Type': contentType,
+    });
+    request.bodyBytes = bytes;
+    return _sendServiceRequest(request, const Duration(seconds: 60));
+  }
+
+  Future<Uint8List> momentImage(String id, String accessToken) =>
+      protectedImage('moments/$id/image', accessToken);
+
+  Future<Uint8List> postImage(
+    String id,
+    String accessToken, {
+    bool preview = false,
+  }) => protectedImage('posts/media/$id', accessToken, preview: preview);
+
+  Future<Uint8List> protectedImage(
+    String path,
+    String accessToken, {
+    bool preview = false,
+  }) async {
+    final id = path.startsWith('posts/')
+        ? path.split('/').last
+        : path.split('/')[1];
+    if (!RegExp(r'^[0-9a-f-]{36}$').hasMatch(id)) {
+      throw ArgumentError('Invalid moment ID');
+    }
+    final uri = Uri.parse('$_baseUrl/$path');
+    final request = http.Request(
+      'GET',
+      preview ? uri.replace(queryParameters: {'preview': 'true'}) : uri,
+    );
+    request.headers['Authorization'] = 'Bearer $accessToken';
+    final response = await _httpClient.send(request).timeout(requestTimeout);
+    if (response.statusCode != 200) {
+      await response.stream.drain<void>().timeout(requestTimeout);
+      throw AuthApiException(response.statusCode);
+    }
+    final mime = response.headers['content-type']?.split(';').first;
+    if (mime != null && !['image/png', 'image/jpeg'].contains(mime)) {
+      await response.stream.drain<void>().timeout(requestTimeout);
+      throw const FormatException('Invalid image response');
+    }
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in response.stream.timeout(requestTimeout)) {
+      if (bytes.length + chunk.length > 5 * 1024 * 1024) {
+        throw const FormatException('Image too large');
+      }
+      bytes.add(chunk);
+    }
+    return bytes.takeBytes();
+  }
+
   Future<Map<String, dynamic>> _sendServiceRequest(
     http.BaseRequest request,
     Duration timeout,
@@ -286,7 +411,11 @@ class AuthApiClient {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AuthApiException(
         response.statusCode,
-        retryAfter: retryAfter(response.headers['retry-after']),
+        retryAfter:
+            retryAfter(response.headers['retry-after']) ??
+            (data['retryAfter'] is num
+                ? Duration(seconds: (data['retryAfter'] as num).toInt())
+                : null),
         code: data['code'] is String ? data['code'] as String : null,
         message: data['message'] is String ? data['message'] as String : null,
         nextDisplayNameChangeAt: data['nextDisplayNameChangeAt'] is String

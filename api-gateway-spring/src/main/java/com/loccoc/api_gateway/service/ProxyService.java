@@ -64,7 +64,7 @@ public class ProxyService {
                 + (request.getQueryString() == null ? "" : "?" + request.getQueryString()));
     try {
       boolean mediaUpload = request.getMethod().equals("PUT")
-          && path.matches("/users/me/media/(avatar|cover)");
+          && (path.matches("/users/me/media/(avatar|cover)") || path.matches("/moments/[0-9a-f-]{36}/image"));
       if (mediaUpload && (!Set.of("image/jpeg", "image/png", "image/webp").contains(String.valueOf(request.getContentType()))
           || request.getHeader("Content-Encoding") != null)) throw new AppException(ErrorCode.UNSUPPORTED_MEDIA_TYPE);
       int uploadLimit = path.endsWith("/avatar") ? 5 * 1024 * 1024 : 10 * 1024 * 1024;
@@ -79,6 +79,7 @@ public class ProxyService {
       for (String name : Collections.list(request.getHeaderNames())) {
         String lower = name.toLowerCase(Locale.ROOT);
         if (excluded.contains(lower)
+            || Set.of("x-service-token", "x-ai-actor", "x-ai-metadata", "x-user-id", "x-user-role", "x-user-roles").contains(lower)
             || lower.equals("forwarded")
             || lower.startsWith("x-forwarded-")
             || lower.equals("x-real-ip")
@@ -112,7 +113,8 @@ public class ProxyService {
       try (InputStream stream = upstream.body()) {
         byte[] result;
         try {
-          result = readBounded(stream, 502);
+          result = readBounded(stream, 502, request.getMethod().equals("GET") && path.matches("/moments/[0-9a-f-]{36}/image")
+              ? 5 * 1024 * 1024 : properties.maxBodyBytes());
         } catch (IOException e) {
           if (expired.get()) throw new AppException(ErrorCode.UPSTREAM_TIMEOUT);
           throw e;

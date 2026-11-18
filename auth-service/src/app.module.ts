@@ -9,7 +9,7 @@ import { DatabaseModule } from './database/database.module.js';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: fileURLToPath(new URL('../.env', import.meta.url)),
+      envFilePath: [fileURLToPath(new URL('../.env', import.meta.url)), fileURLToPath(new URL('../../.env', import.meta.url))],
       validate: (input) => validateAuthEnvironment(input, fileURLToPath(new URL('..', import.meta.url))),
     }),
     DatabaseModule,

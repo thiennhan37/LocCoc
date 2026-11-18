@@ -5,7 +5,7 @@
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <application
         android:allowBackup="false"
-        android:label="mobile_app"
+        android:label="LocCoc"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

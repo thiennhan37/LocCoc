@@ -4,9 +4,31 @@ Chat văn bản 1–1 giữa hai tài khoản thật đã là bạn bè. Tin nh�
 
 ## Chạy
 
-Từ root, tạo `chat-service/.env` từ [mẫu](./.env.example) nếu chưa có file. Điền `CHAT_DB_PASSWORD` và `INTERNAL_SERVICE_TOKEN` giống token nội bộ của Auth Service. Không gửi token nội bộ tới mobile. File môi trường luôn được đọc theo thư mục Chat Service, không phụ thuộc current working directory.
+Từ root, tạo `.env` từ [mẫu Compose](../.env.example) và `chat-service/.env` từ [mẫu service](./.env.example) nếu chưa có file; không ghi đè file đang dùng. Điền `CHAT_DB_NAME=chat` và cùng một `CHAT_DB_PASSWORD` trong cả hai file. `INTERNAL_SERVICE_TOKEN` trong `chat-service/.env` phải giống token nội bộ của Auth Service. Không gửi token nội bộ tới mobile. File môi trường của Chat luôn được đọc theo thư mục Chat Service, không phụ thuộc current working directory.
 
-Database mặc định `chat`, role `chat_service`, PostgreSQL host `127.0.0.1:5433`. Với volume mới, Compose tạo database chat khi root environment có `CHAT_DB_PASSWORD`. Với volume có sẵn, chạy helper không xóa dữ liệu:
+Database mặc định `chat`, role `chat_service`, PostgreSQL host `127.0.0.1:5433`. Nếu đổi `POSTGRES_HOST_PORT` ở root, đổi `DB_PORT` trong `chat-service/.env` cho khớp. Không cần tự chạy SQL `CREATE ROLE`/`CREATE DATABASE`:
+
+- **Clone mới, volume PostgreSQL mới:** sau khi điền `.env` gốc, `docker compose up -d db` gọi `docker/postgres/init-databases.sh` để tạo role/database chat nếu `CHAT_DB_PASSWORD` không rỗng.
+- **Volume đã có:** script init không tự chạy lại. Sau khi điền `.env` gốc, chạy `docker compose up -d db` để cập nhật môi trường container, chờ database sẵn sàng rồi gọi `docker/postgres/init-chat-database.sh` như dưới đây.
+
+PowerShell, chạy tại root repository sau khi đã điền hai file `.env`:
+
+```powershell
+docker compose up -d db
+docker compose exec -T db pg_isready -U postgres -d postgres
+# Chạy bước tiếp theo khi pg_isready báo "accepting connections".
+Get-Content -Raw docker/postgres/init-chat-database.sh | docker compose exec -T db sh -s
+```
+
+Helper lấy `CHAT_DB_NAME` và `CHAT_DB_PASSWORD` từ môi trường container do Compose nạp từ `.env` gốc, không cần gõ mật khẩu trong lệnh. Với Bash:
+
+```sh
+docker compose up -d db
+docker compose exec -T db pg_isready -U postgres -d postgres
+docker compose exec -T db sh -s < docker/postgres/init-chat-database.sh
+```
+
+Nếu cần truyền biến trực tiếp thay vì dùng `.env` gốc, helper cũng hỗ trợ:
 
 ```sh
 # Đặt password bằng giá trị giống trong chat-service/.env.

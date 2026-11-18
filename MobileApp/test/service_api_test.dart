@@ -26,7 +26,7 @@ void main() {
   test('photo upload never uses anonymous legacy transport', () async {
     final client = RecordingClient();
     await expectLater(
-      PostApi(client: client).publishPhoto(
+      PostApi().publishPhoto(
         ownerId: 'owner',
         requestId: 'id',
         png: Uint8List.fromList([137, 80, 78, 71]),
@@ -48,10 +48,28 @@ void main() {
       });
       client.response = {'verified': false};
       expect(
-        await api.verifyOtp(email: 'a@example.test', otp: '123456'),
+        await api.verifyOtp(
+          email: 'a@example.test',
+          otp: '123456',
+          registrationId: 'a6fbb387-d5ae-4229-91bd-7133f121bef6',
+        ),
         false,
       );
       expect(client.calls.last['token'], isNull);
+      expect(client.calls.last['body'], {
+        'email': 'a@example.test',
+        'otp': '123456',
+        'registrationId': 'a6fbb387-d5ae-4229-91bd-7133f121bef6',
+      });
+      await api.resendOtp(
+        email: 'a@example.test',
+        registrationId: 'a6fbb387-d5ae-4229-91bd-7133f121bef6',
+      );
+      expect(client.calls.last['body'], {
+        'email': 'a@example.test',
+        'channel': 'email',
+        'registrationId': 'a6fbb387-d5ae-4229-91bd-7133f121bef6',
+      });
       await api.resendOtp(phone: '+84912345678');
       expect(client.calls.last['body'], {
         'phone': '+84912345678',
@@ -105,29 +123,26 @@ void main() {
     },
   );
   test(
-    'post metadata and encoded delete query use post routes without auth',
+    'post metadata and deletion reject missing authenticated session',
     () async {
       final client = RecordingClient();
-      final api = PostApi(client: client);
-      await api.create(
-        ownerId: 'owner',
-        mediaKey: 'photos/a.jpg',
-        mediaType: 0,
-        caption: 'Hello',
+      final api = PostApi();
+      expect(
+        () => api.create(
+          ownerId: 'owner',
+          mediaKey: 'photos/a.jpg',
+          mediaType: 0,
+        ),
+        throwsA(isA<ApiException>()),
       );
-      expect((client.calls.last['uri'] as Uri).path, '/posts');
-      expect(client.calls.last['body'], {
-        'ownerId': 'owner',
-        'mediaKey': 'photos/a.jpg',
-        'mediaType': 0,
-        'caption': 'Hello',
-      });
-      await api.delete(postId: 'post-id', ownerId: 'owner');
-      expect(client.calls.last['method'], 'DELETE');
-      expect((client.calls.last['uri'] as Uri).queryParameters, {
-        'ownerId': 'owner',
-      });
-      expect(client.calls.last['token'], isNull);
+      await expectLater(
+        api.delete(
+          postId: '11111111-1111-4111-8111-111111111111',
+          ownerId: 'owner',
+        ),
+        throwsA(isA<ApiException>()),
+      );
+      expect(client.calls, isEmpty);
     },
   );
 }

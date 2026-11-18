@@ -1,7 +1,10 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsIn, IsOptional, IsString, Length } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, IsUUID, Matches } from 'class-validator';
 
 export class VerifyOtpDto {
+  @IsOptional()
+  @IsUUID()
+  registrationId?: string;
   @IsOptional()
   @IsEmail()
   @Transform(({ value }) => typeof value === 'string' ? value.trim().toLowerCase() : value)
@@ -13,11 +16,14 @@ export class VerifyOtpDto {
   phone?: string;
 
   @IsString()
-  @Length(6, 6)
+  @Matches(/^\d{6}$/)
   otp!: string;
 }
 
 export class ResendOtpDto {
+  @IsOptional()
+  @IsUUID()
+  registrationId?: string;
   @IsOptional()
   @IsEmail()
   @Transform(({ value }) => typeof value === 'string' ? value.trim().toLowerCase() : value)

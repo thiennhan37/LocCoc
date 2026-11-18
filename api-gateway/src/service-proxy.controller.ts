@@ -1,4 +1,4 @@
-import { All, Controller, Req, Res, Put, PayloadTooLargeException, BadRequestException } from '@nestjs/common';
+import { All, Controller, Req, Res, Put, Post, NotFoundException, ServiceUnavailableException, PayloadTooLargeException, BadRequestException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
 import { Readable } from 'node:stream';
@@ -78,9 +78,31 @@ export class ServiceProxyController {
     return this.forwardJson('subscriptions', request, response);
   }
 
+  @Post("moments/search")
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  forwardMomentSearch(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forwardJson("moments", request, response);
+  }
+
+  @Put("moments/:id/image")
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  forwardMomentImage(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    return this.forwardJson("moments", request, response);
+  }
+
+  @All(["moments", "moments/*path"])
+  forwardToMoments(
+    @Req() request: RequestWithId,
+    @Res() response: Response,
+  ): Promise<void> {
+    return this.forwardJson("moments", request, response);
+  }
+
   @All('ai/*path')
   @Public()
   forwardToAi(@Req() request: RequestWithId, @Res() response: Response): Promise<void> {
+    // Internal search/index capabilities are never exposed under the image API.
+    if (this.getPath(request).split('/')[0] === 'internal') throw new NotFoundException();
     return this.forwardRaw('ai', request, response);
   }
 
@@ -96,7 +118,8 @@ export class ServiceProxyController {
     const hasBody = !["GET", "HEAD"].includes(request.method);
     const mediaUpload =
       request.method === "PUT" &&
-      /^\/users\/me\/media\/(avatar|cover)$/.test(request.path);
+      (/^\/users\/me\/media\/(avatar|cover)$/.test(request.path) ||
+       /^\/moments\/[0-9a-f-]{36}\/image$/.test(request.path));
     let body: string | Buffer | undefined =
       hasBody && request.body !== undefined
         ? JSON.stringify(request.body)
@@ -153,6 +176,11 @@ export class ServiceProxyController {
   private async forwardRaw(service: ServiceName, request: RequestWithId, response: Response): Promise<void> {
     const target = this.buildTarget(service, request);
     const headers = this.buildRequestHeaders(request);
+    if (service === 'ai' && this.getPath(request) === 'images/enhance') {
+      const token = this.config.get<string>('AI_SERVICE_TOKEN');
+      if (!token || token.length < 32) throw new ServiceUnavailableException('AI service authentication unavailable');
+      headers.set('x-service-token', token);
+    }
     const hasBody = !['GET', 'HEAD'].includes(request.method);
     const abortController = new AbortController();
     let clientDisconnected = false;
@@ -218,6 +246,7 @@ export class ServiceProxyController {
       ...HOP_BY_HOP_HEADERS,
       ...REQUEST_ONLY_HEADERS,
       'x-service-token',
+      'x-ai-actor', 'x-ai-metadata',
       'x-user-id',
       'x-user-role',
       'x-user-roles',
@@ -284,6 +313,11 @@ export class ServiceProxyController {
   }
 
   private getPath(request: RequestWithId): string {
+    // Named routes do not carry the catch-all parameter.
+    if (request.path === '/moments/search') return 'search';
+    if (request.method === 'PUT' && request.params?.id !== undefined) {
+      return request.path.slice('/moments/'.length);
+    }
     // Named media routes have :kind instead of the wildcard parameter.
     if (request.method === 'PUT' && request.params?.kind !== undefined) {
       return request.path.slice('/users/'.length);

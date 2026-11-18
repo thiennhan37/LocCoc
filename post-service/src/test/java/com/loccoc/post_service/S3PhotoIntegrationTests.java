@@ -28,6 +28,7 @@ class S3PhotoIntegrationTests {
  @Autowired S3Client client;
  @Autowired PhotoStorage storage;
  @MockitoBean UserIdentityClient identity;
+ @MockitoBean FeedAudienceClient audience;
  @DynamicPropertySource static void configure(DynamicPropertyRegistry r) {
   r.add("post.s3.endpoint",()->System.getenv("POST_S3_TEST_ENDPOINT"));
   r.add("post.s3.bucket",()->BUCKET);
@@ -41,10 +42,11 @@ class S3PhotoIntegrationTests {
   client.createBucket(CreateBucketRequest.builder().bucket(BUCKET).build());
   try {
    when(identity.resolve("Bearer verified")).thenReturn(owner);
+   when(audience.resolve("Bearer verified")).thenReturn(new FeedAudienceClient.Audience(owner,Map.of(owner,new FeedAudienceClient.Author(owner,"owner",null))));
    byte[] png=PhotoPostApiTests.png(8);
    String body="{\"requestId\":\"%s\",\"ownerId\":\"%s\",\"imageBase64\":\"%s\"}".formatted(id,owner,Base64.getEncoder().encodeToString(png));
    for(int i=0;i<2;i++) mvc.perform(post("/posts/photos").header("Authorization","Bearer verified").contentType("application/json").content(body)).andExpect(status().isCreated()).andExpect(jsonPath("ownerId").value(owner.toString()));
-   mvc.perform(get("/posts/media/{id}",id)).andExpect(status().isOk()).andExpect(content().bytes(png));
+   mvc.perform(get("/posts/media/{id}",id).header("Authorization","Bearer verified")).andExpect(status().isOk()).andExpect(content().bytes(png));
    assertThatThrownBy(()->storage.save(id,new byte[]{9},owner,null)).isInstanceOf(com.loccoc.post_service.exception.AppException.class);
    assertThat(storage.read(id)).isEqualTo(png);
    assertThat(storage.save(id,png,owner,null)).isFalse();

@@ -1,5 +1,4 @@
 import '../../users/data/user_api_client.dart';
-import '../../../core/constants/api_constants.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import '../../../core/network/api_client.dart';
@@ -48,13 +47,9 @@ class PostApi {
   }
 
   final UserApiClient? session;
-  final Uri baseUrl;
-  final ApiClient _client;
-  PostApi({Uri? baseUrl, ApiClient? client, this.session})
-    : baseUrl = baseUrl ?? Uri.parse(ApiConstants.baseUrl),
-      _client = client ?? ApiClient();
+  PostApi({this.session});
 
-  // Metadata for media already uploaded; backend currently accepts ownerId without JWT.
+  // Legacy metadata writes also require a live authenticated session.
   Future<Map<String, dynamic>> create({
     required String ownerId,
     required String mediaKey,
@@ -74,9 +69,10 @@ class PostApi {
         (height != null && height <= 0)) {
       throw const ApiException('Dữ liệu bài đăng không hợp lệ.');
     }
-    return _client.request(
+    return _authenticated(ownerId).request(
       'POST',
-      baseUrl.resolve(ApiConstants.postsPath),
+      '',
+      area: 'posts',
       body: {
         'ownerId': ownerId,
         'mediaKey': mediaKey,
@@ -89,13 +85,24 @@ class PostApi {
     );
   }
 
-  Future<void> delete({required String postId, required String ownerId}) async {
-    if (postId.isEmpty || ownerId.isEmpty) {
-      throw const ApiException('Thiếu mã bài đăng hoặc chủ bài.');
+  UserApiClient _authenticated(String ownerId) {
+    final current = session;
+    if (current == null ||
+        !current.isCurrent ||
+        !current.session.authenticated ||
+        current.session.user.id != ownerId) {
+      throw const ApiException(
+        'Hãy đăng nhập đúng tài khoản.',
+        statusCode: 401,
+      );
     }
-    final uri = baseUrl
-        .resolve('${ApiConstants.postsPath}/${Uri.encodeComponent(postId)}')
-        .replace(queryParameters: {'ownerId': ownerId});
-    await _client.request('DELETE', uri);
+    return current;
+  }
+
+  Future<void> delete({required String postId, required String ownerId}) async {
+    if (!RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(postId)) {
+      throw const ApiException('Bài đăng không hợp lệ.');
+    }
+    await _authenticated(ownerId).request('DELETE', postId, area: 'posts');
   }
 }

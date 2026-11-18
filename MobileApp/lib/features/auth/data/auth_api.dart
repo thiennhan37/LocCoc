@@ -78,10 +78,12 @@ class AuthApi {
     required String otp,
     String? email,
     String? phone,
+    String? registrationId,
   }) async {
     _checkDestination(email, phone);
     final data = await _post(ApiConstants.verifyOtpPath, {
       'otp': otp.trim(),
+      'registrationId': ?registrationId,
       if (email != null) 'email': email.trim(),
       if (phone != null) 'phone': phone.trim(),
     });
@@ -91,12 +93,17 @@ class AuthApi {
     return data['verified'] as bool;
   }
 
-  Future<Map<String, dynamic>> resendOtp({String? email, String? phone}) {
+  Future<Map<String, dynamic>> resendOtp({
+    String? email,
+    String? phone,
+    String? registrationId,
+  }) {
     _checkDestination(email, phone);
     return _post(ApiConstants.resendOtpPath, {
       if (email != null) 'email': email.trim(),
       if (phone != null) 'phone': phone.trim(),
       'channel': email != null ? 'email' : 'phone',
+      'registrationId': ?registrationId,
     });
   }
 

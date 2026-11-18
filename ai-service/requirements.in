@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pydantic-settings
+google-genai
+qdrant-client
+redis
+PyJWT
+Pillow
+python-multipart

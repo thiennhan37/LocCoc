@@ -8,26 +8,28 @@ Ngày đối chiếu mã nguồn: 2026-11-13, nhánh `chat-service`. Tất cả 
 | --- | --- | --- | --- |
 | Auth | [openapi.yaml](../../auth-service/openapi.yaml) | `http://localhost:8000` | `/auth/*`; `/internal/*` chỉ nội bộ |
 | User | [openapi.yaml](../../user-service/openapi.yaml) | `http://localhost:8081` | `/users/*` |
-| AI | [openapi.yaml](../../ai-service/openapi.yaml) | `http://localhost:8082` | `/ai/images/enhance`, `/health` |
+| AI | [openapi.yaml](../../ai-service/openapi.yaml) | `http://localhost:8087` | `/ai/images/enhance`, `/health` |
 | Chat | [openapi.yaml](../../chat-service/openapi.yaml) | `http://localhost:8083` | `/chat/conversations/*`, `/health` |
 | Notification | [openapi.yaml](../../notification-service/openapi.yaml) | `http://localhost:8084` | `/notifications`, `/notifications/*` |
 | Payment | [openapi.yaml](../../payment-service/openapi.yaml) | `http://localhost:8085` | `/payments/*`, `/subscriptions/*`; health trực tiếp |
 | Admin | [openapi.yaml](../../admin-service/openapi.yaml) | `http://localhost:8086` | `/admin/*` |
-| Nest gateway | [openapi.yaml](../../api-gateway/openapi.yaml) | `http://localhost:8080` | Health và probe; proxy 8 prefix |
-| Spring gateway | [openapi.yaml](../../api-gateway-spring/openapi.yaml) | `http://localhost:8080` | Health; proxy 5 prefix cũ |
+| Nest gateway | [openapi.yaml](../../api-gateway/openapi.yaml) | `http://localhost:8080` | Health và probe; proxy các prefix nghiệp vụ |
+| Spring gateway | [openapi.yaml](../../api-gateway-spring/openapi.yaml) | `http://localhost:8080` | Health; proxy các prefix IAM và Post |
 
-Nest gateway proxy `/auth`, `/users`, `/ai`, `/chat`, `/notifications`, `/admin`, `/payments`, `/subscriptions`. Import file của service cần gọi rồi giữ nguyên path và đặt URL về `http://localhost:8080`. Không thêm `/api`. Riêng `/internal/*` và health riêng của service phải dùng URL trực tiếp.
+Java Post/Moments dùng cổng 8089, Bearer bắt buộc; xem [hợp đồng và hướng dẫn hiện tại](../specs/unified-post-moments.md).
+
+Nest gateway proxy `/posts`, `/moments`, `/auth`, `/users`, `/ai`, `/chat`, `/notifications`, `/admin`, `/payments`, `/subscriptions`. Import file của service cần gọi rồi giữ nguyên path và đặt URL về `http://localhost:8080`. Không thêm `/api`. Riêng `/internal/*` và health riêng của service phải dùng URL trực tiếp.
 
 Hai file gateway mô tả các operation do chính gateway sở hữu, kèm danh mục đặc tả downstream trong `x-service-openapi`. Muốn có request login/profile/payment trong Bruno, import thêm file tương ứng; metadata không tự nhập các file con.
 
-Spring gateway chỉ proxy `/auth`, `/users`, `/admin`, `/payments`, `/subscriptions`. Hai gateway là phương án thay thế, cùng mặc định port 8080; đổi port nếu cần chạy đồng thời. Spring gateway chuẩn hóa lỗi thành `{code,message,result:null}` nên error body khác với gọi trực tiếp hoặc qua Nest gateway.
+Spring gateway proxy `/posts`, `/moments`, `/auth`, `/users`, `/admin`, `/payments`, `/subscriptions`. Hai gateway là phương án thay thế, cùng mặc định port 8080; đổi port nếu cần chạy đồng thời. Spring gateway chuẩn hóa lỗi thành `{code,message,result:null}` nên error body khác với gọi trực tiếp hoặc qua Nest gateway.
 
 ## Import vào Bruno
 
 1. Mở **Import Collection** từ màn hình chính hoặc menu **+**; chọn **OpenAPI** và file YAML trong bảng.
 2. Đặt tên collection theo service. Chọn cách nhóm **Tags** hoặc **Paths** rồi import. Đây là các cách import được mô tả trong [tài liệu Bruno chính thức](https://github.com/usebruno/bruno-docs/blob/main/v3/open-api/importOAS.mdx).
 3. Kiểm tra URL thực tế của từng request sau import, nhất là operation có `servers` riêng như health và Auth Internal. Nếu dùng biến base URL, đặt theo cổng ở bảng; không dùng cùng một URL gateway cho các route chỉ có trực tiếp.
-4. Với body JSON, điền dữ liệu thật thay placeholder, giữ `Content-Type: application/json`. Với AI, chọn file ảnh ở multipart theo [hướng dẫn AI](../../ai-service/README.md#import-vào-bruno).
+4. Với body JSON, điền dữ liệu thật thay placeholder, giữ `Content-Type: application/json`. Với AI, chọn file ảnh ở multipart theo [hướng dẫn AI](../../ai-service/README.md#image-enhancement).
 5. Với API cần Bearer, dùng `accessToken` của lần login mới nhất. Nếu dùng biến Bruno, đặt token trong môi trường local rồi tham chiếu `{{accessToken}}` tại ô Bearer Token; không gõ thêm chữ `Bearer` trong ô này.
 
 Giá trị `example`, UUID mẫu và schema không tạo sẵn tài khoản, session, bạn bè, thiết bị hay giao dịch. Token nội bộ/backend, credential PayOS/Gemini và refresh token thật chỉ giữ ở cấu hình local phù hợp; không lưu vào đặc tả/collection chia sẻ.

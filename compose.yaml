@@ -1,7 +1,8 @@
+# Single Compose entry point for infrastructure and optional Post/AI runtime.
 services:
   media-store:
     image: chrislusf/seaweedfs:4.53@sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0
-    profiles: [media]
+    profiles: [media, moments]
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-ec"]
     command:
@@ -144,7 +145,7 @@ services:
       retries: 10
 
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2
     restart: unless-stopped
     ports:
       - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
@@ -156,6 +157,53 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  ai-service:
+    profiles: [moments]
+    build: ./ai-service
+    restart: unless-stopped
+    env_file:
+      - path: ./ai-service/.env
+        required: false
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "127.0.0.1:8087:8087"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  post-service:
+    profiles: [moments]
+    build: ./post-service
+    restart: unless-stopped
+    env_file:
+      - path: ./post-service/.env
+        required: false
+    environment:
+      POST_PORT: 8089
+      POST_DB_URL: jdbc:postgresql://db:5432/${POST_DB_NAME:-posts}
+      POST_DB_USER: ${POST_DB_USER:-postgres}
+      POST_DB_PASSWORD: ${POST_DB_PASSWORD:-postgres}
+      USER_SERVICE_URL: http://host.docker.internal:${USER_PORT:-8081}
+      POST_AI_SERVICE_URL: http://ai-service:8087
+      POST_S3_ENDPOINT: http://media-store:8333
+      POST_S3_BUCKET: ${POST_S3_BUCKET:-loccoc-posts}
+      POST_S3_ACCESS_KEY: ${POST_S3_ACCESS_KEY:-${MEDIA_S3_ACCESS_KEY:-}}
+      POST_S3_SECRET_KEY: ${POST_S3_SECRET_KEY:-${MEDIA_S3_SECRET_KEY:-}}
+      KAFKA_BROKERS: kafka:19092
+    ports:
+      - "127.0.0.1:8089:8089"
+    depends_on:
+      db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      media-store:
+        condition: service_started
 
 volumes:
   media_data:
