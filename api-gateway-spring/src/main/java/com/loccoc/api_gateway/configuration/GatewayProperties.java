@@ -24,7 +24,8 @@ public record GatewayProperties(
     if (routes == null
         || !routes
             .keySet()
-            .containsAll(java.util.Set.of("auth", "users", "admin", "payments", "subscriptions")))
+            .containsAll(
+                java.util.Set.of("auth", "users", "posts", "admin", "payments", "subscriptions")))
       throw new IllegalArgumentException("Missing service routes");
     routes
         .values()

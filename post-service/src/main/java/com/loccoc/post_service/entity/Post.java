@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
+import org.hibernate.annotations.ColumnDefault;
 
 @Entity
 @Table(name = "moments", indexes = {
@@ -24,11 +25,11 @@ public class Post {
   @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
   @Column(name = "deleted_at") private Instant deletedAt;
 
-  @Column(nullable=false, columnDefinition="varchar(16) default 'FRIENDS'") private String visibility = "FRIENDS";
-  @Column(nullable=false, columnDefinition="varchar(16) default 'active'") private String state = "active";
-  @Column(name="index_status", nullable=false, columnDefinition="varchar(16) default 'pending'") private String indexStatus = "pending";
+  @Column(nullable=false, length=16) @ColumnDefault("'FRIENDS'") private String visibility = "FRIENDS";
+  @Column(nullable=false, length=16) @ColumnDefault("'active'") private String state = "active";
+  @Column(name="index_status", nullable=false, length=16) @ColumnDefault("'pending'") private String indexStatus = "pending";
   @Column(name="asset_id") private UUID assetId;
-  @Column(name="asset_version", nullable=false, columnDefinition="integer default 1") private int assetVersion = 1;
+  @Column(name="asset_version", nullable=false) @ColumnDefault("1") private int assetVersion = 1;
   @Column(name="captured_at") private Instant capturedAt;
   @Column(name="album_id") private UUID albumId;
   @Column(length=120) private String place;
