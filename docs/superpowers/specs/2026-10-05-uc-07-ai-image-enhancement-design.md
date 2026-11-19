@@ -395,3 +395,24 @@ No automated test calls the real Gemini API. A manual smoke test with a developm
 - Synchronous processing keeps the UX and architecture small but ties the request to one screen and a 60-second deadline. Background jobs are deferred.
 - An unauthenticated, billable endpoint is an abuse risk. The MVP limits by IP; production rollout should require IAM and user/account quotas.
 - The repository has no post composer. Returning a typed route result creates the integration seam without expanding UC-07 into post creation.
+
+
+## 2026-11-18 amendment: JPEG provider transport for stickers
+
+A live request confirmed the configured Gemini Interactions model rejects
+`response_format.mime_type=image/png` and supports `image/jpeg`. This supersedes
+the original direct-transparent-output prompt and no-background-processing rule.
+The adapter now requests JPEG and instructs the model to produce a solid RGB
+(0,255,0) background with a closed white outline and clear margins. Local Sharp
+processing removes only border-connected chroma green, preserving enclosed green
+subject details, and encodes actual RGBA PNG. Final PNG/alpha validation remains.
+There is still one provider request with zero SDK retries; post-service contracts
+and source JPEG/PNG/WebP acceptance are unchanged.
+
+Processing is limited to 16,777,216 pixels and 20 MiB final output. Missing green
+corners, less than 1% removable background, less than 1% retained subject, or
+corrupt bytes fail with 422 without another paid call. Work yields to the event
+loop and observes cancellation. This is chroma-key compositing, not semantic
+segmentation: internal background holes and nonuniform/antialiased green can
+remain; visual quality depends on the model following the prompt. No new live
+generation was performed for this fix.

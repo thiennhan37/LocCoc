@@ -6,6 +6,7 @@ import time
 from app.enhancement.errors import EnhancementError
 from app.enhancement.images import validate_image
 from app.enhancement.prompts import PROMPTS
+from app.enhancement.sticker_output import create_transparent_sticker
 
 LOG = logging.getLogger("loccoc.enhancement")
 
@@ -33,6 +34,12 @@ class EnhancementService:
                 output = await self.provider.enhance(
                     data, mime, PROMPTS[filter_id], filter_id == "subject_sticker"
                 )
+                if filter_id == "subject_sticker":
+                    output = await create_transparent_sticker(
+                        output,
+                        limit=self.settings.AI_MAX_OUTPUT_BYTES,
+                        pixels=self.settings.AI_MAX_IMAGE_PIXELS,
+                    )
             result_mime = await asyncio.to_thread(
                 validate_image,
                 output,

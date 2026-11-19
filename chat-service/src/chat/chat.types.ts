@@ -1,4 +1,6 @@
+export interface PostAttachment { postId: string; mediaKey: string }
 export interface ChatMessage {
+  postAttachment?: PostAttachment | null;
   id: string; conversationId: string; senderId: string; clientMessageId: string;
   sequence: string; text: string; createdAt: string;
 }

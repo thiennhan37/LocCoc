@@ -8,6 +8,7 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { io, type Socket } from 'socket.io-client';
 import { configureChat } from '../src/bootstrap.js';
+import { AddPostAttachment1794787200000 } from '../src/database/migrations/1794787200000-AddPostAttachment.js';
 import { CreateChat1794528000000 } from '../src/database/migrations/1794528000000-CreateChat.js';
 
 const url = process.env.CHAT_TEST_DB_URL;
@@ -15,7 +16,8 @@ describe.skipIf(!url)('authenticated chat HTTP with real persistence and HTTP au
   let db: DataSource, admin: DataSource, upstream: Server, app: INestApplication;
   const schema = `chat_http_${randomUUID().replaceAll('-', '')}`;
   const a = randomUUID(), b = randomUUID(), c = randomUUID();
-  let friends = true, authorityDown = false, revoked = false;
+  let friends = true, authorityDown = false, revoked = false, postVisible = true;
+  const postId = randomUUID(), mediaKey = `/posts/media/${randomUUID()}`;
   beforeAll(async () => {
     upstream = createServer((req, res) => {
       res.setHeader('content-type', 'application/json');
@@ -26,22 +28,26 @@ describe.skipIf(!url)('authenticated chat HTTP with real persistence and HTTP au
         if (req.headers['x-service-token'] !== 'test-internal-service-token-123456789') { res.writeHead(403).end('{}'); return; }
         res.end(JSON.stringify({ user: { userId: id, role: 'user' }, account: { id, status: 'active' } })); return;
       }
+      if (req.url === `/posts/${postId}/chat-reference`) {
+        if (!postVisible) { res.writeHead(404).end('{}'); return; }
+        res.end(JSON.stringify({postId, ownerId: b, mediaKey})); return;
+      }
       const peer = req.url?.split('/').at(-1);
       res.end(JSON.stringify({ id: peer, username: peer === a ? 'alice' : 'bob', displayName: 'Real peer', avatarUrl: null, relationshipStatus: friends ? 'FRIENDS' : 'NONE' }));
     });
     await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
     const baseUrl = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
     vi.stubEnv('NODE_ENV', 'test'); vi.stubEnv('INTERNAL_SERVICE_TOKEN', 'test-internal-service-token-123456789');
-    vi.stubEnv('CHAT_DB_PASSWORD', 'test-only'); vi.stubEnv('AUTH_SERVICE_URL', baseUrl); vi.stubEnv('USER_SERVICE_URL', baseUrl);
+    vi.stubEnv('CHAT_DB_PASSWORD', 'test-only'); vi.stubEnv('AUTH_SERVICE_URL', baseUrl); vi.stubEnv('USER_SERVICE_URL', baseUrl); vi.stubEnv('POST_SERVICE_URL', baseUrl);
     admin = await new DataSource({ type: 'postgres', url }).initialize();
     await admin.query(`CREATE SCHEMA "${schema}"`);
-    db = await new DataSource({ type: 'postgres', url, schema, extra: { options: `-c search_path=${schema}` }, migrations: [CreateChat1794528000000], migrationsRun: true }).initialize();
+    db = await new DataSource({ type: 'postgres', url, schema, extra: { options: `-c search_path=${schema}` }, migrations: [CreateChat1794528000000, AddPostAttachment1794787200000], migrationsRun: true }).initialize();
     const { AppModule } = await import('../src/app.module.js');
     const module = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(DataSource).useValue(db).compile();
     app = module.createNestApplication({ logger: false }); configureChat(app);
     await app.listen(0, '127.0.0.1');
   });
-  beforeEach(async () => { friends = true; authorityDown = false; revoked = false; await db.query('TRUNCATE conversations CASCADE'); });
+  beforeEach(async () => { friends = true; authorityDown = false; revoked = false; postVisible = true; await db.query('TRUNCATE conversations CASCADE'); });
   afterAll(async () => {
     await app?.close(); if (db?.isInitialized) await db.destroy();
     if (admin?.isInitialized) { await admin.query(`DROP SCHEMA "${schema}" CASCADE`); await admin.destroy(); }
@@ -54,6 +60,32 @@ describe.skipIf(!url)('authenticated chat HTTP with real persistence and HTTP au
     await new Promise<void>((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); });
     return socket;
   }
+
+  it('persists post context in database, history, inbox and realtime; retries survive deleted source', async () => {
+    const id = await open(), socket = await connect('token-b');
+    try {
+      const received = new Promise<Record<string, any>>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('missing message')), 4000);
+        socket.once('message:new', event => { clearTimeout(timer); resolve(event); });
+      });
+      const body = {clientMessageId: randomUUID(), text: 'Ảnh đẹp quá', postId};
+      const sent = await api().post(`/chat/conversations/${id}/messages`).set('authorization','Bearer token-a').send(body).expect(200);
+      const attachment = {postId, mediaKey};
+      expect(sent.body.message.postAttachment).toEqual(attachment);
+      expect((await received).message.postAttachment).toEqual(attachment);
+      expect((await db.query('SELECT post_attachment FROM messages WHERE id=$1',[sent.body.message.id]))[0].post_attachment).toEqual(attachment);
+      const history = await api().get(`/chat/conversations/${id}/messages`).set('authorization','Bearer token-b').expect(200);
+      expect(history.body.data[0].postAttachment).toEqual(attachment);
+      const inbox = await api().get('/chat/conversations').set('authorization','Bearer token-b').expect(200);
+      expect(inbox.body.data[0].lastMessage.postAttachment).toEqual(attachment);
+      postVisible = false;
+      const retry = await api().post(`/chat/conversations/${id}/messages`).set('authorization','Bearer token-a').send(body).expect(200);
+      expect(retry.body.message).toEqual(sent.body.message);
+      await api().post(`/chat/conversations/${id}/messages`).set('authorization','Bearer token-a').send({...body, postId: undefined}).expect(409);
+      await api().post(`/chat/conversations/${id}/messages`).set('authorization','Bearer token-a').send({...body, clientMessageId: randomUUID()}).expect(403);
+      expect((await db.query('SELECT count(*)::int n FROM messages'))[0].n).toBe(1);
+    } finally {socket.disconnect();}
+  });
 
   it('keeps health public but rejects missing, forged and revoked identity', async () => {
     await api().get('/health').expect(200, { status: 'ok' });

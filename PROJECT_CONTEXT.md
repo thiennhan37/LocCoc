@@ -1563,6 +1563,105 @@ Mobile API layer now includes all existing Auth endpoints and Post create/delete
 - Configured generated local Neo4j credentials in root .env and user-service/.env, without committing or logging the password. UserService uses http://127.0.0.1:7474; restart it to reload environment. No business migrations were run.
 - Verified Compose configuration, container healthy state, authenticated HTTP RETURN 1 query, Bolt protocol handshake, and matching UserService credentials. Operations guide documents startup and persistence precautions.
 
+### 2026-11-16 — Prevent self-reactions
+- Mobile disables reaction actions on own posts while showing received counts. Backend rejects owner PUT/DELETE with 403 using the authenticated viewer. Historical self-reaction rows remain intact but are excluded from summaries.
+- Local database inspection found 2 rows in posts.public.post_reactions (one self, one other-author reaction); legacy reactions had zero rows. The current API writes post_reactions. No database rows were modified during investigation.
+- Verification: 7 PostReactionApiTests passed, including persistence and legacy self-reaction exclusion; 5 Flutter interaction/chat tests passed.
+
+### 2026-11-16 — Post replies with image context
+- Approved design: docs/superpowers/specs/2026-11-16-chat-post-image-design.md; ADR-019 records the stable reference approach.
+- Home opens author chat with image preview; first queued reply includes postId. ChatMessage carries nullable postAttachment in optimistic state, retries, history and realtime. Subsequent text messages do not inherit the attachment. Images resolve only validated /posts/media/UUID paths against the configured gateway origin and have an unavailable fallback.
+- post-service GET /posts/{id}/chat-reference verifies JWT audience, peer ownership constraint and deletion; returns stable postId/ownerId/mediaKey. chat-service verifies recipient ownership and persists metadata in messages.post_attachment via additive migration AddPostAttachment1794787200000. A committed retry deduplicates before source revalidation; changing/removing attachment with the same client ID returns 409.
+- Spring gateway previously lacked chat REST routing. Added /chat and /chat/** to CHAT_SERVICE_URL (default 127.0.0.1:8083), preserving JWT/body/query. Socket.IO still uses direct 8083.
+- Verification: post-service 41 passed / 1 unrelated S3 integration skipped; chat-service build and 24 unit tests passed; 28 PostgreSQL/HTTP/socket integration tests passed on isolated schemas, including direct SQL metadata assertion; gateway 23 passed; full Flutter suite 349 passed.
+- Local operational setup remains pending user authorization: chat-service/.env and database chat were absent; no secrets generated, no app database migrated, no chat service launched. Asked permission under AGENTS.md section 5.2. Test schemas were removed by the integration suite.
+
+### 2026-11-16 — Local chat PostgreSQL provisioned
+- User supplied chat-service/.env and requested missing PostgreSQL tables be added. Initial configured connection failed with 28P01; inspection confirmed both chat_service role and chat database absent.
+- Created missing chat_service role using the existing user-provided .env password, and chat database owned by that role. No .env changes or secret generation.
+- Ran npm run db:migrate successfully: CreateChat1794528000000 and AddPostAttachment1794787200000 applied. Verified connection with service credentials, conversations/conversation_members/messages columns and indexes, messages.post_attachment jsonb, and pendingMigrations=false.
+- Database provisioning is complete. Service process was not started in this step; run npm run start in chat-service (or pnpm start:chat at root).
+
+### 2026-11-16 — IntelliJ chat database visibility
+- Confirmed chat and all four tables (conversations, conversation_members, messages, migrations) exist in loccoc-postgres on host port 5433. chat-service .env points to that instance.
+- Root cause of missing IDE database: postgres@localhost introspection scope in ignored .idea/dataSources.local.xml selected only @, accounts, posts, users. Added chat to that scope, preserving connection/secrets. Refresh the Database tool window (or reopen project to reload local settings). src/database contains TypeORM source/migrations, not a local database store.
+
+### 2026-11-16 — Chat test conversations for seeded friends
+- Verified existing phatran17 and three seed peer accounts/profiles active, with all three friendship edges present; internal service tokens match. No identity or relationship changes needed.
+- Docker Engine and local services were off during resumed diagnosis. Started installed Docker Desktop; existing PostgreSQL/Redis/Kafka/Neo4j/media containers recovered. Started Auth/User/Chat plus Spring gateway and post-service from existing configs.
+- Added scripts/seed-chat-demo.mjs: local target guard, active profile/account and friendship/block checks, uses production ChatRepository.openDirect. Ran twice: exactly 3 conversations, 6 members, 0 messages; same IDs on rerun. No credentials generated/changed; no automatic messages sent.
+- Normal behavior remains create-on-opening-chat via POST /chat/conversations/direct; friendship alone does not create a conversation. Fixtures are explicit test setup only.
+
+- Found an additional live blocker: Spring Java HttpClient default HTTP/2 sends h2c Upgrade; chat Socket.IO/Engine.IO closes unsupported upgrades, producing 502. Direct Java probe reproduced HTTP_2 IOException versus HTTP_1_1 status 401. Set upstream client HTTP_1_1; regression test reproduces upgrade rejection (RED 502 then GREEN), gateway suite 24 passed. Restarted only the gateway process started by this task.
+- Live verification after restart: GET gateway /chat/conversations now returns 401 without JWT instead of 502; direct chat health 200. Sending under the user mobile session remains for the user to exercise; no fabricated tokens or messages were created.
+
+### 2026-11-17 — AI preview integrated with photo publishing
+- Approved flow: image -> AI edit -> preview/accept -> publish. New authenticated
+  post-service endpoint `/posts/photos/enhance` calls existing ai-service multipart
+  API. Durable UUID claims prevent reusing a paid attempt; no retry on AI failure.
+- Mobile adds two AI filters, explicit 2,000 VND generation action, hold-to-compare,
+  cancel/accept and restore-original. Publishing accepted pixels does not call AI.
+- Both Gateways allow a separate AI deadline; Spring bounds preview output to 28 MiB.
+  PNG export preserves sticker alpha. Additive schema: ai_preview_attempts.
+- Existing unrelated chat/reaction edits were preserved. No live Gemini calls and
+  no secrets changed. See docs/specs/post-ai-preview.md and ADR-020.
+
+### 2026-11-17 — Camera capture/cancel lifecycle recovery
+- User report: home appears frozen after taking a photo then leaving the editor
+  without publishing, sometimes after switching tabs.
+- Reproduced in native-platform mock tests: repeated start recreates native camera,
+  rapid queued transitions open stale sessions, late capture leaks into new session,
+  stop reports ready until disposal completes, and screen suspends camera twice.
+- CameraSession now coalesces obsolete opens by generation, preserves every required
+  teardown on a quick resume, rejects late capture data, and bounds native waits to
+  10 seconds per operation. A timed-out disposal stays a barrier to opening another
+  camera; timeout is not treated as native cancellation.
+- CaptureMomentScreen awaits its single state transition before opening the editor.
+  Regression tests include repeated capture/cancel via close and Android Back,
+  stuck shutter/disposal and interrupted-capture resume. No post is published.
+- Emulator logs inspected: camera open/close and skipped frames, no Dart crash in
+  the inspected window. Unit/widget tests prove lifecycle fixes; full emulator
+  reproduction of the reported freeze has not been claimed.
+- Final verification: 362 Flutter tests passed; scoped flutter analyze reports no
+  issues; Android debug APK built successfully (existing firebase_core/KGP future
+  compatibility warning only). APK: MobileApp/build/app/outputs/flutter-apk/app-debug.apk.
+  Running emulator installation was not replaced; restart/rebuild the app to apply.
+
+
+## 2026-11-17 — Personal memories calendar
+
+Main Flutter home memories now uses a dark monthly calendar and calendar navigation icon. Only session-owner posts appear; local dates group posts with the newest daily thumbnail and a day sheet for all posts. Independent history controller traverses existing authenticated feed pages, handles stale responses/disposal, retains prior complete history on refresh failure, and supports pull-to-refresh. Both bottom navigation and profile shortcut load memories. No API/dependency changes. See docs/specs/memories-calendar.md and ADR-021. Validation: 12 focused Flutter tests passed; scoped flutter analyze clean. Limitation: refresh reads all accessible feed pages, so large friend feeds increase loading cost. Device visual inspection was not performed.
+
+
+## 2026-11-17 — Home photo gallery
+
+A lower-left grid button appears after leaving camera page zero in the main home pager. It opens a dark three-column photo gallery with All/Friends/Mine filters, newest creation time first, and a zoomable image/caption view. Back preserves the prior feed page. Gallery uses an independent authenticated paginated snapshot, ignores stale/disposed requests and excludes video rows. Personal calendar remains independent. See photo-gallery spec and ADR-022. Verification: 16 focused tests passed; scoped static analysis clean. Refresh reads all accessible pages, which may take longer for large histories. Not visually checked on a physical device.
+
+
+## 2026-11-17 — Home author menu and gallery shortcut relocation
+
+Gallery shortcut now occupies the top-left home header position, including camera header; bottom-left shortcut removed. The center All friends button opens a dark rounded menu of actual friends with avatars/names plus All friends and You. Friend list paginates and retries failures. Choosing an author resets pager and filters authorized feed pages by owner ID, skipping empty matching pages. Notifications remain available from profile. Gallery and calendar remain independent. See home-author-filter spec / ADR-023. Verification: 18 focused regression tests plus one new selection integration test passed; six-file analysis clean; review found no concrete issues. Physical-device appearance not inspected.
+
+
+## 2026-11-18 — Gemini sticker output compatibility
+
+ai-service requests supported JPEG provider output for stickers and converts border-connected chroma green to transparent PNG locally. Post-service API is unchanged. Single provider call, no retries; bounded local processing yields for cancellation. See UC-07 design amendment for quality limitations. Verification uses mocked provider responses only; no additional paid generation.
+
+## 2026-11-18 — Indexed author post pagination
+
+The feed endpoint accepts optional ownerId, checks the current audience on every
+page and uses chronological keyset pagination for author views. Existing ranked
+feed behavior is unchanged without ownerId. Added the composite moments index
+(owner_id, deleted_at, created_at DESC, id DESC), schema/entity definitions and
+an idempotent concurrent SQL migration; applied and verified valid in local posts
+PostgreSQL. Mobile now requests ten posts for the selected author directly and
+loads more near the end of the vertical pager instead of scanning global pages.
+See docs/specs/author-post-pagination.md and ADR-024. Verification: 50 backend
+tests, 7 feed tests on real PostgreSQL, 6 gateway tests, 375 Flutter tests and
+scoped Dart analysis passed; independent review found no actionable issues.
+Updated the stale inbox test to start on the profile tab. Deploy backend before
+mobile; running apps were not restarted and physical-device UX was not inspected.
+
 ### 2026-11-18 — Email registration through Kafka and Brevo
 
 - Added Flutter registration (email/password/confirmation) and email OTP verification with resend countdown, retry/error handling, and email-prefilled return to login. Verification does not create a session; users log in with the verified registration password. Updated both mobile auth API clients and Postman/OpenAPI contracts with registrationId.
@@ -1577,3 +1676,20 @@ Mobile API layer now includes all existing Auth endpoints and Post create/delete
 - Investigated a real pending registration: auth had queued and published the OTP at 10:15:27–10:15:28 Asia/Bangkok, but notification-service was still the process started at 07:57:31 before email delivery was implemented. Its database lacked email_otp_jobs; Brevo initially had no sending events.
 - Built and restarted only notification-service on port 8084, preserving secrets and other services. Startup applied the pending email-jobs migration and joined notification-email-otp-v1 on auth.email-otp.v1. The queued job was accepted by Brevo; provider events confirmed Gmail delivery at 10:20:02. The original OTP expired at 10:20:27, so the user should request a new code in the app.
 - Added read-only scripts/inspect-email-otp.mjs and an operations note for checking queues/provider delivery with masked addresses and no OTP/password/API key output. Runtime stdout/stderr are under ignored notification-service/logs/email-otp-runtime*.log. Notification-service remains running with email delivery enabled.
+
+### 2026-11-19 — Resolve main merge with author pagination
+
+- Resolved 19 conflicted paths while preserving author cursor pagination, indexed
+  lookup, the incoming Moments/search flows, protected media loading and existing
+  calendar/gallery navigation. Author pages now also honor incoming active-state
+  and visibility rules; global feed follows main's capture-time ordering.
+- Kept Python as the unified AI service and ported border-connected chroma-key
+  sticker processing to Python, removing obsolete conflicted TypeScript files.
+  Retained single-call provider behavior and cancellation; no paid AI calls.
+- Gateway routes retain Chat, Moments and AI preview limits. Unified defaults
+  route post-service to 8089 and Python AI to 8087. Rebuilt common and gateway.
+- Verification: 399 Flutter tests; 114 Python AI tests; 56 Nest gateway HTTP tests;
+  26 Spring gateway tests passed. Post-service reports 99 tests, zero failures or
+  errors, two external integration tests skipped; final preview/feed/body-limit
+  rerun also passed. Scoped mobile analyzer and Python lint checks passed.
+- Conflict resolutions are staged; no merge commit or service restart performed.

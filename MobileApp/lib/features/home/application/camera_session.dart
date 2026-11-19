@@ -8,11 +8,15 @@ enum CameraStatus { loading, ready, denied, unavailable, failed, suspended }
 
 /// Owns native camera resources. Operations are serialized across lifecycle changes.
 class CameraSession extends ChangeNotifier {
+  CameraSession({this.operationTimeout = const Duration(seconds: 10)});
+  final Duration operationTimeout;
   CameraController? _controller;
+  Future<void>? _retiring;
   List<CameraDescription> _cameras = [];
   Future<void> _pending = Future.value();
   bool _closed = false;
   bool _active = false;
+  int _generation = 0;
   int _index = 0;
   CameraStatus status = CameraStatus.loading;
   String message = '';
@@ -37,24 +41,41 @@ class CameraSession extends ChangeNotifier {
   }
 
   Future<void> start() {
+    if (_closed) return Future.value();
+    if (_active &&
+        (status == CameraStatus.ready || status == CameraStatus.loading)) {
+      return _pending;
+    }
     _active = true;
-    return _enqueue(_open);
+    final generation = ++_generation;
+    return _enqueue(() async {
+      if (_active && generation == _generation) await _open(generation);
+    });
   }
 
-  Future<void> _open() async {
+  Future<void> _open(int generation) async {
     if (!_active || _closed) return;
+    if (_controller?.value.isInitialized == true) {
+      status = CameraStatus.ready;
+      _notify();
+      return;
+    }
     status = CameraStatus.loading;
     message = '';
     _notify();
     try {
-      await _release();
-      _cameras = await availableCameras();
+      if (!await _release()) {
+        _recoveryRequired();
+        return;
+      }
+      if (!_active || _closed || generation != _generation) return;
+      _cameras = await availableCameras().timeout(operationTimeout);
       if (_cameras.isEmpty) {
         status = CameraStatus.unavailable;
         message = 'Thiết bị này chưa có camera khả dụng.';
         return;
       }
-      if (!_active || _closed) return;
+      if (!_active || _closed || generation != _generation) return;
       _index %= _cameras.length;
       final controller = CameraController(
         _cameras[_index],
@@ -62,13 +83,16 @@ class CameraSession extends ChangeNotifier {
         enableAudio: false,
       );
       _controller = controller;
-      await controller.initialize();
-      if (!_active || _closed) {
+      await controller.initialize().timeout(operationTimeout);
+      if (!_active || _closed || generation != _generation) {
         await _release();
         return;
       }
       flash = false;
       status = CameraStatus.ready;
+    } on TimeoutException {
+      _recoveryRequired();
+      await _release();
     } on CameraException catch (error) {
       final denied = error.code.startsWith('CameraAccess');
       status = denied ? CameraStatus.denied : CameraStatus.failed;
@@ -88,52 +112,81 @@ class CameraSession extends ChangeNotifier {
   }
 
   Future<void> stop() {
+    if (_closed) return _pending;
     _active = false;
+    _generation++;
     return _enqueue(() async {
-      await _release();
+      // A later resume may supersede an open, but never this teardown: native
+      // interruption can invalidate a controller that still says initialized.
       status = CameraStatus.suspended;
       _notify();
+      if (!await _release()) {
+        _recoveryRequired();
+        _notify();
+      }
     });
   }
 
   Future<void> flip() => _enqueue(() async {
     if (!ready || !canFlip || photo != null) return;
+    final generation = ++_generation;
     _index = (_index + 1) % _cameras.length;
-    await _open();
+    status = CameraStatus.loading;
+    _notify();
+    if (!await _release()) {
+      _recoveryRequired();
+      _notify();
+      return;
+    }
+    if (generation == _generation) await _open(generation);
   });
 
   Future<void> toggleFlash() => _enqueue(() async {
     if (!ready || photo != null) return;
     try {
-      await _controller!.setFlashMode(flash ? FlashMode.off : FlashMode.auto);
+      await _controller!
+          .setFlashMode(flash ? FlashMode.off : FlashMode.auto)
+          .timeout(operationTimeout);
       flash = !flash;
       message = '';
     } on CameraException {
       message = 'Camera này chưa hỗ trợ chế độ flash.';
     } on UnsupportedError {
       message = 'Camera này chưa hỗ trợ chế độ flash.';
+    } on TimeoutException {
+      _recoveryRequired();
+      _notify();
+      await _release();
     }
     _notify();
   });
 
-  Future<void> capture() => _enqueue(() async {
-    if (!ready || photo != null || !_active) return;
-    busy = true;
-    _notify();
-    try {
-      final file = await _controller!.takePicture();
-      final bytes = await file.readAsBytes();
-      if (!_closed && _active) photo = bytes;
-      message = '';
-    } on CameraException {
-      message = 'Chưa chụp được ảnh. Bạn thử lại nhé.';
-    } catch (_) {
-      message = 'Không thể đọc ảnh vừa chụp. Bạn thử lại nhé.';
-    } finally {
-      busy = false;
+  Future<void> capture() {
+    final generation = _generation;
+    return _enqueue(() async {
+      if (generation != _generation) return;
+      if (!ready || photo != null || !_active) return;
+      busy = true;
       _notify();
-    }
-  });
+      try {
+        final file = await _controller!.takePicture().timeout(operationTimeout);
+        final bytes = await file.readAsBytes().timeout(operationTimeout);
+        if (!_closed && _active && generation == _generation) photo = bytes;
+        message = '';
+      } on TimeoutException {
+        _recoveryRequired();
+        _notify();
+        await _release();
+      } on CameraException {
+        message = 'Chưa chụp được ảnh. Bạn thử lại nhé.';
+      } catch (_) {
+        message = 'Không thể đọc ảnh vừa chụp. Bạn thử lại nhé.';
+      } finally {
+        busy = false;
+        _notify();
+      }
+    });
+  }
 
   void retake() {
     photo = null;
@@ -166,15 +219,30 @@ class CameraSession extends ChangeNotifier {
     );
   }
 
-  Future<void> _release() async {
+  void _recoveryRequired() {
+    status = CameraStatus.failed;
+    message = 'Camera phản hồi quá lâu. Hãy thử mở lại camera.';
+  }
+
+  Future<bool> _release() async {
     final old = _controller;
     _controller = null;
     if (old != null) {
-      try {
-        await old.dispose();
-      } on CameraException {
-        // Native resources may already be gone after interruption or permission revocation.
-      }
+      _retiring = old.dispose();
+    }
+    final retiring = _retiring;
+    if (retiring == null) return true;
+    try {
+      await retiring.timeout(operationTimeout);
+      if (identical(_retiring, retiring)) _retiring = null;
+      return true;
+    } on TimeoutException {
+      // Keep the real disposal future as a barrier. Timeout is not cancellation:
+      // opening another native camera now would race the old camera's teardown.
+      return false;
+    } catch (_) {
+      if (identical(_retiring, retiring)) _retiring = null;
+      return false;
     }
   }
 
@@ -182,7 +250,12 @@ class CameraSession extends ChangeNotifier {
   void dispose() {
     _closed = true;
     _active = false;
-    unawaited(_pending.then((_) => _release()));
+    _generation++;
+    unawaited(
+      _pending.then<void>((_) async {
+        await _release();
+      }),
+    );
     super.dispose();
   }
 }

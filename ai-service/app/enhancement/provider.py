@@ -29,7 +29,7 @@ class GeminiImageProvider:
             model=self.settings.GEMINI_IMAGE_MODEL,
             store=False,
             stream=False,
-            response_format={"type": "image", **({"mime_type": "image/png"} if sticker else {})},
+            response_format={"type": "image", **({"mime_type": "image/jpeg"} if sticker else {})},
             input=[
                 {"type": "text", "text": prompt},
                 {"type": "image", "data": base64.b64encode(data).decode("ascii"), "mime_type": mime},

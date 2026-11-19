@@ -78,6 +78,22 @@ class ChatController extends ChangeNotifier {
     _subscription = socket.events.listen(_event);
   }
   bool get _valid => !_disposed && api.accountId == accountId;
+  Uri? postImageUri(ChatPostAttachment attachment) {
+    if (!_valid ||
+        !RegExp(
+          r'^/posts/media/[a-fA-F0-9]{8}(-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$',
+        ).hasMatch(attachment.mediaKey)) {
+      return null;
+    }
+    final origin = Uri.tryParse(api.mediaOrigin);
+    if (origin == null ||
+        !['http', 'https'].contains(origin.scheme) ||
+        origin.host.isEmpty) {
+      return null;
+    }
+    return origin.resolve(attachment.mediaKey);
+  }
+
   bool get foreground => _foreground;
   bool get expired => _expired;
   bool _expired = false;
@@ -376,7 +392,10 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  Future<bool> sendText(String text) async {
+  Future<bool> sendText(
+    String text, {
+    ChatPostAttachment? postAttachment,
+  }) async {
     final id = _visible;
     if (!_valid ||
         _expired ||
@@ -401,6 +420,7 @@ class ChatController extends ChangeNotifier {
       clientMessageId: clientId,
       sequence: BigInt.zero,
       text: normalized,
+      postAttachment: postAttachment,
       createdAt: DateTime.now(),
     );
     _messages
@@ -456,6 +476,7 @@ class ChatController extends ChangeNotifier {
         message.conversationId,
         message.clientMessageId,
         message.text,
+        postId: message.postAttachment?.postId,
       );
       if (!_valid) return;
       _merge(confirmed);

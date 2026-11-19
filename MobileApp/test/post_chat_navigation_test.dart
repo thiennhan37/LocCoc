@@ -52,14 +52,22 @@ void main() {
           sent++;
           final body = jsonDecode(request.body) as Map;
           expect(body['text'], 'Ảnh đẹp quá');
+          expect(body['postId'], sent == 1 ? 'post' : isNull);
           expect(body['clientMessageId'], matches(RegExp(r'^[0-9a-f-]{36}$')));
           return fixtures.json({
             'message': {
-              'id': 'message',
+              'id': 'message-$sent',
               'conversationId': 'conversation',
               'senderId': fixtures.session.user.id,
               'clientMessageId': body['clientMessageId'],
-              'sequence': '1',
+              'sequence': '$sent',
+              'postAttachment': sent == 1
+                  ? {
+                      'postId': 'post',
+                      'mediaKey':
+                          '/posts/media/11111111-1111-4111-8111-111111111111',
+                    }
+                  : null,
               'text': body['text'],
               'createdAt': '2026-11-16T00:00:00Z',
             },
@@ -75,7 +83,7 @@ void main() {
                 'id': 'post',
                 'ownerId': 'author',
                 'authorName': 'Chủ bài',
-                'mediaKey': 'legacy',
+                'mediaKey': '/posts/media/11111111-1111-4111-8111-111111111111',
                 'mediaType': 1,
                 'caption': null,
                 'createdAt': '2026-11-16T00:00:00Z',
@@ -128,6 +136,7 @@ void main() {
       expect(find.byType(ChatDetailScreen), findsOneWidget);
       expect(opened, 1);
       expect(sent, 0);
+      expect(find.byKey(const Key('chat-post-preview')), findsOneWidget);
       await tester.enterText(
         find.byKey(const Key('chat-composer')),
         'Ảnh đẹp quá',
@@ -136,7 +145,17 @@ void main() {
       await tester.tap(find.byKey(const Key('chat-send')));
       await tester.pumpAndSettle();
       expect(sent, 1);
+      expect(find.byKey(const Key('chat-post-preview')), findsNothing);
+      expect(find.byKey(const Key('chat-post-image')), findsOneWidget);
       expect(find.text('Ảnh đẹp quá'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('chat-composer')),
+        'Ảnh đẹp quá',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('chat-send')));
+      await tester.pumpAndSettle();
+      expect(sent, 2);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },

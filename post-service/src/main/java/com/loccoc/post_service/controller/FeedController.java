@@ -13,8 +13,9 @@ public class FeedController {
   public FeedController(FeedService service) { this.service=service; }
   @GetMapping("/feed")
   public ResponseEntity<FeedService.Page> page(@RequestHeader(value="Authorization",required=false) String token,
-      @RequestParam(defaultValue="20") int limit,@RequestParam(required=false) String cursor) {
-    return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.page(token,limit,cursor));
+      @RequestParam(defaultValue="20") int limit,@RequestParam(required=false) String cursor,
+      @RequestParam(required=false) UUID ownerId) {
+    return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.page(token,limit,cursor,ownerId));
   }
   @PutMapping("/{id}/seen") @ResponseStatus(HttpStatus.NO_CONTENT)
   public void seen(@RequestHeader(value="Authorization",required=false) String token,@PathVariable UUID id) {

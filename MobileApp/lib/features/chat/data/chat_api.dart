@@ -3,13 +3,19 @@ import '../domain/chat_models.dart';
 
 abstract interface class ChatRepository {
   String get accountId;
+  String get mediaOrigin;
   String get accessToken;
   Future<void> refreshForSocket();
   Future<ChatInboxPage> inbox({String? cursor});
   Future<ChatConversation> detail(String id);
   Future<ChatConversation> openDirect(String peerId);
   Future<ChatMessagePage> history(String id, {String? before, String? after});
-  Future<ChatMessage> send(String conversationId, String clientId, String text);
+  Future<ChatMessage> send(
+    String conversationId,
+    String clientId,
+    String text, {
+    String? postId,
+  });
   Future<ChatReadResult> read(String id, String sequence);
   Future<ChatFriendPage> friends(int page);
 }
@@ -25,6 +31,8 @@ class ChatApi implements ChatRepository {
   }
   @override
   String get accountId => users.session.user.id;
+  @override
+  String get mediaOrigin => users.auth.origin;
   @override
   String get accessToken => users.session.accessToken;
   // An authority-backed HTTP request reuses the same single-flight 401 refresh
@@ -106,13 +114,18 @@ class ChatApi implements ChatRepository {
   Future<ChatMessage> send(
     String conversationId,
     String clientId,
-    String text,
-  ) async => ChatMessage.fromJson(
+    String text, {
+    String? postId,
+  }) async => ChatMessage.fromJson(
     Map<String, dynamic>.from(
       (await _request(
             'POST',
             'conversations/${Uri.encodeComponent(conversationId)}/messages',
-            body: {'clientMessageId': clientId, 'text': validateChatText(text)},
+            body: {
+              'clientMessageId': clientId,
+              'text': validateChatText(text),
+              'postId': ?postId,
+            },
           ))['message']
           as Map,
     ),

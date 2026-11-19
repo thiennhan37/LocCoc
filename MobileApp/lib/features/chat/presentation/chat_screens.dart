@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../domain/chat_models.dart';
 import 'chat_controller.dart';
+import 'chat_post_image.dart';
 import 'chat_friends_controller.dart';
 
 class ChatInboxScreen extends StatefulWidget {
@@ -300,10 +301,12 @@ class _ChatFriendPickerScreenState extends State<ChatFriendPickerScreen> {
 class ChatDetailScreen extends StatefulWidget {
   final ChatController controller;
   final String conversationId;
+  final ChatPostAttachment? postAttachment;
   const ChatDetailScreen({
     super.key,
     required this.controller,
     required this.conversationId,
+    this.postAttachment,
   });
   @override
   State<ChatDetailScreen> createState() => _ChatDetailScreenState();
@@ -317,11 +320,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   String get id => widget.conversationId;
   int count = 0;
   String? _lastMessageKey;
+  ChatPostAttachment? _pendingPost;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     input.text = c.draft(id);
+    _pendingPost = widget.postAttachment;
     c.addListener(_changed);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(c.open(id));
@@ -381,7 +386,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   Future<void> _send() async {
     final text = input.text;
-    if (await c.sendText(text)) {
+    if (await c.sendText(text, postAttachment: _pendingPost)) {
+      if (mounted) setState(() => _pendingPost = null);
       if (mounted && input.text == text) {
         input.clear();
         c.setDraft(id, '');
@@ -517,15 +523,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                                     bottomRight: Radius.circular(mine ? 4 : 18),
                                   ),
                                 ),
-                                child: Text(
-                                  m.text,
-                                  style: TextStyle(
-                                    color: mine
-                                        ? Colors.white
-                                        : AppColors.textPrimary,
-                                    fontSize: 15,
-                                    height: 1.4,
-                                  ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (m.postAttachment != null) ...[
+                                      ChatPostImage(
+                                        uri: c.postImageUri(m.postAttachment!),
+                                      ),
+                                      const SizedBox(height: 8),
+                                    ],
+                                    Text(
+                                      m.text,
+                                      style: TextStyle(
+                                        color: mine
+                                            ? Colors.white
+                                            : AppColors.textPrimary,
+                                        fontSize: 15,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -566,6 +584,25 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                     },
                   ),
           ),
+          if (_pendingPost != null)
+            Padding(
+              key: const Key('chat-post-preview'),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 64,
+                    height: 64,
+                    child: ChatPostImage(
+                      uri: c.postImageUri(_pendingPost!),
+                      preview: true,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(child: Text('Trả lời khoảnh khắc')),
+                ],
+              ),
+            ),
           if (c.isTyping(id))
             const Align(
               alignment: Alignment.centerLeft,

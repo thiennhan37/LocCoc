@@ -16,7 +16,7 @@ public class PhotoBodyLimitFilter extends OncePerRequestFilter {
       throws IOException,ServletException {
     response.setHeader("Cache-Control","private, no-store");
     if(java.util.Set.of("GET","HEAD","DELETE").contains(request.getMethod())) { chain.doFilter(request,response);return; }
-    int limit=request.getMethod().equals("PUT") && request.getRequestURI().matches("/moments/[0-9a-fA-F-]{36}/image") ? 10*1024*1024 : request.getRequestURI().equals("/posts/photos") ? LIMIT : 64*1024;
+    int limit=request.getMethod().equals("PUT") && request.getRequestURI().matches("/moments/[0-9a-fA-F-]{36}/image") ? 10*1024*1024 : (request.getRequestURI().equals("/posts/photos") || request.getRequestURI().equals("/posts/photos/enhance")) ? LIMIT : 64*1024;
     if(request.getHeader("Content-Encoding")!=null) { response.setStatus(415);return; }
     byte[] body=request.getContentLengthLong()>limit ? null : request.getInputStream().readNBytes(limit+1);
     if(body==null || body.length>limit) {

@@ -431,6 +431,8 @@ void main() {
           userApi: api,
           googleAuthService: GoogleAuthService(apiClient: api.auth),
           profile: const {'username': 'alice'},
+          // Notifications moved to the profile header with the author menu.
+          initialTab: 2,
         ),
       ),
     );

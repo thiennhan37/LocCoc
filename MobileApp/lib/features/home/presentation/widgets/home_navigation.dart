@@ -23,7 +23,7 @@ class HomeNavigation extends StatelessWidget {
     final entries = <(HomeTab, IconData, String)>[
       (HomeTab.home, Icons.home_rounded, 'Trang chủ'),
       (HomeTab.friends, Icons.people_outline_rounded, 'Bạn bè'),
-      (HomeTab.memories, Icons.photo_library_outlined, 'Kỷ niệm'),
+      (HomeTab.memories, Icons.calendar_month_rounded, 'Kỷ niệm'),
       (HomeTab.profile, Icons.person_outline_rounded, 'Cá nhân'),
       if (developerToolsEnabled)
         (HomeTab.debug, Icons.bug_report_outlined, 'Debug'),

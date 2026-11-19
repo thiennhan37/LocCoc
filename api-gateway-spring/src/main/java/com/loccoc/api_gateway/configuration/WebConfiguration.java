@@ -25,6 +25,8 @@ public class WebConfiguration implements WebMvcConfigurer {
   @Bean
   HttpClient upstreamClient() {
     return HttpClient.newBuilder()
+        // Engine.IO closes unsupported h2c upgrades on the chat HTTP server.
+        .version(HttpClient.Version.HTTP_1_1)
         .connectTimeout(Duration.ofMillis(properties.connectTimeoutMs()))
         .followRedirects(HttpClient.Redirect.NEVER)
         .build();

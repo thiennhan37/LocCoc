@@ -90,6 +90,22 @@ class PostReactionApiTests {
       mvc.perform(put("/posts/{id}/reaction",post).header("Authorization","Bearer self").contentType("application/json").content(body)).andExpect(status().isBadRequest());
     for(String emoji:List.of("💛","🔥","😍","😂","👏")) assertThat(set("self",emoji).get("myReaction").asText()).isEqualTo(emoji);
   }
+  @Test void ownerCannotAddChangeOrRemoveReactionsOnOwnPost() throws Exception {
+    jdbc.update("UPDATE moments SET owner_id=? WHERE id=?",SELF,post);
+    for(var request:List.of(put("/posts/{id}/reaction",post).contentType("application/json").content("{\"emoji\":\"💛\"}"),delete("/posts/{id}/reaction",post)))
+      mvc.perform(request.header("Authorization","Bearer self")).andExpect(status().isForbidden());
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM post_reactions WHERE post_id=?",Integer.class,post)).isZero();
+    var summary=json(mvc.perform(get("/posts/{id}/reactions",post).header("Authorization","Bearer self")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+    assertThat(summary.get("counts").size()).isZero();
+  }
+  @Test void legacySelfReactionsAreNotCountedButOtherPeoplesReactionsRemain() throws Exception {
+    jdbc.update("UPDATE moments SET owner_id=? WHERE id=?",SELF,post);
+    for(var viewer:List.of(SELF,OTHER)) jdbc.update("INSERT INTO post_reactions(id,viewer_id,post_id,emoji) VALUES(?,?,?,?)",viewer+":"+post,viewer,post,"💛");
+    var summary=json(mvc.perform(get("/posts/{id}/reactions",post).header("Authorization","Bearer self")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+    assertThat(summary.get("counts").get("💛").asInt()).isEqualTo(1);
+    assertThat(summary.get("myReaction").isNull()).isTrue();
+    assertThat(jdbc.queryForObject("SELECT count(*) FROM post_reactions WHERE post_id=?",Integer.class,post)).isEqualTo(2);
+  }
   @Test void concurrentRetriesCreateExactlyOneReaction() throws Exception {
     try(var executor=Executors.newFixedThreadPool(4)) {
       var start=new CountDownLatch(1); var tasks=new ArrayList<Future<JsonNode>>();
