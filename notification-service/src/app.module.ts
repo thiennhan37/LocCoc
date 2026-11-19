@@ -14,11 +14,15 @@ import { NotificationsRepository } from './notifications.repository.js';
 import { NotificationsService } from './notifications.service.js';
 import { CursorCodec } from './cursor.js';
 import { NotificationWorkers } from './workers.js';
+import { EmailOtpJobs1794960000001 } from './email-otp.migration.js';
+import { BrevoEmailSender } from './brevo-email.sender.js';
+import { EmailOtpRepository } from './email-otp.repository.js';
+import { EmailOtpWorker } from './email-otp.worker.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: fileURLToPath(new URL('../.env', import.meta.url)),
+      envFilePath: [fileURLToPath(new URL('../.env', import.meta.url)), fileURLToPath(new URL('../../.env', import.meta.url))],
       validate: (input) => {
         const env = validateNotificationEnvironment(
           input,
@@ -36,7 +40,7 @@ import { NotificationWorkers } from './workers.js';
         username: c.getOrThrow('NOTIFICATION_DB_USER'),
         password: c.getOrThrow('NOTIFICATION_DB_PASSWORD'),
         database: c.getOrThrow('NOTIFICATION_DB_NAME'),
-        migrations: [Notifications1793318400001],
+        migrations: [Notifications1793318400001, EmailOtpJobs1794960000001],
         migrationsRun: c.get('TYPEORM_MIGRATIONS_RUN') === true,
         synchronize: false,
       }),
@@ -49,6 +53,9 @@ import { NotificationWorkers } from './workers.js';
     NotificationsRepository,
     NotificationsService,
     NotificationWorkers,
+    BrevoEmailSender,
+    EmailOtpRepository,
+    EmailOtpWorker,
     { provide: APP_GUARD, useClass: AccountAccessGuard },
   ],
 })

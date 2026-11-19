@@ -6,12 +6,25 @@ This repository now contains the IAM Level 1 platform foundation: an API gateway
 
 ## Monorepo layout
 
+Smart moment search now uses the unified Python `ai-service` (Gemini Embedding 2,
+768 dimensions, Qdrant) and Java `post-service` (private images, PostgreSQL
+metadata/jobs, final ownership checks). `ai-service-2` and its local embedding
+runtime have been removed. Public clients use `/moments`; AI APIs are internal.
+The feature remains disabled until local credentials/infrastructure are configured.
+See the [current operations and migration guide](docs/specs/unified-post-moments.md),
+[implementation report](docs/specs/moments/reports/2026-11-14-runtime.md) and
+[ADR-019](docs/adr/ADR-019-unified-post-moments.md).
+
 ```text
 api-gateway/      # public edge: Helmet, CORS, validation, request IDs, Redis throttling
 auth-service/     # identity boundary (scaffold for login/token flows)
 user-service/     # user boundary
+ai-service/       # Python image enhancement + internal embeddings/search (:8087)
+post-service/     # Java social feed + private gallery/search + S3/jobs (:8089)
 libs/common/      # config schema, filters, guards, decorators and shared interfaces
 ```
+
+Design references: [Home/Profile mockups](docs/design/README.md).
 
 ## Local infrastructure
 
@@ -21,6 +34,22 @@ The Compose stack contains PostgreSQL, Redis, Kafka, Kafbat UI and an optional K
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 docker compose up -d
 ```
+
+`compose.yaml` is the single Compose entry point, including Neo4j and private
+SeaweedFS/S3 storage. Configure the required root `.env` values before running it.
+
+```powershell
+# Start only S3 and Neo4j.
+docker compose --profile media up -d media-store neo4j
+# Start infrastructure plus Java Post and internal Python AI; includes S3.
+docker compose --profile moments up -d --build
+```
+
+If media credentials are stored in `.env.post-media.local`, load both files:
+`docker compose --env-file .env --env-file .env.post-media.local --profile media up -d media-store`.
+Keep the same project name (`-p` if previously used) to reuse the existing volumes.
+`moments` is a feature profile for Java Post + Python AI; it does not run a separate
+Moments service. See [current deployment instructions](docs/specs/unified-post-moments.md).
 
 Install and run the gateway:
 
@@ -89,7 +118,7 @@ npm run db:migrate:user
 
 These commands build the service and apply only pending checked-in migrations using its own database credentials. Auth creates `accounts`, `sessions`, `refresh_tokens`; user creates `users`. They do not enable `synchronize`, edit `.env` or remove volumes. Run them again whenever deploying new migrations. Alternatively, explicitly set `TYPEORM_MIGRATIONS_RUN=true` in the process environment before starting a service; a value supplied in the shell overrides the file. A missing table is an auth/database issue even when the request arrives via a gateway.
 
-For `Postman/loccoc-api-gateway.postman_collection.json`:
+For `postman/LocCoc IAM - API Gateway.postman_collection.json`:
 
 1. Start auth and one gateway (NestJS or Spring) and set `gatewayUrl=http://localhost:8080`.
 2. Send **Register** first with your collection email/password/phone variables.
@@ -101,7 +130,7 @@ Spring gateway coverage: Spring routes `/auth`, `/users`, `/admin`, `/payments` 
 ## Applications
 
 - [Chat Service: chạy và API](chat-service/README.md), [OpenAPI Bruno](chat-service/openapi.yaml), [test hai máy ảo](docs/guides/chat-two-emulators.md).
-- [AI Service: API, OpenAPI và hướng dẫn import Bruno](ai-service/README.md) xử lý ảnh qua `POST /ai/images/enhance`; [OpenAPI 3.0.3](ai-service/openapi.yaml) có thể import trực tiếp.
+- [AI chỉnh ảnh: API, OpenAPI và hướng dẫn import Bruno](ai-service/README.md) xử lý ảnh qua `POST /ai/images/enhance`; [OpenAPI 3.0.3](ai-service/openapi.yaml) có thể import trực tiếp.
 - [user-service](user-service/README.md) starts on port 8081 and currently exposes no application API.
 - [MobileApp](MobileApp/README.md) shows a basic login form. It does not authenticate users yet.
 

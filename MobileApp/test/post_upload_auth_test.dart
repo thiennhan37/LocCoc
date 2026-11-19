@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:http/http.dart' as http;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_app/features/posts/data/post_api.dart';
 import 'package:mobile_app/core/network/api_client.dart';
@@ -79,4 +80,35 @@ void main() {
     );
     expect(calls, 0);
   });
+  test(
+    'protected feed image refreshes once and keeps credentials on the Post route',
+    () async {
+      const id = '11111111-1111-4111-8111-111111111111';
+      final tokens = <String?>[];
+      final user = fixtures.apiFor((r) async {
+        if (r.url.path == '/auth/refresh') {
+          return fixtures.json({
+            'accessToken': 'new-access',
+            'refreshToken': 'new-refresh',
+            'tokenType': 'Bearer',
+            'expiresIn': 900,
+            'refreshExpiresIn': 3600,
+          });
+        }
+        if (r.url.path == '/users/me') {
+          return fixtures.json({'id': fixtures.session.user.id});
+        }
+        expect(r.url.path, '/posts/media/$id');
+        tokens.add(r.headers['authorization']);
+        if (tokens.length == 1) return fixtures.json({}, 401);
+        return http.Response.bytes(
+          [137, 80, 78, 71],
+          200,
+          headers: {'content-type': 'image/png'},
+        );
+      });
+      expect(await user.postImage(id), [137, 80, 78, 71]);
+      expect(tokens, ['Bearer old-access', 'Bearer new-access']);
+    },
+  );
 }

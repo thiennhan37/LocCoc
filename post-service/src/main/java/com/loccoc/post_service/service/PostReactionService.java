@@ -37,7 +37,7 @@ public class PostReactionService {
     return transactions.execute(status->{
       // Serialize reads and mutations with deletion and other reaction writers on this post.
       var post=posts.lockById(postId).orElseThrow(()->new AppException(ErrorCode.ROUTE_NOT_FOUND));
-      if(post.getDeletedAt()!=null || !audience.authors().containsKey(post.getOwnerId()))
+      if(!PostAccess.readable(post,audience))
         throw new AppException(ErrorCode.ROUTE_NOT_FOUND);
       boolean ownPost=post.getOwnerId().equals(audience.viewerId());
       if(mutate && ownPost) throw new AppException(ErrorCode.ACCESS_DENIED);

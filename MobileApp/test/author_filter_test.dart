@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_app/features/posts/data/author_feed_api.dart';
 import 'package:mobile_app/features/home/presentation/widgets/author_picker.dart';
@@ -9,6 +10,30 @@ import 'package:mobile_app/features/posts/presentation/feed_sliver.dart';
 import 'user_social_test.dart' as fixtures;
 
 void main() {
+  test(
+    'author feed preserves authenticated images and cache clearing',
+    () async {
+      var requests = 0;
+      final source = SessionFeedApi(
+        fixtures.apiFor((request) async {
+          requests++;
+          expect(request.headers['Authorization'], 'Bearer old-access');
+          return http.Response.bytes([1, 2, 3], 200);
+        }),
+      );
+      final api = AuthorFeedApi(source, () => 'friend');
+      const key = '/posts/media/22222222-2222-4222-8222-000000000001';
+      expect(api, isA<ProtectedFeedImages>());
+      expect(api, isA<FeedImageCache>());
+      expect(await api.image(key), [1, 2, 3]);
+      await api.image(key);
+      expect(requests, 1);
+      api.clearImages();
+      await api.image(key);
+      expect(requests, 2);
+    },
+  );
+
   testWidgets(
     'author posts load the next page only after swiping near the end',
     (tester) async {

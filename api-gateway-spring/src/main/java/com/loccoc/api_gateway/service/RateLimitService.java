@@ -30,9 +30,12 @@ public class RateLimitService {
       response.setHeader("Retry-After", String.valueOf(decision.retryAfterSeconds()));
       throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
     }
-    if (request.getMethod().equals("PUT") && request.getRequestURI().matches("/users/me/media/(avatar|cover)")) {
+    boolean momentSearch = request.getMethod().equals("POST") && request.getRequestURI().equals("/moments/search");
+    boolean imageUpload = request.getMethod().equals("PUT") && (request.getRequestURI().matches("/users/me/media/(avatar|cover)")
+        || request.getRequestURI().matches("/moments/[0-9a-f-]{36}/image"));
+    if (momentSearch || imageUpload) {
       try {
-        decision = repository.consume("media:" + request.getRemoteAddr(), 10, 60000);
+        decision = repository.consume((momentSearch ? "moment-search:" : "media:") + request.getRemoteAddr(), momentSearch ? 30 : 10, 60000);
       } catch (RuntimeException e) {
         throw new AppException(ErrorCode.RATE_LIMITER_UNAVAILABLE);
       }

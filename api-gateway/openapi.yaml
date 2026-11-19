@@ -11,10 +11,10 @@ info:
     cấu hình môi trường có thể thay đổi. Không chạy cùng cổng với Spring gateway.
 
     Proxy giữ nguyên các prefix /auth, /users, /admin, /payments, /subscriptions,
-    /ai, /chat, /notifications và query string. Các handler wildcard cần đường dẫn
+    /ai, /chat, /notifications, /posts, /moments và query string. Các handler wildcard cần đường dẫn
     con (ví dụ /auth/login); riêng /notifications cũng có handler cho prefix gốc.
-    Upstream mặc định: auth 8000, users 8081, AI 8082, chat 8083, notification 8084,
-    payment/subscriptions 8085, admin 8086. URL có thể đổi bằng biến cấu hình service.
+    Upstream mặc định: auth 8000, users 8081, AI 8087, chat 8083, notification 8084,
+    payment/subscriptions 8085, admin 8086, moments/posts 8089 (Java Post). URL có thể đổi bằng biến cấu hình service.
     /internal không được proxy. AI dùng raw streaming để giữ multipart/binary;
     các service còn lại dùng JSON request forwarding, giữ status/body từ upstream.
     Lỗi kết nối upstream trước khi gửi response trả 502 với message Upstream service unavailable.
@@ -51,7 +51,7 @@ x-service-openapi:
   - service: ai-service
     file: ../ai-service/openapi.yaml
     prefixes: [/ai]
-    upstreamDefault: http://127.0.0.1:8082
+    upstreamDefault: http://127.0.0.1:8087
     urlEnvironment: AI_SERVICE_URL
   - service: chat-service
     file: ../chat-service/openapi.yaml

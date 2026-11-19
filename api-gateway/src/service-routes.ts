@@ -36,6 +36,10 @@ export const SERVICE_ROUTES = {
     prefix: '/subscriptions',
     urlConfigKey: 'PAYMENT_SERVICE_URL',
   },
+  moments: {
+    prefix: '/moments',
+    urlConfigKey: 'POST_SERVICE_URL',
+  },
 } as const;
 
 export type ServiceName = keyof typeof SERVICE_ROUTES;

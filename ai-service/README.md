@@ -1,100 +1,145 @@
-# AI Service và Bruno
+# LocCoc AI service
 
-Hợp đồng API: [openapi.yaml](./openapi.yaml) (OpenAPI 3.0.3), được đối chiếu với controller, DTO, validation, Gemini adapter, exception filter và gateway hiện có.
+The single Python AI runtime for image enhancement and semantic search.
+The retired Nest enhancement implementation is now `app/enhancement`; its original
+fixed prompts were written by NhanTr and are preserved.
+Gemini Embedding 2 produces one vector per JPEG or text query (768 dimensions by
+default). Visual search first translates the user's query into English with
+`gemini-3.1-flash-lite`; Post retains the original text for fuzzy caption matching.
+The vector space/profile is `gemini2-d768-imgv1-queryv1`; the collection is
+`moments_gemini2_d768_v1`. No GPU, torch, transformers, model downloads, URL fetch,
+public embeddings endpoint or legacy embedding provider remains in the runtime.
 
-## API hiện có
+## Local setup (PowerShell)
 
-| Method | Path | Kết quả |
-| --- | --- | --- |
-| GET | `/health` | JSON `{ "status": "ok" }`, chỉ kiểm tra tiến trình |
-| POST | `/ai/images/enhance` | Ảnh nhị phân JPEG/PNG/WebP; sticker luôn là PNG trong suốt |
-
-POST nhận multipart với đúng hai field: file `image` và text `filterId` (`handwritten_diary` hoặc `subject_sticker`). Đầu vào tối đa 10 MiB, đầu ra tối đa 20 MiB. API hiện chưa có JWT guard, endpoint liệt kê filter, upload riêng, lịch sử hoặc job polling.
-
-## Chạy local
-
-Từ root repository:
-
-```sh
-pnpm --filter @loccoc/common build
-pnpm dev:ai
+```powershell
+cd ai-service
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+# Preserve existing .env; copy .env.example only when the file does not exist.
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8087 --no-access-log
 ```
 
-Service đọc `.env` ở root. Cần cung cấp `GEMINI_API_KEY` và `GEMINI_IMAGE_MODEL` bằng key/model thực tế của bạn. Không đưa key vào Bruno. Port mặc định là `8082`; có thể đặt `AI_SERVICE_PORT`.
+`GEMINI_EMBEDDING_API_KEY` belongs only in ignored `ai-service/.env` or a secret manager.
+The existing key field is preserved by consolidation. Enabling semantic runtime
+also requires distinct `AI_SERVICE_TOKEN` and `AI_ACTOR_SECRET` (>=32 characters),
+Qdrant/Redis, and nonzero provider request caps. Zero caps fail closed. Configure
+caps against your actual provider/project quota; application caps do not change
+Google quota and are request-count limits, not authoritative billing estimates.
 
-Gateway đọc `AI_SERVICE_URL` (mặc định `http://127.0.0.1:8082`). Khi gọi qua gateway, cần chạy gateway và Redis cùng cấu hình gateway hiện có. [Compose](../compose.yaml) hiện chỉ chứa hạ tầng, không khởi động AI Service hay gateway.
+All operations require the service token and a signed, <=60-second actor JWT
+with issuer `post-service`, audience `loccoc-ai`, owner UUID and exact operation.
+Only process liveness (`GET /health/live`) is anonymous. Docs/CORS are disabled.
+Readiness validates the index and Redis and requires a successful provider call
+within five minutes. `POST /internal/canary`, scoped `health`, explicitly performs
+a quota-reserved live text probe; ordinary health checks never call Gemini.
+Use liveness, rather than semantic readiness, for container restart policy.
 
-| Biến | Mặc định / yêu cầu | Nơi áp dụng |
-| --- | --- | --- |
-| `GEMINI_API_KEY` | Bắt buộc, không để trống | AI Service |
-| `GEMINI_IMAGE_MODEL` | Bắt buộc, không để trống | AI Service |
-| `AI_SERVICE_PORT` | `8082` | AI Service |
-| `AI_SERVICE_URL` | `http://127.0.0.1:8082` | Gateway |
-| `AI_REQUEST_TIMEOUT_MS` | `60000`, số nguyên dương, tối đa `60000` | Pipeline xử lý AI |
-| `AI_MAX_INPUT_BYTES` | `10485760`, tối đa `10485760` | Được validate cấu hình nhưng chưa dùng để giới hạn upload |
-| `AI_MAX_OUTPUT_BYTES` | `20971520`, tối đa `20971520` | Được validate cấu hình nhưng chưa dùng để giới hạn output |
-| `AI_RATE_LIMIT_MAX` | `5` | Limiter `/ai/*` ở gateway |
-| `AI_RATE_LIMIT_WINDOW_MS` | `60000` | Limiter `/ai/*` ở gateway |
+Internal contracts:
 
-## Import vào Bruno
+- `POST /internal/search`: strict query/limit/filters; returns IDs/versions only.
+- `PUT /internal/assets/{assetId}/{version}`: processed JPEG <=2 MiB, <=1536 axes;
+  base64url JSON `x-ai-metadata` contains capturedAt/albumId/place. Owner comes
+  from the capability; point UUID includes owner + asset + version + profile.
+- `DELETE /internal/assets/{assetId}`: mandatory owner/asset filter.
 
-1. Mở chức năng **Import Collection**, chọn **OpenAPI** và chọn [openapi.yaml](./openapi.yaml).
-2. Chọn server `http://localhost:8082` để gọi trực tiếp. Có thể dùng `http://localhost:8080` cho POST qua gateway. Nếu Bruno tạo biến base URL khi import, đặt biến đó tương ứng.
-3. Với request POST, kiểm tra Body ở dạng **Multipart Form**: `image` là **File** (chọn ảnh trên máy), `filterId` là **Text** với giá trị `handwritten_diary` hoặc `subject_sticker`. Nếu bản Bruno đang dùng không tự tạo đủ field từ schema, thêm hai field này thủ công.
-4. Để Bruno tự tạo header `Content-Type` kèm boundary khi gửi multipart. Khi gọi trực tiếp port `8082`, đặt Auth là **No Auth**; khi gọi qua gateway port `8080`, chọn **Bearer Token** với `accessToken` thật do Auth Service cấp. Đặt timeout khoảng **90000 ms**.
-5. Gửi request; response `200` là bytes ảnh. Xem preview hoặc lưu response ra file theo `Content-Type`. JSON chỉ dùng cho health check và lỗi.
+Retries are disabled for interactive provider requests. Timeout/429/config errors
+are sanitized; Redis reservations bound requests across instances and fail closed.
+Query cache is bounded (512 vectors/15 minutes), HMAC keyed by owner/profile/exact
+formatted query. Neither vectors nor cache hits bypass MomentService's final ACL.
 
-Request `GET /health` cần trỏ trực tiếp tới `http://localhost:8082/health` (hoặc port AI đã cấu hình). `/health` trên port `8080` là health của gateway; `/ai/health` không tồn tại. Kiểm tra lại URL health nếu Bruno dùng chung biến base URL và bỏ qua server riêng của operation.
+`QUERY_TRANSLATION_ENABLED=true` enables English normalization; the configurable
+model is `GEMINI_QUERY_TRANSLATION_MODEL`. Translation uses the explicit
+`GEMINI_EMBEDDING_API_KEY` client and requires that key to allow text generation
+for the selected model; it never uses the enhancement or legacy key. Each cold
+translation reserves one additional request against the existing query RPM and
+daily/monthly caps; no caps are raised automatically. Owner/model/prompt-scoped
+translations are cached for 15 minutes (512 entries). Completed queries are also
+cached before translation and identical concurrent requests share both provider
+calls. Translation timeout/invalid output/model errors fall back to embedding the
+original query (30-second result cache). Quota/Redis budget failures stay closed;
+embedding/index failures use Post's metadata-only fallback unless
+`requireSemantic=true`. A translation outage alone no longer disables image search.
+The internal search deadline is 9 seconds; per-call application timeouts remain
+bounded by `PROVIDER_TIMEOUT_SECONDS`. Generation sends the provider-required
+10-second HTTP deadline while the shorter local application timeout still applies.
+Set `QUERY_TRANSLATION_ENABLED=false` to roll back only query normalization;
+image vectors/collections do not need reindexing. See
+[query routing and fuzzy text](../docs/specs/moments/english-query-fuzzy-caption.md).
 
-Ví dụ tương đương:
+## Explicit live smoke
 
-```sh
-curl http://localhost:8082/health
-
-curl --max-time 90 --fail-with-body \
-  http://localhost:8082/ai/images/enhance \
-  -F 'image=@/absolute/path/photo.jpg;type=image/jpeg' \
-  -F 'filterId=handwritten_diary' \
-  --output enhanced.jpg
+```powershell
+.\.venv\Scripts\python.exe scripts/smoke_gemini.py --live
 ```
 
-Ảnh kết quả có thể khác định dạng ảnh đầu vào; chọn đuôi file theo `Content-Type` trả về. Với `subject_sticker`, lưu `.png`. Khi có lỗi, curl ở ví dụ trên ghi JSON lỗi vào file output và trả exit code khác 0.
+Exactly two requests: a synthetic red-square JPEG and a Vietnamese query. This
+script does not access user photos and never prints a key or vector. It verifies
+transport/vector shape only, not retrieval quality or latency targets. Exit codes:
+0 pass, 1 provider failure, 2 missing key or missing explicit --live opt-in.
+The initial smoke used the legacy paid key exactly twice, before the user clarified
+it must not be used. After the user supplied and explicitly authorized the new
+embedding-only key, a second two-call smoke passed. Authorized local activation
+then passed an end-to-end image/query test with two further dedicated-key calls.
+Total Gemini requests: legacy key 2, dedicated embedding key 4; no retry. Runtime never falls back
+to legacy GEMINI_API_KEY or GOOGLE_API_KEY. No additional live calls are scheduled.
 
-## Kết quả rà soát mã nguồn
+[Google embedding contract](https://ai.google.dev/gemini-api/docs/embeddings),
+[official SDK](https://googleapis.github.io/python-genai/),
+[service operations](../docs/specs/moments/operations.md).
 
-Các điểm cần lưu ý dưới đây mô tả implementation hiện tại; OpenAPI không giả định các hành vi chưa được triển khai.
+## Image enhancement
 
-| Mức độ | Phát hiện | Ảnh hưởng / hướng xử lý |
-| --- | --- | --- |
-| Trung bình | [Cấu hình](./src/config/ai-environment.ts) nhận `AI_MAX_INPUT_BYTES` và `AI_MAX_OUTPUT_BYTES`, nhưng [validator](./src/images/image-validation.service.ts), [controller](./src/images/image-enhancement.controller.ts) và [adapter](./src/images/gemini-image.adapter.ts) dùng hằng số 10/20 MiB. | Giảm hai biến này không giảm giới hạn thực tế. Nên dùng chung cấu hình trong cả ba lớp. |
-| Trung bình | Timeout chỉ bắt đầu trong [ImageEnhancementService](./src/images/image-enhancement.service.ts), sau multipart parsing và DTO validation. | `AI_REQUEST_TIMEOUT_MS` không giới hạn thời gian upload; chưa đáp ứng deadline bao gồm upload trong [thiết kế UC-07](../docs/superpowers/specs/2026-10-05-uc-07-ai-image-enhancement-design.md). Cần timeout ở lớp nhận request/ingress nếu muốn giới hạn toàn request. |
-| Thấp | [Middleware request ID](../libs/common/src/middleware/request-id.middleware.ts) luôn sinh UUID mới, trong khi [gateway](../api-gateway/src/service-proxy.controller.ts) chuyển tiếp ID của gateway tới upstream. | Service thay ID đó, làm log gateway và service không cùng ID. Response vẫn chứa ID service; nên thống nhất chính sách correlation ID. |
-| Thấp | [Mẫu môi trường](../.env.example) hiện chưa liệt kê cấu hình AI. | Chỉ sao chép mẫu này chưa đủ chạy AI Service; phải bổ sung hai biến Gemini bắt buộc như hướng dẫn bên trên. |
+`POST /ai/images/enhance` retains multipart `image` + `filterId` and binary response.
+Filters: `handwritten_diary` (white diary overlay / short Vietnamese comments) and
+`subject_sticker` (transparent PNG with white subject outline). Python does not
+persist the generated image; upload results through Java Post to publish them.
 
-Không có persistence ảnh trong luồng xử lý; request gửi Gemini với `store: false`, `stream: false` và `maxRetries: 0`. Log chuyên dụng chỉ ghi các trường vận hành. Đây là kết luận từ mã nguồn, không xác nhận hành vi lưu trữ phía nhà cung cấp.
+Configure in ignored `ai-service/.env` (not root `.env`):
 
-## Kiểm tra
-
-```sh
-pnpm --filter ai-service test
-pnpm --filter ai-service test:e2e
-pnpm --filter ai-service build
-pnpm --filter api-gateway test
-pnpm --filter api-gateway test:e2e
+```dotenv
+IMAGE_ENHANCEMENT_ENABLED=true
+GEMINI_API_KEY=<existing-image-provider-key>
+GEMINI_IMAGE_MODEL=<your-image-model>
+AI_SERVICE_TOKEN=<same-service-token-used-by-Gateway-and-Post>
+# Set deliberate caps for your provider/project; zero prevents provider calls.
+GEMINI_ENHANCEMENT_RPM=3
+GEMINI_ENHANCEMENT_DAILY_CAP=20
+GEMINI_ENHANCEMENT_MONTHLY_CAP=100
 ```
 
-Các test AI và test proxy gateway dùng Gemini/upstream mock, không cần gọi Gemini thật. Chúng kiểm tra input, ảnh trả về, lỗi HTTP, timeout, hủy request, multipart và rate limit. Kiểm tra bằng Gemini thật còn phụ thuộc key, model và quyền truy cập của tài khoản.
+These example caps are local application limits. Embedding uses its separate
+`GEMINI_EMBEDDING_API_KEY`, flags and budgets. Either feature can be disabled
+independently. Enhancement needs Redis for atomic budget reservations, but does
+not need Qdrant readiness. Do not silently reuse the embedding key for images.
+The old Nest process read root `.env`; copy the existing image model/key into
+Python's local configuration during deployment. This migration does not edit or
+print existing secret files.
 
-Kết quả kiểm tra ngày 2026-11-13:
+Gateway `api-gateway/.env` needs `AI_SERVICE_URL=http://127.0.0.1:8087` and matching
+`AI_SERVICE_TOKEN`. Client calls use Gateway (:8080), never the internal token.
+The current MVP is public at Gateway with IP throttling; account authorization
+is not implemented for this endpoint. Direct Python image requests require the
+service token. Semantic `/internal/*` additionally requires Post's signed actor
+capability; the Gateway rejects `/ai/internal/*`.
 
-| Kiểm tra | Kết quả |
-| --- | --- |
-| AI Service unit test | 60/60 pass |
-| AI Service e2e test | 13/13 pass |
-| AI Service build | Pass |
-| Gateway unit test | 3/3 pass |
-| Gateway e2e test sau tích hợp main | 23/23 pass, gồm xác thực Bearer và chống giả mạo identity header |
-| Gateway build | Pass |
-| OpenAPI trước tích hợp main | Pass schema OpenAPI 3.0 chính thức (bản 2024-10-18), 31 tham chiếu nội bộ hợp lệ, 12 ví dụ lỗi khớp schema và tên HTTP status hiện tại; hợp đồng sau tích hợp bổ sung lỗi xác thực gateway |
+[OpenAPI](openapi.yaml) imports into Bruno with Gateway as the default server:
+use Multipart Form, file `image`, text `filterId`, and a client timeout over 60s.
+The Gateway adds the trusted credential. `GET http://localhost:8087/health` and
+`/health/live` are free process checks, not provider verification.
 
-Chưa thực hiện import bằng giao diện Bruno hoặc gọi Gemini thật trong lần rà soát này.
+Input defaults to 10 MiB, output 20 MiB, single-frame decoded limit 40 MP;
+`AI_MAX_INPUT_BYTES`, `AI_MAX_OUTPUT_BYTES` and `AI_MAX_IMAGE_PIXELS` can lower
+these limits. MIME must match decoded format. Sticker output must actually
+contain transparency. Deadline `AI_REQUEST_TIMEOUT_MS` (max/default 60,000)
+covers upload, multipart parsing, queueing and processing. Disconnect cancels
+provider work; quota is not refunded after a potentially billable attempt.
+Provider storage/streaming and SDK retries/continuations are disabled. Multipart
+may use temporary spooled files, closed after the request; no business record or
+persistent image is written by enhancement.
+
+From root, `npm run start:ai`, `npm run dev:ai` and `npm run test:ai` use the Python
+venv on Windows or Linux. The `moments` Compose profile already builds the same
+Python image, so no second image runtime/container is required. Port 8082 is
+retired. See [unified deployment guide](../docs/specs/unified-ai.md).

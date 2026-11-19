@@ -7,6 +7,7 @@ import { CreateRefreshTokens1710000001100 } from './migrations/1710000001100-Cre
 import { CreateIdentities1710000001200 } from './migrations/1710000001200-CreateIdentities.js';
 import { AccountEvents1793145600000 } from './migrations/1793145600000-AccountEvents.js';
 import { LoginHistory1793577600000 } from './migrations/1793577600000-LoginHistory.js';
+import { EmailOtpOutbox1794960000000 } from './migrations/1794960000000-EmailOtpOutbox.js';
 
 function asBoolean(
   value: boolean | string | undefined,
@@ -23,6 +24,7 @@ export const AUTH_MIGRATIONS = [
   CreateIdentities1710000001200,
   AccountEvents1793145600000,
   LoginHistory1793577600000,
+  EmailOtpOutbox1794960000000,
 ];
 
 export function createAuthDatabaseOptions(

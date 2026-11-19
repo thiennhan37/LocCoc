@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:math' as math;
 import '../data/post_reaction_api.dart';
 import 'post_actions.dart';
@@ -66,8 +67,9 @@ class FeedPages extends StatelessWidget {
               onPageChanged: (page) {
                 onPageChanged?.call(page);
                 final index = page - offset;
+                controller.prepareImages(index);
                 if (index >= 0 &&
-                    index >= controller.items.length - 2 &&
+                    index >= controller.items.length - 4 &&
                     controller.hasMore &&
                     controller.error == null) {
                   controller.loadMore();
@@ -169,6 +171,17 @@ class _FeedCard extends StatefulWidget {
 class _FeedCardState extends State<_FeedCard> {
   bool _loaded = false;
   int _retry = 0;
+  Future<Uint8List>? _protectedImage;
+  @override
+  void didUpdateWidget(covariant _FeedCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller.api != widget.controller.api ||
+        oldWidget.post.id != widget.post.id) {
+      _protectedImage = null;
+      _loaded = false;
+    }
+  }
+
   void _imageReady(bool value) {
     if (_loaded == value) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -249,6 +262,51 @@ class _FeedCardState extends State<_FeedCard> {
                                         'Ảnh này chưa có bản xem trước.',
                                         textAlign: TextAlign.center,
                                       ),
+                                    )
+                                  : widget.controller.api is ProtectedFeedImages
+                                  ? FutureBuilder<Uint8List>(
+                                      future: _protectedImage ??=
+                                          (widget.controller.api
+                                                  as ProtectedFeedImages)
+                                              .image(post.mediaKey),
+                                      builder: (context, snapshot) {
+                                        if (snapshot.hasData) {
+                                          return Image.memory(
+                                            snapshot.data!,
+                                            fit: BoxFit.cover,
+                                            errorBuilder:
+                                                (context, error, stack) {
+                                                  _imageReady(false);
+                                                  return const Center(
+                                                    child: Text(
+                                                      'Không tải được ảnh',
+                                                    ),
+                                                  );
+                                                },
+                                            frameBuilder:
+                                                (context, child, frame, sync) {
+                                                  _imageReady(
+                                                    sync || frame != null,
+                                                  );
+                                                  return child;
+                                                },
+                                          );
+                                        }
+                                        _imageReady(false);
+                                        if (snapshot.hasError) {
+                                          return Center(
+                                            child: TextButton(
+                                              onPressed: () => setState(
+                                                () => _protectedImage = null,
+                                              ),
+                                              child: const Text('Tải lại ảnh'),
+                                            ),
+                                          );
+                                        }
+                                        return const Center(
+                                          child: CircularProgressIndicator(),
+                                        );
+                                      },
                                     )
                                   : Image.network(
                                       url,
@@ -332,9 +390,9 @@ class _FeedCardState extends State<_FeedCard> {
                             ),
                             const SizedBox(width: 8),
                             Tooltip(
-                              message: post.createdAt.toLocal().toString(),
+                              message: post.occurredAt.toLocal().toString(),
                               child: Text(
-                                _age(post.createdAt),
+                                _age(post.occurredAt),
                                 style: TextStyle(
                                   color: Theme.of(
                                     context,

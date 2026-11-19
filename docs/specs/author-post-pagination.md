@@ -1,9 +1,11 @@
 # Author post pagination
 
 GET `/posts/feed?ownerId={uuid}&limit=10&cursor={opaque}` returns the existing
-`{data, nextCursor}` contract. Without ownerId the ranked home feed is unchanged.
+`{data, nextCursor}` contract. Without ownerId the home feed uses capture time (falling back to creation time).
 Author pages are newest first, ordered by `(created_at DESC, id DESC)`, exclude
-soft-deleted posts and check the current viewer's audience on every request.
+soft-deleted and non-active posts and check the current viewer's audience on every request.
+Private gallery items are visible only to their owner; peer pages require FRIENDS
+visibility. Author order remains creation time even when capture time differs.
 An inaccessible author returns 404. Limits remain 1..50; the mobile author view
 requests 10. Cursors bind the author and snapshot, expire after one hour, and
 prevent newly created posts or seen updates from disturbing a traversal.

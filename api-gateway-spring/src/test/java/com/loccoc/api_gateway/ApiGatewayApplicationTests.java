@@ -96,7 +96,7 @@ class ApiGatewayApplicationTests {
 
   @DynamicPropertySource
   static void properties(DynamicPropertyRegistry registry) {
-    for (String name : new String[] {"auth", "users", "admin", "payments", "subscriptions", "posts", "chat"})
+    for (String name : new String[] {"auth", "users", "admin", "payments", "subscriptions", "posts", "chat", "moments"})
       registry.add(
           "gateway.routes." + name, () -> "http://127.0.0.1:" + upstream.getAddress().getPort());
     registry.add("gateway.cors-origins", () -> "http://localhost:3000");
@@ -147,7 +147,7 @@ class ApiGatewayApplicationTests {
 
   @Test
   void allPrefixesPreserved() throws Exception {
-    for (String prefix : new String[] {"auth", "users", "admin", "payments", "subscriptions", "posts", "chat"}) {
+    for (String prefix : new String[] {"auth", "users", "admin", "payments", "subscriptions", "posts", "chat", "moments"}) {
       mvc.perform(
               get(java.net.URI.create("/" + prefix + "/check?q=a%20b"))
                   .header("Authorization", "Bearer test")
@@ -176,6 +176,20 @@ class ApiGatewayApplicationTests {
     mvc.perform(put("/users/me/media/cover").contentType("image/png").header("Content-Encoding", "gzip").content("bad"))
         .andExpect(status().isUnsupportedMediaType());
     verify(repository, atLeastOnce()).consume(eq("media:127.0.0.1"), eq(10), eq(60000L));
+  }
+
+  @Test
+  void momentImageRoutesPreserveBytesAndRejectLargeOrWrongMime() throws Exception {
+    String path = "/moments/11111111-1111-4111-8111-111111111111/image";
+    mvc.perform(put(path).contentType("image/jpeg").content("moment-bytes").header("Authorization", "Bearer test"))
+        .andExpect(status().isCreated());
+    Assertions.assertTrue(received.get().contains("moment-bytes"));
+    mvc.perform(put(path).contentType("image/jpeg").content(new byte[10 * 1024 * 1024 + 1]))
+        .andExpect(status().isPayloadTooLarge());
+    mvc.perform(put(path).contentType("image/svg+xml").content("<svg/>"))
+        .andExpect(status().isUnsupportedMediaType());
+    mvc.perform(post("/ai/internal/search").contentType("application/json").content("{}"))
+        .andExpect(status().isNotFound());
   }
 
   @Test

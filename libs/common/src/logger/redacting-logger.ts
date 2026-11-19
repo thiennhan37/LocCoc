@@ -1,7 +1,7 @@
 import type { LoggerService } from '@nestjs/common';
 
 const sensitive =
-  /^(password|token|idtoken|nonce|accesstoken|refreshtoken|otp|authorization|x-service-token|INTERNAL_SERVICE_TOKEN)$/i;
+  /^(password|passwordHash|code|token|idtoken|nonce|accesstoken|refreshtoken|otp|authorization|api-key|BREVO_MAIL_API_KEY|OTP_EVENT_SECRET|x-service-token|x-ai-actor|x-ai-metadata|INTERNAL_SERVICE_TOKEN|GEMINI_API_KEY|GEMINI_EMBEDDING_API_KEY|AI_SERVICE_TOKEN|AI_ACTOR_SECRET|query|image|signedUrl)$/i;
 
 export function redact(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redact);

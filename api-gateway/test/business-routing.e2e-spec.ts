@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { ServiceProxyController } from '../src/service-proxy.controller.js';
 import { configureGateway } from '../src/bootstrap.js';
+import { SERVICE_ROUTES } from '../src/service-routes.js';
 
 const gatewayInput = {
   NODE_ENV: 'test',
@@ -70,21 +71,24 @@ describe('business upstream configuration validation', () => {
 describe('AI gateway configuration after merging main', () => {
   it('retains the default AI upstream and numeric rate limits', () => {
     expect(validateGatewayEnvironment(gatewayInput)).toMatchObject({
-      AI_SERVICE_URL: 'http://127.0.0.1:8082',
+      AI_SERVICE_URL: 'http://127.0.0.1:8087',
       AI_RATE_LIMIT_MAX: 5,
       AI_RATE_LIMIT_WINDOW_MS: 60000,
     });
   });
 
-  it('keeps Gemini, photo posts and reserved Python search upstreams separate', () => {
+  it('routes Moments and posts together and enhancement to unified Python AI', () => {
     expect(validateGatewayEnvironment(gatewayInput)).toMatchObject({
-      AI_SERVICE_URL: 'http://127.0.0.1:8082',
-      POST_SERVICE_URL: 'http://127.0.0.1:8087',
-      AI_SEARCH_SERVICE_URL: 'http://127.0.0.1:8088',
+      AI_SERVICE_URL: 'http://127.0.0.1:8087',
+      POST_SERVICE_URL: 'http://127.0.0.1:8089',
     });
-    expect(() => validateGatewayEnvironment({
-      ...gatewayInput, AI_SEARCH_SERVICE_URL: 'file:///tmp/search',
-    })).toThrow('AI_SEARCH_SERVICE_URL');
+    expect(SERVICE_ROUTES.moments.urlConfigKey).toBe('POST_SERVICE_URL');
+    expect(SERVICE_ROUTES.posts.urlConfigKey).toBe('POST_SERVICE_URL');
+  });
+
+  it('allows enhancement to stay unconfigured without blocking unrelated Gateway routes', () => {
+    expect(validateGatewayEnvironment({ ...gatewayInput, AI_SERVICE_TOKEN: '' }).AI_SERVICE_TOKEN).toBe('');
+    expect(() => validateGatewayEnvironment({ ...gatewayInput, AI_SERVICE_TOKEN: 'short' })).toThrow('AI_SERVICE_TOKEN');
   });
 
   it('validates and converts explicit AI settings', () => {

@@ -380,6 +380,8 @@ describe('IAM gateway security contract (e2e)', () => {
 
   it('keeps account routes protected while the AI MVP remains public', async () => {
     await request(app.getHttpServer()).get('/users/me').expect(401);
+    await request(app.getHttpServer()).get('/moments').expect(401);
+    await request(app.getHttpServer()).post('/moments/search').send({ query: 'biển' }).expect(401);
     await request(app.getHttpServer()).post('/auth/echo').send({ value: 'private' }).expect(401);
     await request(app.getHttpServer()).get('/chat/conversations').set('x-user-id', 'forged').expect(401);
   });

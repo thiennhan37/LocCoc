@@ -1,5 +1,39 @@
 # Ranked Home feed
 
+## Current behavior (2026-11-18)
+
+The user's latest instruction replaces the ranking below with newest capture time
+first: `coalesce(captured_at, created_at) DESC, id DESC`, across all eligible posts.
+Seen/mine flags never reorder posts. API adds `capturedAt` while retaining
+`createdAt`; mobile displays capture time with creation-time fallback. Versioned
+`time-v2` cursors use this same key; old cursors return 400 and trigger mobile's
+existing refresh recovery. Snapshot creation-time cutoff still excludes newly
+published records until refresh. See ADR-023.
+
+Mobile warms the current and next two protected preview images asynchronously
+as soon as metadata arrives and whenever the pager position changes. One batch
+of at most three background requests is active; rapid swipes replace the desired
+next batch. Errors remain retryable and prefetch never records views. Metadata
+pagination starts four posts before the loaded boundary. The session cache keeps
+at most six image futures. Backend restart alone cannot install mobile behavior.
+
+## Previous implementation and diagnosis
+
+2026-11-18 performance correction: Flutter requests `GET /posts/media/{id}?preview=true`
+for feed cards. Post returns a JPEG at most 960px on its longest edge (quality 0.82),
+with the same current audience checks before and after storage reads and `no-store`.
+The default media request still returns the original PNG; no stored images, visibility,
+or AI embedding inputs change. Both gateways forward the existing route and query.
+The feed API instance keeps at most six image futures in memory, sharing simultaneous
+requests and removing failed downloads for retry. Refresh, disposal, local friendship
+changes and session invalidation discard the cache; it is never persisted to disk.
+
+Diagnosis for `duc_anh_ng`: the live feed returned every eligible shared post; test
+photos were PRIVATE and correctly excluded. Local list response was 17ms and original
+image responses 39–84ms, with a PNG as large as 2,186,458 bytes. The phone APK uses
+the LAN gateway; unauthenticated HTTP connectivity from the phone was confirmed.
+These local timings do not measure authenticated photo throughput on the phone.
+
 User approved implementation of the proposed behavior on 2026-11-13.
 
 Home scrolls into real posts, reloading after a successful publish. Ranking is: (0) own unseen posts within POST_FEED_OWN_PRIORITY_HOURS (default 24), (1) unseen friends' posts, (2) own older unseen posts, (3) all seen posts. Within each bucket order by createdAt DESC, id DESC. Deleted posts and non-friends are excluded. Existing friends gain access to historical posts; removing/blocking a friend removes their posts on the next request.

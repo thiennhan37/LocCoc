@@ -18,7 +18,7 @@ public class AiImageClient {
   private final URI endpoint;
   private final HttpClient client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3))
       .followRedirects(HttpClient.Redirect.NEVER).build();
-  public AiImageClient(@Value("${post.ai-service-url:http://127.0.0.1:8082}") String url) {
+  public AiImageClient(@Value("${post.ai-service-url:http://127.0.0.1:8087}") String url) {
     endpoint=URI.create(url.replaceAll("/+$","")+"/ai/images/enhance");
   }
   public Result enhance(byte[] png,String filter,UUID requestId) {

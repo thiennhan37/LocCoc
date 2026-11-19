@@ -23,12 +23,12 @@ import { Account } from './entities/account.entity.js';
 import { Session } from './entities/session.entity.js';
 import { RefreshToken } from './entities/refresh-token.entity.js';
 import {
-  ConsoleOtpSender,
   OTP_SENDER,
   OTP_STORE,
   OtpService,
   RedisHashStore,
 } from './services/otp.service.js';
+import { KafkaOtpSender } from './services/kafka-otp.sender.js';
 import {
   LOCKOUT_STORE,
   LoginLockoutService,
@@ -105,7 +105,7 @@ import {
           client as ConstructorParameters<typeof RedisLockoutStore>[0],
         ),
     },
-    { provide: OTP_SENDER, useClass: ConsoleOtpSender },
+    { provide: OTP_SENDER, useClass: KafkaOtpSender },
   ],
   exports: [
     AuthService,

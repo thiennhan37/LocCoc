@@ -1,0 +1,2 @@
+org.springframework.boot.EnvironmentPostProcessor=\
+com.loccoc.post_service.configuration.LocalAiEnvironment

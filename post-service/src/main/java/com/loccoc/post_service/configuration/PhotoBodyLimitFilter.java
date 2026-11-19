@@ -10,12 +10,16 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class PhotoBodyLimitFilter extends OncePerRequestFilter {
   private static final int LIMIT=8*1024*1024;
   @Override protected boolean shouldNotFilter(HttpServletRequest request) {
-    return !(request.getRequestURI().equals("/posts/photos") || request.getRequestURI().equals("/posts/photos/enhance")) || !request.getMethod().equals("POST");
+    return !(request.getRequestURI().startsWith("/posts") || request.getRequestURI().startsWith("/moments"));
   }
   @Override protected void doFilterInternal(HttpServletRequest request,HttpServletResponse response,FilterChain chain)
       throws IOException,ServletException {
-    byte[] body=request.getContentLengthLong()>LIMIT ? null : request.getInputStream().readNBytes(LIMIT+1);
-    if(body==null || body.length>LIMIT) {
+    response.setHeader("Cache-Control","private, no-store");
+    if(java.util.Set.of("GET","HEAD","DELETE").contains(request.getMethod())) { chain.doFilter(request,response);return; }
+    int limit=request.getMethod().equals("PUT") && request.getRequestURI().matches("/moments/[0-9a-fA-F-]{36}/image") ? 10*1024*1024 : (request.getRequestURI().equals("/posts/photos") || request.getRequestURI().equals("/posts/photos/enhance")) ? LIMIT : 64*1024;
+    if(request.getHeader("Content-Encoding")!=null) { response.setStatus(415);return; }
+    byte[] body=request.getContentLengthLong()>limit ? null : request.getInputStream().readNBytes(limit+1);
+    if(body==null || body.length>limit) {
       response.setStatus(413); response.setContentType("application/json");
       response.getWriter().write("{\"code\":1102,\"message\":\"Request body too large\",\"result\":null}");
       return;

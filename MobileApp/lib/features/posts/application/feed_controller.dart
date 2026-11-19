@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../data/feed_api.dart';
 import '../../auth/data/services/auth_api_client.dart';
@@ -13,6 +14,9 @@ class FeedController extends ChangeNotifier {
   String? _cursor;
   bool get hasMore => _cursor != null;
   int _generation = 0;
+  int _imageIndex = 0;
+  int _imageRevision = 0;
+  bool _prefetching = false;
   final _seen = <String>{};
   final _pendingSeen = <String, Future<bool>>{};
   bool isSeen(FeedPost post) => post.seen || _seen.contains(post.id);
@@ -22,8 +26,11 @@ class FeedController extends ChangeNotifier {
 
   Future<void> refresh() async {
     if (_disposed) return;
+    if (api case FeedImageCache cache) cache.clearImages();
     final version = ++_generation;
     _items = [];
+    _imageIndex = 0;
+    _imageRevision++;
     _cursor = null;
     _seen.clear();
     error = null;
@@ -47,6 +54,7 @@ class FeedController extends ChangeNotifier {
       final ids = _items.map((p) => p.id).toSet();
       _items = [..._items, ...page.data.where((p) => ids.add(p.id))];
       _cursor = page.nextCursor;
+      prepareImages(_imageIndex);
     } catch (failure) {
       if (!_disposed &&
           version == _generation &&
@@ -64,6 +72,40 @@ class FeedController extends ChangeNotifier {
         loading = false;
         _notify();
       }
+    }
+  }
+
+  /// Warm the visible photo and two ahead without holding up metadata or views.
+  void prepareImages(int index) {
+    if (_disposed || api is! ProtectedFeedImages || _items.isEmpty) return;
+    _imageIndex = index < 0 ? 0 : index;
+    _imageRevision++;
+    if (!_prefetching) unawaited(_prefetchImages());
+  }
+
+  Future<void> _prefetchImages() async {
+    _prefetching = true;
+    try {
+      while (!_disposed && _items.isNotEmpty) {
+        final version = _generation;
+        final revision = _imageRevision;
+        final window = _items.skip(_imageIndex).take(3).toList();
+        await Future.wait(
+          window.map((post) async {
+            if (post.mediaType != 0) return;
+            try {
+              await (api as ProtectedFeedImages).image(post.mediaKey);
+            } catch (_) {
+              // Background failures never prevent the visible card from retrying.
+            }
+          }),
+        );
+        if (_disposed || (version == _generation && revision == _imageRevision)) {
+          return;
+        }
+      }
+    } finally {
+      _prefetching = false;
     }
   }
 
@@ -92,6 +134,7 @@ class FeedController extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (api case FeedImageCache cache) cache.clearImages();
     _disposed = true;
     _generation++;
     super.dispose();

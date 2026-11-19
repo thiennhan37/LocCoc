@@ -1,22 +1,18 @@
-# Running the two AI services alongside posts
+# Unified AI and Java Post runtime
 
-Decision: [ADR-015](../adr/ADR-015-separate-ai-services.md), confirmed 2026-11-14.
+The former Nest image runtime is merged into Python `ai-service`. See
+[ADR-020](../adr/ADR-020-unified-python-ai.md) and [deployment guide](unified-ai.md).
 
-| Service | Default port | Gateway variable | Gateway route |
-| --- | --- | --- | --- |
-| Gemini image filtering (ai-service) | 8082 | AI_SERVICE_URL | /ai/* |
-| Photo posts (post-service) | 8087 | POST_SERVICE_URL | /posts and /posts/* |
-| Python embedding/search (ai-service-2) | 8088 | AI_SEARCH_SERVICE_URL (reserved) | None in this merge |
+| Runtime | Port | Responsibility |
+| --- | --- | --- |
+| Python ai-service | 8087 | Enhancement module and internal embeddings/Qdrant search |
+| Java post-service | 8089 | Social posts, private Moments, S3/ACL and indexing/erasure jobs |
+| Nest chat-service | 8083 | Conversations/messages |
 
-The Python service keeps its direct /api/v1/* API and /docs on port 8088. Its
-example environment, documented uvicorn command and search script use this port.
-AI_SEARCH_SERVICE_URL is a distinct validated Gateway configuration value reserved
-for the future integration; it does not create a route by itself.
+Gateway AI_SERVICE_URL and Java POST_AI_SERVICE_URL both target Python (:8087).
+Public image path remains `/ai/images/enhance`; Gateway injects AI_SERVICE_TOKEN
+only for that operation. `/internal/*` also requires the signed Post actor and
+is never exposed through Gateway. Both `/posts` and `/moments` route to Java.
 
-Do not point AI_SERVICE_URL at the Python service: that variable belongs to Gemini.
-The user deferred /ai-search/* until AI2 verifies identity and ownership instead
-of trusting request user_id. Its direct API remains a development interface and
-was not deployed or exercised against live user data during this merge.
-
-Ignored environment files are preserved. Existing PORT=8087 in an AI2 environment
-will still override the new default; use PORT=8088 for simultaneous local runs.
+The `moments` Compose profile starts Python + Java and S3 dependencies. No
+ai-service-2, separate Nest enhancement process, or Nest Moments process is needed.

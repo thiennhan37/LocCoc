@@ -10,6 +10,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'node:crypto';
+import { OTP_POLICY } from './config/otp-policy.js';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Redis } from 'ioredis';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
@@ -69,7 +71,7 @@ export class AuthService {
     return normalized;
   }
 
-  async register(dto: RegisterDto, context: AuthRequestContext = {}): Promise<{ message: string; userId?: string }> {
+  async register(dto: RegisterDto, context: AuthRequestContext = {}): Promise<{ message: string; registrationId: string; expiresIn: number; retryAfter: number }> {
     const email = this.normalizeEmail(dto.email);
     const policyErrors = this.passwords.validatePolicy(dto.password, email);
     if (policyErrors.length) {
@@ -77,61 +79,71 @@ export class AuthService {
       throw new ConflictException({ message: 'Password does not meet policy', errors: policyErrors });
     }
     const phone = this.normalizePhone(dto.phone);
-    const existing = await this.accounts.findOne({ where: { email } });
+    const registrationId = randomUUID();
+    const accepted = { message: 'Registration accepted. Verify the OTP sent to your email.', registrationId,
+      expiresIn: OTP_POLICY.ttlSeconds, retryAfter: OTP_POLICY.resendIntervalSeconds };
+    // Hash even for existing accounts; never expose existence or overwrite active credentials.
+    const passwordHash = await this.passwords.hash(dto.password);
+    const existing = await this.accounts.findOne({ where: { email }, withDeleted: true });
     const existingPhone = phone ? await this.accounts.findOne({ where: { phone } }) : null;
-    if (existing || existingPhone) {
-      await this.passwords.hash(dto.password);
-      return { message: 'Registration accepted. Verify the OTP sent to your email.' };
+    if ((existing && (existing.deletedAt || existing.status !== AccountStatus.PENDING_VERIFICATION)) ||
+        (existingPhone && existingPhone.id !== existing?.id)) {
+      return accepted;
     }
     const user = this.accounts.create({
-      email, phone, passwordHash: await this.passwords.hash(dto.password),
+      email, phone, passwordHash: null,
       role: AccountRole.USER, status: AccountStatus.PENDING_VERIFICATION, emailVerifiedAt: null,
     });
     let saved: Account;
     try {
-      saved = await this.accounts.save(user);
+      saved = existing ?? await this.accounts.save(user);
     } catch (error) {
       if (typeof error === 'object' && error !== null && (error as { code?: string }).code === '23505') {
-        return { message: 'Registration accepted. Verify the OTP sent to your email.' };
+        // A concurrent registration won the unique constraint. The caller can safely start again.
+        return accepted;
       }
       throw error;
     }
-    try { await this.otps.issue(email, context.ip ?? 'unknown', 'email'); }
-    catch (error) {
-      if (error instanceof Error && /limit|frequent/i.test(error.message)) throw new HttpException(error.message, HttpStatus.TOO_MANY_REQUESTS);
-      throw error;
-    }
-    return { message: 'Registration accepted. Verify the OTP sent to your email.', userId: saved.id };
+    await this.otps.createRegistration(registrationId, { email, accountId: saved.id, passwordHash }, context.ip ?? 'unknown');
+    return accepted;
   }
 
   async verifyOtp(dto: VerifyOtpDto): Promise<{ verified: boolean; message: string }> {
     const destination = dto.email ? this.normalizeEmail(dto.email) : this.normalizePhone(dto.phone ?? undefined);
     if (!destination) return { verified: false, message: 'Invalid verification request' };
-    const verified = await this.otps.verify(destination, dto.otp);
-    if (!verified) return { verified: false, message: 'Invalid or expired OTP' };
+    const invalid = { verified: false, message: 'Invalid or expired OTP' };
     if (dto.email) {
-      const account = await this.accounts.findOne({ where: { email: this.normalizeEmail(dto.email) } });
-      if (account && account.status === AccountStatus.PENDING_VERIFICATION) {
+      if (!dto.registrationId) return invalid;
+      const challenge = await this.otps.verifyRegistration(destination, dto.registrationId, dto.otp);
+      if (!challenge) return invalid;
+      const activate = async (accounts: Repository<Account>, locked: boolean) => {
+        const account = await accounts.findOne({ where: { id: challenge.accountId, email: destination },
+          ...(locked ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
+        if (!account || account.status !== AccountStatus.PENDING_VERIFICATION || account.deletedAt) return false;
         account.status = AccountStatus.ACTIVE;
         account.emailVerifiedAt = new Date();
-        await this.accounts.save(account);
-      }
+        account.passwordHash = challenge.passwordHash;
+        await accounts.save(account);
+        return true;
+      };
+      const activated = this.dataSource
+        ? await this.dataSource.transaction(manager => activate(manager.getRepository(Account), true))
+        : await activate(this.accounts, false);
+      return activated ? { verified: true, message: 'OTP verified' } : invalid;
     }
-    return { verified: true, message: 'OTP verified' };
+    return await this.otps.verify(destination, dto.otp) ? { verified: true, message: 'OTP verified' } : invalid;
   }
 
-  async resendOtp(dto: ResendOtpDto, context: AuthRequestContext = {}): Promise<{ message: string }> {
+  async resendOtp(dto: ResendOtpDto, context: AuthRequestContext = {}): Promise<{ message: string; expiresIn: number; retryAfter: number }> {
+    const accepted = { message: 'If the registration is pending, an OTP will be sent.',
+      expiresIn: OTP_POLICY.ttlSeconds, retryAfter: OTP_POLICY.resendIntervalSeconds };
     const destination = dto.email ? this.normalizeEmail(dto.email) : this.normalizePhone(dto.phone ?? undefined);
-    if (!destination) return { message: 'If the account exists, an OTP will be sent.' };
+    if (!destination || !dto.email || !dto.registrationId || (dto.channel && dto.channel !== 'email')) return accepted;
     const user = dto.email ? await this.accounts.findOne({ where: { email: this.normalizeEmail(dto.email) } }) : undefined;
-    if (user || dto.phone) {
-      try { await this.otps.issue(destination, context.ip ?? 'unknown', dto.channel ?? (dto.phone ? 'phone' : 'email')); }
-      catch (error) {
-        if (error instanceof Error && /limit|frequent/i.test(error.message)) throw new HttpException(error.message, HttpStatus.TOO_MANY_REQUESTS);
-        throw error;
-      }
+    if (user?.status === AccountStatus.PENDING_VERIFICATION) {
+      await this.otps.resendRegistration(destination, dto.registrationId, context.ip ?? 'unknown');
     }
-    return { message: 'If the account exists, an OTP will be sent.' };
+    return accepted;
   }
 
   async login(dto: LoginDto, context: AuthRequestContext = {}): Promise<Record<string, unknown>> {

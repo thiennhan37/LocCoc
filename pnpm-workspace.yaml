@@ -2,7 +2,6 @@ packages:
   - api-gateway
   - auth-service
   - user-service
-  - ai-service
   - chat-service
   - notification-service
   - admin-dashboard

@@ -45,6 +45,8 @@ import '../../../users/data/user_api_client.dart';
 import '../../../users/presentation/friends_screen.dart';
 import '../../../users/presentation/edit_profile_screen.dart';
 import '../../../settings/presentation/settings_privacy_screen.dart';
+import '../../../moments/data/moment_api.dart';
+import '../../../moments/presentation/moments_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final CameraSession? camera;
@@ -77,7 +79,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     AuthorFeedApi(SessionFeedApi(_effectiveUserApi), () => _selectedAuthor.id),
   );
   late final PostReactionApi _reactions = PostReactionApi(_effectiveUserApi);
-  late final MemoriesController _memories = MemoriesController(
+  late final MemoriesController _calendar = MemoriesController(
     SessionFeedApi(_effectiveUserApi),
     session.user.id,
   );
@@ -86,11 +88,120 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   AuthorChoice _selectedAuthor = const AuthorChoice(null, 'Tất cả bạn bè');
   bool _authorMenuOpen = false;
 
+  List<Map<String, dynamic>> _memories = [];
+  bool _memoriesLoading = false;
+  bool _memoriesLoadingMore = false;
+  bool _memoriesLoaded = false;
+  String? _memoriesCursor;
+  String? _memoriesError;
+  String? _memoriesMoreError;
+  int _memoriesRevision = 0;
+  final Map<String, Future<Uint8List>> _memoryImages = {};
+
   Future<void> _refreshHome() async {
     await Future.wait([
       _refreshSocialSummary(),
       if (_realSession) _feed.refresh(),
+      if (_realSession) _loadMemories(),
     ]);
+  }
+
+  Future<void> _loadMemories({bool more = false}) async {
+    if (!mounted || !_realSession || _isLoggingOut || _isDeletingAccount) {
+      return;
+    }
+    if (more &&
+        (_memoriesLoading || _memoriesLoadingMore || _memoriesCursor == null)) {
+      return;
+    }
+    final cursor = more ? _memoriesCursor : null;
+    final revision = ++_memoriesRevision;
+    setState(() {
+      _memoriesLoading = !more;
+      _memoriesLoadingMore = more;
+      _memoriesError = null;
+      _memoriesMoreError = null;
+    });
+    try {
+      final api = MomentApi(_effectiveUserApi);
+      final res = await api.list(cursor: cursor);
+      if (!mounted || revision != _memoriesRevision) return;
+      final rawItems = res['items'];
+      if (rawItems is! List) throw const FormatException('Invalid memories');
+      final items = rawItems
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      final nextCursor = res['nextCursor'] as String?;
+      setState(() {
+        _memories = more
+            ? {
+                for (final item in [..._memories, ...items]) item['id']: item,
+              }.values.toList()
+            : items;
+        _memoriesCursor = nextCursor;
+        _memoriesLoaded = true;
+        _memoriesLoading = false;
+        _memoriesLoadingMore = false;
+        _memoriesError = null;
+      });
+    } catch (e) {
+      if (!mounted || revision != _memoriesRevision) return;
+      setState(() {
+        _memoriesLoaded = true;
+        _memoriesLoading = false;
+        _memoriesLoadingMore = false;
+        if (more) {
+          _memoriesMoreError = 'Chưa thể tải thêm kỷ niệm. Hãy thử lại.';
+        } else {
+          _memoriesError = 'Chưa thể tải kỷ niệm. Hãy thử lại.';
+        }
+      });
+    }
+  }
+
+  Future<Uint8List> _getMemoryImage(String id) {
+    return _memoryImages.putIfAbsent(
+      id,
+      () => _effectiveUserApi.momentImage(id),
+    );
+  }
+
+  void _retryMemoryImage(String id) {
+    setState(() {
+      _memoryImages.remove(id);
+    });
+  }
+
+  String _formatMemoryDate(dynamic rawDate) {
+    if (rawDate == null) return 'Hôm nay';
+    DateTime? dt;
+    if (rawDate is DateTime) {
+      dt = rawDate.toLocal();
+    } else if (rawDate is String) {
+      dt = DateTime.tryParse(rawDate)?.toLocal();
+    }
+    if (dt == null) return 'Hôm nay';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(dt.year, dt.month, dt.day);
+    final diffDays = today.difference(target).inDays;
+    if (diffDays == 0) return 'Hôm nay';
+    if (diffDays == 1) return 'Hôm qua';
+    if (dt.year == now.year) {
+      return '${dt.day} tháng ${dt.month}';
+    }
+    return '${dt.day}/${dt.month}/${dt.year}';
+  }
+
+  Future<void> _openMomentsSearch() async {
+    if (!_realSession) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            MomentsScreen(api: MomentApi(_effectiveUserApi), active: true),
+      ),
+    );
+    unawaited(_loadMemories());
   }
 
   Map<String, dynamic>? _editedProfile;
@@ -192,12 +303,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _authService.updateSession(session);
     if (_realSession) unawaited(_feed.refresh());
     if (_realSession && _currentTab == HomeTab.memories) {
-      unawaited(_memories.refresh());
+      unawaited(_calendar.refresh());
     }
     _authService.addReplacementCleanup(_prepareSessionReplacement);
     WidgetsBinding.instance.addObserver(this);
     if (_realSession) {
       _refreshSocialSummary();
+      if (_currentTab == HomeTab.memories || _currentTab == HomeTab.profile) {
+        unawaited(_loadMemories());
+      }
       if (widget.profile == null) unawaited(_loadProfile());
       _refreshNotifications();
       _notificationTimer = Timer.periodic(
@@ -301,7 +415,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     _homePages.dispose();
     _feed.dispose();
-    _memories.dispose();
+    _calendar.dispose();
     _authService.removeReplacementCleanup(_prepareSessionReplacement);
     _chat?.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -570,6 +684,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _notificationTimer?.cancel();
     _countsVersion++;
     _socialVersion++;
+    _memoriesRevision++;
+    _memoriesLoaded = false;
+    _memoriesCursor = null;
+    _memoriesLoadingMore = false;
+    _memoriesMoreError = null;
+    _memories.clear();
+    _memoryImages.clear();
     _push?.dispose();
   }
 
@@ -827,6 +948,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ),
   );
 
+  Widget _buildProtectedPhoto(FeedApi api, FeedPost post) =>
+      FutureBuilder<Uint8List>(
+        future: (api as ProtectedFeedImages).image(post.mediaKey),
+        builder: (_, snapshot) {
+          if (snapshot.hasData) {
+            return Image.memory(
+              snapshot.data!,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) =>
+                  const Icon(Icons.broken_image_outlined),
+            );
+          }
+          return Icon(
+            snapshot.hasError
+                ? Icons.broken_image_outlined
+                : Icons.photo_outlined,
+          );
+        },
+      );
+
   Future<void> _openPhotoGallery() async {
     final controller = GalleryController(
       SessionFeedApi(_effectiveUserApi),
@@ -836,7 +977,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => PhotoGalleryScreen(controller: controller),
+          builder: (_) => PhotoGalleryScreen(
+            controller: controller,
+            imageBuilder: (post) => _buildProtectedPhoto(controller.api, post),
+          ),
         ),
       );
     } finally {
@@ -883,6 +1027,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     onHistory: _openHistory,
     onPublished: (_) {
       unawaited(_feed.refresh());
+      unawaited(_loadMemories());
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Đã đăng khoảnh khắc của bạn.')),
       );
@@ -909,38 +1054,84 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _feed.refresh();
   }
 
-  Widget _buildHomeHeader() => Row(
+  Widget _buildHomeHeader() => Column(
+    mainAxisSize: MainAxisSize.min,
     children: [
-      IconButton.filledTonal(
-        key: const ValueKey('open-photo-gallery'),
-        tooltip: 'Thư viện ảnh',
-        onPressed: _openPhotoGallery,
-        style: IconButton.styleFrom(backgroundColor: const Color(0xFF202020)),
-        icon: const Icon(Icons.grid_view_rounded, color: Colors.white),
+      Row(
+        children: [
+          IconButton.filledTonal(
+            key: const ValueKey('open-photo-gallery'),
+            tooltip: 'Thư viện ảnh',
+            onPressed: _openPhotoGallery,
+            style: IconButton.styleFrom(
+              backgroundColor: const Color(0xFF202020),
+            ),
+            icon: const Icon(Icons.grid_view_rounded, color: Colors.white),
+          ),
+          IconButton.filledTonal(
+            tooltip: 'Thông báo',
+            onPressed: _realSession ? _openNotifications : null,
+            style: IconButton.styleFrom(
+              backgroundColor: const Color(0xFF202020),
+            ),
+            icon: Badge(
+              isLabelVisible: _unseenCount > 0,
+              label: Text('$_unseenCount'),
+              child: const Icon(Icons.campaign_outlined, color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: FilledButton.icon(
+              onPressed: _realSession ? _chooseHomeAuthor : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF202020),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 14,
+                ),
+              ),
+              icon: Icon(
+                _authorMenuOpen ? Icons.expand_less : Icons.expand_more,
+              ),
+              label: Text(
+                _selectedAuthor.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          IconButton(
+            tooltip: 'Mở hồ sơ cá nhân',
+            onPressed: () => _selectTab(HomeTab.profile),
+            icon: _ownAvatar(42),
+          ),
+        ],
       ),
-      const SizedBox(width: 12),
-      Expanded(
-        child: FilledButton.icon(
-          onPressed: _realSession ? _chooseHomeAuthor : null,
-          style: FilledButton.styleFrom(
+      const SizedBox(height: 8),
+      SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          key: const Key('home_chat'),
+          onPressed: _realSession ? _openChat : null,
+          icon: const Icon(Icons.chat_bubble_outline_rounded),
+          label: const Text('Tin nhắn'),
+          style: OutlinedButton.styleFrom(
             backgroundColor: const Color(0xFF202020),
             foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-          ),
-          icon: Icon(_authorMenuOpen ? Icons.expand_less : Icons.expand_more),
-          label: Text(
-            _selectedAuthor.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            side: const BorderSide(color: HomeColors.border),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
           ),
         ),
-      ),
-      const SizedBox(width: 12),
-      IconButton(
-        tooltip: 'Mở hồ sơ cá nhân',
-        onPressed: () => setState(() => _currentTab = HomeTab.profile),
-        icon: _ownAvatar(42),
       ),
     ],
   );
@@ -1015,7 +1206,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       );
       if (mounted && result != null) {
-        await _feed.refresh();
+        await Future.wait([_feed.refresh(), _loadMemories()]);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Đã đăng khoảnh khắc của bạn.')),
@@ -1161,13 +1352,654 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _selectTab(HomeTab tab) {
     setState(() => _currentTab = tab);
     if (tab == HomeTab.memories && _realSession) {
-      unawaited(_memories.refresh());
+      unawaited(_calendar.refresh());
     }
     if (tab == HomeTab.profile) unawaited(_refreshSocialSummary());
+    if ((tab == HomeTab.profile || tab == HomeTab.memories) &&
+        _realSession &&
+        !_memoriesLoaded) {
+      unawaited(_loadMemories());
+    }
   }
 
-  Widget _buildMemoriesTab() =>
-      MemoriesCalendar(controller: _memories, enabled: _realSession);
+  Future<void> _openMemoriesCalendar() async {
+    if (_realSession) unawaited(_calendar.refresh());
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('Lịch kỷ niệm')),
+          body: MemoriesCalendar(
+            controller: _calendar,
+            enabled: _realSession,
+            imageBuilder: (post) => _buildProtectedPhoto(_calendar.api, post),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMemoriesTab() {
+    if (!_realSession) {
+      final memories = [
+        {
+          'tag': 'Hôm nay',
+          'asset': 'assets/images/p1_sunset.png',
+          'desc': 'Hoàng hôn bên hồ',
+        },
+        {
+          'tag': '24 tháng 10',
+          'asset': 'assets/images/p2_cat.png',
+          'desc': 'Mèo cưng phơi nắng',
+        },
+        {
+          'tag': '23 tháng 10',
+          'asset': 'assets/images/p3_coffee.png',
+          'desc': 'Cà phê sớm',
+        },
+      ];
+
+      return Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFFFFBF9), Color(0xFFFFF5F0), Color(0xFFFFFFFF)],
+          ),
+        ),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      const Text(
+                        AppStrings.memoryGallery,
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1E293B),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFECE5),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFFFCCBC)),
+                        ),
+                        child: const Text(
+                          'Bản xem trước',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFFF5722),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          crossAxisSpacing: 6,
+                          mainAxisSpacing: 6,
+                          childAspectRatio: 1.0,
+                        ),
+                    itemCount: memories.length,
+                    itemBuilder: (context, index) =>
+                        _buildMockGridMemoryTile(memories[index]),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFFFFBF9), Color(0xFFFFF5F0), Color(0xFFFFFFFF)],
+        ),
+      ),
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: RefreshIndicator(
+            color: const Color(0xFFFF5722),
+            onRefresh: _loadMemories,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            const Text(
+                              AppStrings.memoryGallery,
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF1E293B),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFECE5),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: const Color(0xFFFFCCBC),
+                                ),
+                              ),
+                              child: Text(
+                                _memories.isEmpty
+                                    ? '0 kỷ niệm'
+                                    : '${_memories.length} kỷ niệm gần đây',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFFFF5722),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        key: const Key('memories_calendar'),
+                        tooltip: 'Lịch kỷ niệm',
+                        onPressed: _openMemoriesCalendar,
+                        icon: const Icon(Icons.calendar_month),
+                      ),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(24),
+                          onTap: _openMomentsSearch,
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFECE5),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: const Color(0xFFFFCCBC),
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.search_rounded,
+                              color: Color(0xFFFF5722),
+                              size: 22,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_memoriesLoading && _memories.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 48),
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          color: Color(0xFFFF5722),
+                        ),
+                      ),
+                    )
+                  else if (_memoriesError != null && _memories.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: const Color(0xFFFFE0D6)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(
+                              0xFFFF5722,
+                            ).withValues(alpha: 0.06),
+                            blurRadius: 16,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            _memoriesError!,
+                            style: const TextStyle(
+                              color: Color(0xFF64748B),
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          ElevatedButton(
+                            onPressed: _loadMemories,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF5722),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: const Text('Thử lại'),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (_memories.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 48,
+                        horizontal: 24,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: const Color(0xFFFFE0D6)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(
+                              0xFFFF5722,
+                            ).withValues(alpha: 0.06),
+                            blurRadius: 16,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFFFECE5),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.photo_library_outlined,
+                              size: 40,
+                              color: Color(0xFFFF5722),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Chưa có kỷ niệm nào',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF1E293B),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Hãy ghi lại và lưu giữ khoảnh khắc đầu tiên của bạn!',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          ElevatedButton.icon(
+                            onPressed: _openCamera,
+                            icon: const Icon(Icons.camera_alt_rounded),
+                            label: const Text('Chụp khoảnh khắc'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF5722),
+                              foregroundColor: Colors.white,
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 22,
+                                vertical: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: 6,
+                            mainAxisSpacing: 6,
+                            childAspectRatio: 1.0,
+                          ),
+                      itemCount: _memories.length,
+                      itemBuilder: (context, index) =>
+                          _buildGridMemoryTile(_memories[index]),
+                    ),
+                  if (_memoriesMoreError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: Text(
+                        _memoriesMoreError!,
+                        style: const TextStyle(color: Color(0xFF64748B)),
+                      ),
+                    ),
+                  if (_memoriesCursor != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: TextButton(
+                        key: const Key('memories_load_more'),
+                        onPressed: _memoriesLoading || _memoriesLoadingMore
+                            ? null
+                            : () => _loadMemories(more: true),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFFFF5722),
+                        ),
+                        child: Text(
+                          _memoriesLoadingMore
+                              ? 'Đang tải thêm...'
+                              : 'Xem thêm kỷ niệm',
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGridMemoryTile(Map<String, dynamic> m) {
+    final id = m['id']?.toString() ?? '';
+    final dateTag = _formatMemoryDate(m['capturedAt'] ?? m['createdAt']);
+
+    return GestureDetector(
+      onTap: () => _showMemoryDetailDialog(m),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFFFE0D6)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            FutureBuilder<Uint8List>(
+              future: _getMemoryImage(id),
+              builder: (context, snap) {
+                if (snap.hasData) {
+                  return Image.memory(snap.data!, fit: BoxFit.cover);
+                }
+                if (snap.hasError) {
+                  return Center(
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.refresh_rounded,
+                        color: Color(0xFFFF5722),
+                        size: 20,
+                      ),
+                      onPressed: () => _retryMemoryImage(id),
+                    ),
+                  );
+                }
+                return Container(
+                  color: const Color(0xFFFFF0EB),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFFFF5722),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.65),
+                    ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+                child: Text(
+                  dateTag,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMemoryDetailDialog(Map<String, dynamic> m) {
+    final id = m['id']?.toString() ?? '';
+    final dateTag = _formatMemoryDate(m['capturedAt'] ?? m['createdAt']);
+    final caption = (m['caption'] as String?)?.trim();
+    final place = (m['place'] as String?)?.trim();
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFFFFFBF9),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.fromLTRB(
+            20,
+            12,
+            20,
+            MediaQuery.of(ctx).padding.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFCCBC),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: AspectRatio(
+                  aspectRatio: 1.0,
+                  child: FutureBuilder<Uint8List>(
+                    future: _getMemoryImage(id),
+                    builder: (context, snap) {
+                      if (snap.hasData) {
+                        return Image.memory(snap.data!, fit: BoxFit.cover);
+                      }
+                      return Container(
+                        color: const Color(0xFFFFF0EB),
+                        child: const Center(
+                          child: CircularProgressIndicator(
+                            color: Color(0xFFFF5722),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (caption != null && caption.isNotEmpty) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.favorite_rounded,
+                      color: Color(0xFFFF5722),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        caption,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1E293B),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+              Row(
+                children: [
+                  const Icon(
+                    Icons.access_time_rounded,
+                    color: Color(0xFF64748B),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    dateTag,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (place != null && place.isNotEmpty) ...[
+                    const SizedBox(width: 14),
+                    const Icon(
+                      Icons.location_on_outlined,
+                      color: Color(0xFF64748B),
+                      size: 16,
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        place,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMockGridMemoryTile(Map<String, String> m) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFFE0D6)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _buildSafeAssetImage(m['asset']!),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.65),
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+              child: Text(
+                m['tag']!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   // ==========================================
   // TAB 2: HỒ SƠ CÁ NHÂN (PROFILE PAGE)
@@ -1177,25 +2009,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: RefreshIndicator(
-          onRefresh: _refreshSocialSummary,
+          onRefresh: () async {
+            await Future.wait([
+              _refreshSocialSummary(),
+              if (_realSession) _loadMemories(),
+            ]);
+          },
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _buildAccountSearchBar(),
-                const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        key: const Key('home_chat'),
-                        onPressed: _realSession ? _openChat : null,
-                        icon: const Icon(Icons.chat_bubble_outline_rounded),
-                        label: const Text('Tin nhắn'),
-                      ),
-                    ),
+                    Expanded(child: _buildAccountSearchBar()),
+                    const SizedBox(width: 8),
                     IconButton(
                       tooltip: 'Thông báo',
                       onPressed: _realSession ? _openNotifications : null,
@@ -1210,10 +2039,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       onPressed: _isLoggingOut || _isDeletingAccount
                           ? null
                           : _logout,
-                      icon: const Icon(Icons.logout_rounded),
+                      style: IconButton.styleFrom(
+                        backgroundColor: HomeColors.surface,
+                        padding: const EdgeInsets.all(12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          side: const BorderSide(color: HomeColors.border),
+                        ),
+                      ),
+                      icon: const Icon(
+                        Icons.logout_rounded,
+                        color: HomeColors.textPrimary,
+                      ),
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
                 // Top Profile Navigation Bar
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1417,7 +2258,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 22),
 
-                const Text('Bản xem trước · Bộ sưu tập mẫu'),
                 // Memory Gallery Preview
                 Wrap(
                   spacing: 12,
@@ -1433,7 +2273,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     GestureDetector(
-                      onTap: () => _selectTab(HomeTab.memories),
+                      onTap: _openMemoriesCalendar,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: const [
@@ -1457,26 +2297,49 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ],
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  height: 120,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      _buildMemoryMiniCard(
-                        'assets/images/p1_sunset.png',
-                        'Hôm nay',
+                if (_realSession && _memories.isNotEmpty)
+                  SizedBox(
+                    height: 120,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: _memories
+                          .take(5)
+                          .map(_buildRealMemoryMiniCard)
+                          .toList(),
+                    ),
+                  )
+                else if (_realSession && _memories.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      'Chưa có kỷ niệm nào.',
+                      style: TextStyle(
+                        color: HomeColors.textSecondary,
+                        fontSize: 13,
                       ),
-                      _buildMemoryMiniCard(
-                        'assets/images/p2_cat.png',
-                        '24 tháng 10',
-                      ),
-                      _buildMemoryMiniCard(
-                        'assets/images/p3_coffee.png',
-                        '23 tháng 10',
-                      ),
-                    ],
+                    ),
+                  )
+                else
+                  SizedBox(
+                    height: 120,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        _buildMemoryMiniCard(
+                          'assets/images/p1_sunset.png',
+                          'Hôm nay',
+                        ),
+                        _buildMemoryMiniCard(
+                          'assets/images/p2_cat.png',
+                          '24 tháng 10',
+                        ),
+                        _buildMemoryMiniCard(
+                          'assets/images/p3_coffee.png',
+                          '23 tháng 10',
+                        ),
+                      ],
+                    ),
                   ),
-                ),
                 const SizedBox(height: 20),
 
                 // Settings Items
@@ -1569,6 +2432,77 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildRealMemoryMiniCard(Map<String, dynamic> m) {
+    final id = m['id']?.toString() ?? '';
+    final tag = _formatMemoryDate(m['capturedAt'] ?? m['createdAt']);
+    return GestureDetector(
+      onTap: () => setState(() => _currentTab = HomeTab.memories),
+      child: Container(
+        width: 110,
+        margin: const EdgeInsets.only(right: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: HomeColors.border),
+          color: HomeColors.surface,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            FutureBuilder<Uint8List>(
+              future: _getMemoryImage(id),
+              builder: (context, snap) {
+                if (snap.hasData) {
+                  return Image.memory(snap.data!, fit: BoxFit.cover);
+                }
+                return Container(
+                  color: HomeColors.surface,
+                  child: const Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: HomeColors.primary,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.65),
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: 8,
+              left: 8,
+              right: 8,
+              child: Text(
+                tag,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

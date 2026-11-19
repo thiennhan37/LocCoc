@@ -1,3 +1,5 @@
+> Superseded 2026-11-17 by [ADR-020: Unified Python AI](ADR-020-unified-python-ai.md). The image enhancement implementation now lives in Python ai-service.
+
 # ADR-015: Separate Gemini filtering and Python semantic search
 
 Date: 2026-11-14. Status: accepted by the user during the main merge into

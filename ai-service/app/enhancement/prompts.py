@@ -1,0 +1,30 @@
+# Original fixed prompts by NhanTr, ported from the Nest image service.
+from types import MappingProxyType
+
+PROMPTS = MappingProxyType(
+    {
+        "handwritten_diary": """Edit the supplied image while preserving the main subject, composition,
+faces, identity, body shape, and natural colors. Add a stylish, relaxed,
+casual hand-drawn overlay using thin white pen lines. Lines should feel
+slightly rough, gently imperfect, and mostly continuous. Add a few contour
+lines that follow the outside edges of prominent objects. Use very few arrows
+or dotted paths to guide the eye.
+
+Add no more than two extremely short handwritten Vietnamese comments, each
+one to four words, in a positive, sweet, diary-like emotional voice. Keep all
+writing away from faces and important subject details. Add only a restrained
+number of small steam marks, sparkles, hearts, or simple emoticon faces. Leave
+generous negative space. Do not overcrowd the image, replace the background,
+alter the primary subject, add a logo, or add a watermark.""",
+        "subject_sticker": """Identify the single primary subject in the supplied image. Remove the entire
+background precisely while preserving the subject's recognizable appearance,
+edges, proportions, details, and natural colors. Return only the isolated
+subject on a perfectly flat, solid chroma-key green background (RGB 0, 255, 0).
+Add one clean, continuous, closed, evenly thick white outline around the
+subject, including any green subject details. Leave a generous green margin
+on all four sides; the subject and outline must not touch the canvas edges.
+The green background will be removed by software. Do not simulate transparency
+with a checkerboard. Do not add text, shadow, gradients, texture, decoration,
+a logo, or a watermark.""",
+    }
+)

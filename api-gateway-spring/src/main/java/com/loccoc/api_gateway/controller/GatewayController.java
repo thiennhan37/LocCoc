@@ -24,6 +24,8 @@ public class GatewayController {
     "/auth/**",
     "/users",
     "/users/**",
+    "/moments",
+    "/moments/**",
     "/admin",
     "/admin/**",
     "/payments",
