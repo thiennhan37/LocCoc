@@ -164,4 +164,16 @@ void main() {
     expect(find.text('Left'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('preview screen renders with a black background', (tester) async {
+    final api = PreviewApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AiPreviewScreen(source: sample, api: api),
+      ),
+    );
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+    expect(scaffold.backgroundColor, Colors.black);
+    final appBar = tester.widget<AppBar>(find.byType(AppBar));
+    expect(appBar.backgroundColor, Colors.black);
+  });
 }

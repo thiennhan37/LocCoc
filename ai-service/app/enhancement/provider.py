@@ -1,10 +1,13 @@
 import base64
 import binascii
+import logging
 
 from google import genai
 from google.genai import types
 
 from app.enhancement.errors import EnhancementError
+
+LOG = logging.getLogger("loccoc.enhancement.provider")
 
 
 class GeminiImageProvider:
@@ -29,7 +32,7 @@ class GeminiImageProvider:
             model=self.settings.GEMINI_IMAGE_MODEL,
             store=False,
             stream=False,
-            response_format={"type": "image", **({"mime_type": "image/jpeg"} if sticker else {})},
+            response_format={"type": "image"},
             input=[
                 {"type": "text", "text": prompt},
                 {"type": "image", "data": base64.b64encode(data).decode("ascii"), "mime_type": mime},
@@ -41,24 +44,40 @@ class GeminiImageProvider:
                 automatic_continuation=False,
                 timeout=self.settings.AI_REQUEST_TIMEOUT_MS / 1000,
             )
-        except Exception:
+        except Exception as exc:
+            LOG.warning(
+                "Gemini image provider call failed sticker=%s errorType=%s status=%s",
+                sticker,
+                type(exc).__name__,
+                getattr(exc, "code", getattr(exc, "status_code", None)),
+            )
             raise EnhancementError(
                 "PROVIDER_FAILURE", 502, "Provider failed to process the request"
             ) from None
         result = result if isinstance(result, dict) else result.model_dump()
         if result.get("status") != "completed" or not isinstance(result.get("steps"), list):
+            LOG.warning("Gemini interaction incomplete status=%s", result.get("status"))
             raise invalid()
         outputs = [
             step for step in result["steps"] if isinstance(step, dict) and step.get("type") == "model_output"
         ]
-        if (
-            len(outputs) != 1
-            or not isinstance(outputs[0].get("content"), list)
-            or len(outputs[0]["content"]) != 1
-        ):
+        image_blocks = []
+        for step in outputs:
+            parts = step.get("content")
+            if not isinstance(parts, list):
+                raise invalid()
+            for part in parts:
+                if not isinstance(part, dict):
+                    raise invalid()
+                if part.get("type") == "image":
+                    image_blocks.append(part)
+                elif part.get("type") not in ("thought", "text"):
+                    raise invalid()
+        if len(image_blocks) != 1:
+            LOG.warning("Gemini returned %d image blocks (expected 1)", len(image_blocks))
             raise invalid()
-        content = outputs[0]["content"][0]
-        if not isinstance(content, dict) or content.get("type") != "image" or content.get("uri"):
+        content = image_blocks[0]
+        if content.get("uri"):
             raise invalid()
         encoded = content.get("data")
         if not isinstance(encoded, str) or not encoded or not isinstance(content.get("mime_type"), str):
@@ -68,12 +87,12 @@ class GeminiImageProvider:
                 "PROVIDER_OUTPUT_TOO_LARGE", 502, "AI image exceeds the configured size limit"
             )
         try:
-            data = base64.b64decode(encoded, validate=True)
-            if base64.b64encode(data).decode("ascii") != encoded:
+            decoded = base64.b64decode(encoded, validate=True)
+            if base64.b64encode(decoded).decode("ascii") != encoded:
                 raise ValueError()
         except (ValueError, binascii.Error):
             raise invalid() from None
-        return data
+        return decoded
 
 
 def invalid():

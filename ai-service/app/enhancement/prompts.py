@@ -18,13 +18,14 @@ generous negative space. Do not overcrowd the image, replace the background,
 alter the primary subject, add a logo, or add a watermark.""",
         "subject_sticker": """Identify the single primary subject in the supplied image. Remove the entire
 background precisely while preserving the subject's recognizable appearance,
-edges, proportions, details, and natural colors. Return only the isolated
-subject on a perfectly flat, solid chroma-key green background (RGB 0, 255, 0).
-Add one clean, continuous, closed, evenly thick white outline around the
-subject, including any green subject details. Leave a generous green margin
-on all four sides; the subject and outline must not touch the canvas edges.
-The green background will be removed by software. Do not simulate transparency
-with a checkerboard. Do not add text, shadow, gradients, texture, decoration,
-a logo, or a watermark.""",
+edges, proportions, details, and natural colors. Center and scale the isolated
+subject slightly inward (occupying roughly 70% to 85% of the canvas) on a
+perfectly flat, solid, uniform chroma-key green background (#00FF00, RGB 0, 255, 0)
+so a clear green margin surrounds the entire sticker on all four sides.
+Add one clean, continuous, closed, evenly thick white die-cut sticker outline
+around the entire subject, separating any green details on the subject from the
+green background. The green background will be removed by software. Do not
+simulate transparency with a checkerboard. Do not add text, shadow, gradients,
+vignette, texture, decoration, a logo, or a watermark.""",
     }
 )

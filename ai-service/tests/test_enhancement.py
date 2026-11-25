@@ -311,7 +311,7 @@ async def test_adapter_preserves_fixed_prompt_disables_storage_and_automatic_con
     request = client.interactions.create.await_args.kwargs
     assert request["store"] is False and request["stream"] is False
     assert request["automatic_continuation"] is False
-    assert request["response_format"] == {"type": "image", "mime_type": "image/jpeg"}
+    assert request["response_format"] == {"type": "image"}
     assert request["input"][0]["text"] == PROMPTS["subject_sticker"]
     assert "response_modalities" not in request
 

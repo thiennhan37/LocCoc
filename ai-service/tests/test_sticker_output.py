@@ -28,6 +28,21 @@ async def test_removes_border_key_preserving_outline_and_enclosed_green():
         assert image.getpixel((32, 32))[3] == 255
 
 
+async def test_succeeds_even_when_subject_touches_corners():
+    img = Image.new("RGB", (64, 64), (0, 255, 0))
+    draw = ImageDraw.Draw(img)
+    # Subject touches bottom-left and bottom-right corners (common in close-up/portrait photos)
+    draw.rectangle((0, 24, 63, 63), fill="white")
+    draw.rectangle((6, 30, 57, 63), fill=(40, 50, 70))
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=90)
+    output = await create_transparent_sticker(buf.getvalue(), limit=100000, pixels=4096)
+    with Image.open(io.BytesIO(output)) as sticker:
+        assert sticker.format == "PNG"
+        assert sticker.getpixel((32, 0))[3] == 0
+        assert sticker.getpixel((32, 48))[3] == 255
+
+
 @pytest.mark.parametrize("data", [b"broken", fixture(subject=False), fixture(color="white", subject=False)])
 async def test_rejects_corrupt_or_missing_key_or_subject(data):
     with pytest.raises(EnhancementError, match="INVALID_AI_OUTPUT"):
