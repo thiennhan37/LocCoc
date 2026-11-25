@@ -49,11 +49,24 @@ describe('Post proxy routes', () => {
     expect(url.toString()).toBe('http://localhost:8089/posts/post-id?ownerId=owner-id');
     expect(options.method).toBe('DELETE');
   });
+  it('gives AI preview its own deadline and forwards auth without retries', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      upstream.mockClear();
+      upstream.mockResolvedValueOnce(new Response('{"imageBase64":"aGVsbG8=","mimeType":"image/png"}'));
+      await request(app.getHttpServer()).post('/posts/photos/enhance').set('Authorization','Bearer viewer')
+        .send({requestId:'attempt',filterId:'subject_sticker',imageBase64:'aGVsbG8='}).expect(200);
+      expect(upstream).toHaveBeenCalledTimes(1);
+      expect(upstream.mock.calls[0][0].toString()).toBe('http://localhost:8089/posts/photos/enhance');
+      expect(upstream.mock.calls[0][1].headers.get('authorization')).toBe('Bearer viewer');
+      expect(timeout).toHaveBeenCalledWith(75000);
+    } finally { timeout.mockRestore(); }
+  });
   it('forwards authenticated feed cursor and seen updates to post-service', async () => {
     upstream.mockResolvedValueOnce(new Response('{"data":[],"nextCursor":null}'));
-    await request(app.getHttpServer()).get('/posts/feed?limit=20&cursor=opaque').set('Authorization','Bearer viewer').expect(200);
+    await request(app.getHttpServer()).get('/posts/feed?limit=10&cursor=opaque&ownerId=author').set('Authorization','Bearer viewer').expect(200);
     let [url, options] = upstream.mock.calls.at(-1)!;
-    expect(url.toString()).toBe('http://localhost:8089/posts/feed?limit=20&cursor=opaque');
+    expect(url.toString()).toBe('http://localhost:8089/posts/feed?limit=10&cursor=opaque&ownerId=author');
     expect(options.headers.get('authorization')).toBe('Bearer viewer');
     upstream.mockResolvedValueOnce(new Response(null,{status:204}));
     await request(app.getHttpServer()).put('/posts/post-id/seen').set('Authorization','Bearer viewer').expect(204);

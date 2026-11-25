@@ -73,6 +73,64 @@ class FeedApiTests {
     mvc.perform(get("/posts/feed")).andExpect(status().isUnauthorized());
     mvc.perform(put("/posts/11111111-1111-4111-8111-111111111111/seen")).andExpect(status().isUnauthorized());
   }
+  tools.jackson.databind.JsonNode authorPage(UUID owner, String cursor, int limit) throws Exception {
+    var request=get("/posts/feed").header("Authorization","Bearer valid")
+        .param("ownerId",owner.toString()).param("limit",""+limit);
+    if(cursor!=null) request.param("cursor",cursor);
+    return JsonMapper.builder().build().readTree(mvc.perform(request).andExpect(status().isOk())
+        .andReturn().getResponse().getContentAsString());
+  }
+  @Test void authorPagesAreChronologicalBoundedAndStableAcrossSeenAndNewPosts() throws Exception {
+    seed(SELF,0); seed(STRANGER,0);
+    UUID newest=seed(FRIEND,1), middle=seed(FRIEND,2), oldest=seed(FRIEND,3);
+    UUID deleted=seed(FRIEND,0);
+    jdbc.update("UPDATE moments SET deleted_at=? WHERE id=?",Timestamp.from(Instant.now()),deleted);
+    mvc.perform(put("/posts/{id}/seen",newest).header("Authorization","Bearer valid")).andExpect(status().isNoContent());
+    var first=authorPage(FRIEND,null,2);
+    assertThat(first.get("data").size()).isEqualTo(2);
+    assertThat(first.get("data").get(0).get("id").asText()).isEqualTo(newest.toString());
+    assertThat(first.get("data").get(1).get("id").asText()).isEqualTo(middle.toString());
+    UUID inserted=seed(FRIEND,0);
+    var last=authorPage(FRIEND,first.get("nextCursor").asText(),2);
+    assertThat(last.get("data").size()).isEqualTo(1);
+    assertThat(last.get("data").get(0).get("id").asText()).isEqualTo(oldest.toString());
+    assertThat(last.get("nextCursor").isNull()).isTrue();
+    assertThat(authorPage(FRIEND,null,2).get("data").get(0).get("id").asText()).isEqualTo(inserted.toString());
+  }
+  @Test void authorPaginationChecksAudienceCursorScopeAndTies() throws Exception {
+    UUID a=seed(FRIEND,1),b=seed(FRIEND,1),c=seed(FRIEND,1);
+    jdbc.update("UPDATE moments SET created_at=?",Timestamp.from(Instant.now().minusSeconds(7200)));
+    var ids=new HashSet<String>(); String cursor=null;
+    do {
+      var response=authorPage(FRIEND,cursor,1);
+      assertThat(response.get("data").size()).isEqualTo(1);
+      assertThat(ids.add(response.get("data").get(0).get("id").asText())).isTrue();
+      cursor=response.get("nextCursor").isNull()?null:response.get("nextCursor").asText();
+    } while(cursor!=null);
+    assertThat(ids).containsExactlyInAnyOrder(a.toString(),b.toString(),c.toString());
+    var first=authorPage(FRIEND,null,1); String next=first.get("nextCursor").asText();
+    mvc.perform(get("/posts/feed").header("Authorization","Bearer valid").param("ownerId",SELF.toString()).param("cursor",next)).andExpect(status().isBadRequest());
+    mvc.perform(get("/posts/feed").header("Authorization","Bearer valid").param("ownerId",STRANGER.toString())).andExpect(status().isNotFound());
+    friends=false;
+    mvc.perform(get("/posts/feed").header("Authorization","Bearer valid").param("ownerId",FRIEND.toString()).param("cursor",next)).andExpect(status().isNotFound());
+    mvc.perform(get("/posts/feed").param("ownerId",FRIEND.toString())).andExpect(status().isUnauthorized());
+    for(String limit:List.of("0","51")) mvc.perform(get("/posts/feed").header("Authorization","Bearer valid").param("ownerId",SELF.toString()).param("limit",limit)).andExpect(status().isBadRequest());
+    assertThat(authorPage(SELF,null,10).get("data").isEmpty()).isTrue();
+  }
+  @Test void authorPagesRespectPrivateMomentsAndDraftsAndUseCreationTime() throws Exception {
+    UUID older=seed(FRIEND,2), newer=seed(FRIEND,1), hidden=seed(FRIEND,0), draft=seed(FRIEND,0);
+    jdbc.update("UPDATE moments SET captured_at=? WHERE id=?",Timestamp.from(Instant.now()),older);
+    jdbc.update("UPDATE moments SET visibility='PRIVATE' WHERE id=?",hidden);
+    jdbc.update("UPDATE moments SET state='draft' WHERE id=?",draft);
+    var first=authorPage(FRIEND,null,1);
+    assertThat(first.get("data").get(0).get("id").asText()).isEqualTo(newer.toString());
+    var last=authorPage(FRIEND,first.get("nextCursor").asText(),1);
+    assertThat(last.get("data").get(0).get("id").asText()).isEqualTo(older.toString());
+    assertThat(last.get("nextCursor").isNull()).isTrue();
+    UUID own=seed(SELF,0);
+    jdbc.update("UPDATE moments SET visibility='PRIVATE' WHERE id=?",own);
+    assertThat(authorPage(SELF,null,10).get("data").get(0).get("id").asText()).isEqualTo(own.toString());
+  }
   @Test void newestFirstAcrossOwnersAndSeenStateExcludesStrangersAndDeleted() throws Exception {
     UUID self=seed(SELF,2),friend=seed(FRIEND,1),old=seed(SELF,25),seen=seed(FRIEND,0);
     seed(STRANGER,0); UUID deleted=seed(FRIEND,0); jdbc.update("UPDATE moments SET deleted_at=? WHERE id=?",Timestamp.from(Instant.now()),deleted);

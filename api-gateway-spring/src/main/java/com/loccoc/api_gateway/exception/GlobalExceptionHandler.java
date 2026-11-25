@@ -4,7 +4,9 @@ import com.loccoc.api_gateway.dto.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -26,6 +28,11 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ApiResponse<Void>> handleValidation(
       MethodArgumentNotValidException exception) {
     return ResponseEntity.badRequest().body(ApiResponse.error(ErrorCode.VALIDATION_FAILED));
+  }
+
+  @ExceptionHandler({HttpMessageNotReadableException.class, TypeMismatchException.class})
+  public ResponseEntity<ApiResponse<Void>> handleInvalidInput(Exception exception) {
+    return ResponseEntity.badRequest().body(ApiResponse.error(ErrorCode.INVALID_PARAMETER));
   }
 
   @ExceptionHandler(Exception.class)

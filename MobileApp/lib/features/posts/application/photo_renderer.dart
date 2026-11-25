@@ -111,7 +111,7 @@ class PhotoRenderer {
     canvas.scale(size.width / dimension, size.height / dimension);
     const target = Rect.fromLTWH(0, 0, 1080, 1080);
     canvas.clipRect(target);
-    canvas.drawRect(target, Paint()..color = Colors.black);
+    // Keep the alpha channel of AI stickers when exporting PNG.
     final side = image.width < image.height
         ? image.width.toDouble()
         : image.height.toDouble();

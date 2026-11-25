@@ -53,7 +53,13 @@ class _PostActionsState extends State<PostActions> {
   }
 
   Future<void> _react(String emoji) async {
-    if (_busy || _loading || _summary == null || !widget.active) return;
+    if (widget.post.mine ||
+        _busy ||
+        _loading ||
+        _summary == null ||
+        !widget.active) {
+      return;
+    }
     setState(() => _busy = true);
     try {
       final result = await widget.reactions.set(
@@ -95,6 +101,7 @@ class _PostActionsState extends State<PostActions> {
   }
 
   Future<void> _more() async {
+    if (widget.post.mine || _busy || _loading || !widget.active) return;
     _choosing = true;
     final emoji = await showModalBottomSheet<String>(
       context: context,
@@ -130,7 +137,12 @@ class _PostActionsState extends State<PostActions> {
   @override
   Widget build(BuildContext context) {
     final enabled =
-        widget.active && !_busy && !_loading && !_failed && _summary != null;
+        !widget.post.mine &&
+        widget.active &&
+        !_busy &&
+        !_loading &&
+        !_failed &&
+        _summary != null;
     return Container(
       key: ValueKey('post-actions-${widget.post.id}'),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),

@@ -9,6 +9,6 @@ import org.springframework.data.repository.query.Param;
 
 public interface PostReactionRepository extends JpaRepository<PostReaction,String> {
   interface EmojiCount { String getEmoji(); long getTotal(); }
-  @Query("select r.emoji as emoji, count(r) as total from PostReaction r where r.postId=:postId group by r.emoji")
-  List<EmojiCount> counts(@Param("postId") UUID postId);
+  @Query("select r.emoji as emoji, count(r) as total from PostReaction r where r.postId=:postId and r.viewerId<>:ownerId group by r.emoji")
+  List<EmojiCount> counts(@Param("postId") UUID postId, @Param("ownerId") UUID ownerId);
 }

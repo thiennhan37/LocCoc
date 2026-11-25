@@ -43,6 +43,7 @@ class _CaptureMomentScreenState extends State<CaptureMomentScreen>
   bool _mediaSuspended = false;
   bool _visible = false;
   bool _running = false;
+  Future<void> _cameraTransition = Future.value();
   bool _foreground = true;
   double _edgeDrag = 0;
   bool _advancedFromEdge = false;
@@ -94,11 +95,11 @@ class _CaptureMomentScreenState extends State<CaptureMomentScreen>
     _syncCamera();
   }
 
-  void _syncCamera() {
+  Future<void> _syncCamera() {
     final run = widget.active && _visible && _foreground && !_mediaSuspended;
-    if (_running == run) return;
+    if (_running == run) return _cameraTransition;
     _running = run;
-    unawaited(run ? _camera.start() : _camera.stop());
+    return _cameraTransition = run ? _camera.start() : _camera.stop();
   }
 
   @override
@@ -125,8 +126,7 @@ class _CaptureMomentScreenState extends State<CaptureMomentScreen>
       Uint8List? photo;
       if (gallery) {
         _mediaSuspended = true;
-        _syncCamera();
-        await _camera.stop();
+        await _syncCamera();
         final picked = await _picker.pick(ImageSource.gallery, 'post');
         photo = picked?.bytes;
       } else {
@@ -134,8 +134,7 @@ class _CaptureMomentScreenState extends State<CaptureMomentScreen>
         photo = _camera.photo;
         if (photo == null) return;
         _mediaSuspended = true;
-        _syncCamera();
-        await _camera.stop();
+        await _syncCamera();
       }
       if (!mounted || photo == null) return;
       final result = await Navigator.of(context).push<PublishedPhoto>(

@@ -123,6 +123,7 @@ paths:
               additionalProperties: false
               required: [clientMessageId, text]
               properties:
+                postId: {type: string, format: uuid, description: Bài đăng của người nhận cần phản hồi (tùy chọn)}
                 clientMessageId: {type: string, format: uuid}
                 text: {type: string, minLength: 1, maxLength: 2000, example: 'Xin chào 👋'}
       responses:
@@ -204,6 +205,13 @@ components:
         username: {type: string}
         displayName: {type: string, nullable: true}
         avatarUrl: {type: string, nullable: true}
+    PostAttachment:
+      type: object
+      nullable: true
+      required: [postId, mediaKey]
+      properties:
+        postId: {type: string, format: uuid}
+        mediaKey: {type: string, description: Stable /posts/media/UUID path served by post-service}
     Message:
       type: object
       required: [id, conversationId, senderId, clientMessageId, sequence, text, createdAt]
@@ -213,6 +221,7 @@ components:
         senderId: {type: string, format: uuid}
         clientMessageId: {type: string, format: uuid}
         sequence: {$ref: '#/components/schemas/Sequence'}
+        postAttachment: {$ref: '#/components/schemas/PostAttachment'}
         text: {type: string}
         createdAt: {type: string, format: date-time}
     Conversation:
@@ -232,6 +241,7 @@ components:
             senderId: {type: string, format: uuid}
             clientMessageId: {type: string, format: uuid}
             sequence: {$ref: '#/components/schemas/Sequence'}
+            postAttachment: {$ref: '#/components/schemas/PostAttachment'}
             text: {type: string}
             createdAt: {type: string, format: date-time}
         unreadCount: {type: integer, minimum: 0}

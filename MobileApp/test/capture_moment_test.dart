@@ -20,6 +20,57 @@ class FixturePicker extends ProfileImagePicker {
 }
 
 void main() {
+  testWidgets(
+    'repeated capture then exit without publishing keeps shutter usable',
+    (tester) async {
+      final camera = FakeCameraSession()..status = CameraStatus.ready;
+      var published = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CaptureMomentScreen(
+            ownerId: 'owner',
+            camera: camera,
+            embedded: true,
+            onPublished: (_) => published++,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (var cycle = 0; cycle < 4; cycle++) {
+        final shutter = find.byKey(const ValueKey('capture-moment'));
+        await tester.ensureVisible(shutter);
+        await tester.tap(shutter);
+        await tester.pump();
+        for (
+          var i = 0;
+          i < 50 &&
+              find.byKey(const ValueKey('edited-photo')).evaluate().isEmpty;
+          i++
+        ) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump();
+        }
+        await tester.pumpAndSettle();
+        expect(find.byType(PhotoEditorScreen), findsOneWidget);
+        expect(camera.stops, cycle + 1);
+        if (cycle.isEven) {
+          await tester.ensureVisible(find.byTooltip('Chụp lại'));
+          await tester.tap(find.byTooltip('Chụp lại'));
+        } else {
+          await tester.binding.handlePopRoute();
+        }
+        await tester.pumpAndSettle();
+        expect(camera.photo, isNull);
+        expect(camera.starts, cycle + 2);
+        expect(published, 0);
+        expect(tester.takeException(), isNull);
+      }
+      await tester.pumpWidget(const SizedBox());
+      camera.dispose();
+    },
+  );
   for (final gallery in [false, true]) {
     testWidgets(
       '${gallery ? 'gallery' : 'capture'} forwards session owner and restarts after retake',
@@ -67,7 +118,11 @@ void main() {
               .userApi,
           same(userApi),
         );
-        expect(camera.stops, greaterThan(0));
+        expect(
+          camera.stops,
+          1,
+          reason: 'suspend exactly once before the editor',
+        );
         await tester.ensureVisible(find.byTooltip('Chụp lại'));
         await tester.tap(find.byTooltip('Chụp lại'));
         await tester.pumpAndSettle();

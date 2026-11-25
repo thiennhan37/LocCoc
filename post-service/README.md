@@ -20,3 +20,27 @@ Run `npm run start:post` from the repository root for local development. Its lau
 Existing local PNG migration remains available via `node scripts/migrate-post-media.mjs` (dry run by default). Source legacy Moments data uses the separate `moment-import` profile documented in the guide. No migration runs automatically.
 
 Postman: `postman/LocCoc IAM - API Gateway.postman_collection.json` remains the single collection.
+
+## Feed pagination
+
+`GET /posts/feed` sorts by capture time (falling back to creation time), newest first, independently of seen state. `ownerId` selects an authorized author and uses creation-time order with the `(owner_id, deleted_at, created_at DESC, id DESC)` index. Both paths enforce active state, current audience and visibility; private moments are visible only to their owner. Pages use bounded keyset cursors with a one-hour snapshot; author cursors are scoped to that owner.
+
+## AI preview before publishing (2026-11-17)
+
+- Mobile composer: **Sửa ảnh bằng AI** -> select diary/sticker -> explicitly generate
+  -> compare by holding -> **Dùng ảnh này** -> publish normally. Restore original
+  remains available. Every explicit generation shows the stated 2,000 VND API cost.
+- Authenticated `POST /posts/photos/enhance` takes requestId (UUID), imageBase64
+  (PNG <=5 MiB, <=2048 px), filterId. Returns imageBase64 and mimeType, no post/S3 write.
+- `AI_SERVICE_URL` configures the internal AI origin (default http://127.0.0.1:8087).
+  Gemini credentials/model stay in ai-service; no new provider API is required.
+- Apply the additive `ai_preview_attempts` table/index from schema-postgresql.sql
+  when Hibernate schema update is disabled. Attempts persist before the provider
+  call. Duplicate IDs return 409, including failed/uncertain attempts; new explicit
+  generation uses a new ID and can incur another fee. No automatic retry.
+- Preview deadlines: provider client 65s, either Gateway 75s, mobile 90s. The normal
+  publish path retains its existing behavior. Five attempts/user/minute per instance;
+  multi-instance quota coordination is not included. Ledger contains no images.
+- Test with mocks only. A successful mock proves protocol/flow, not real Gemini
+  compatibility or visual quality. Canceling a preview cannot undo provider billing.
+- Contract and decision: docs/specs/post-ai-preview.md, docs/adr/ADR-020-post-ai-preview.md.

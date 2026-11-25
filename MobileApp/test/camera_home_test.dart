@@ -180,7 +180,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(camera.starts, 1);
     expect(find.text('Một chút hôm nay.'), findsNothing);
-    expect(find.text('3 Bạn bè'), findsOneWidget);
+    expect(find.text('Tất cả bạn bè'), findsOneWidget);
     expect(
       find.byTooltip('Chọn ảnh từ thư viện').hitTestable(),
       findsOneWidget,

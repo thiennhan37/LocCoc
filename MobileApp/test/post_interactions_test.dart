@@ -40,6 +40,63 @@ class FakeReactions implements PostReactionsRepository {
 
 void main() {
   testWidgets(
+    'own post shows counts but cannot submit reactions or message self',
+    (tester) async {
+      final api = FakeReactions();
+      final ownPost = FeedPost(
+        id: post.id,
+        ownerId: post.ownerId,
+        mediaKey: post.mediaKey,
+        authorName: post.authorName,
+        caption: post.caption,
+        createdAt: post.createdAt,
+        mine: true,
+        seen: false,
+        mediaType: post.mediaType,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: Scaffold(
+            body: Center(
+              child: PostActions(
+                post: ownPost,
+                reactions: api,
+                active: true,
+                onMessage: (_) async {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Cảm xúc'), findsOneWidget);
+      expect(find.byKey(const ValueKey('message-author')), findsNothing);
+      for (final emoji in postReactionEmoji.take(3)) {
+        expect(
+          tester
+              .widget<IconButton>(find.byKey(ValueKey('reaction-$emoji')))
+              .onPressed,
+          isNull,
+        );
+      }
+      expect(
+        tester
+            .widget<IconButton>(
+              find.byWidgetPredicate(
+                (widget) =>
+                    widget is IconButton && widget.tooltip == 'Thêm cảm xúc',
+              ),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(api.writes, 0);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
     'small large-text post keeps centered photo and reaction controls visible',
     (tester) async {
       tester.view.physicalSize = const Size(320, 640);

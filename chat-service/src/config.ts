@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { fileURLToPath } from 'node:url';
 import type { DataSourceOptions } from 'typeorm';
+import { AddPostAttachment1794787200000 } from './database/migrations/1794787200000-AddPostAttachment.js';
 import { CreateChat1794528000000 } from './database/migrations/1794528000000-CreateChat.js';
 
 export const chatEnvPath = fileURLToPath(new URL('../.env', import.meta.url));
@@ -21,7 +22,7 @@ export function validateChatEnvironment(input: Record<string, unknown>): Record<
   text('CHAT_DB_PASSWORD'); text('CHAT_DB_NAME', 'chat'); text('CHAT_DB_USER', 'chat_service');
   text('DB_HOST', '127.0.0.1'); text('SERVICE_BIND_HOST', '127.0.0.1');
   integer('DB_PORT', 5433); integer('CHAT_SERVICE_PORT', 8083);
-  for (const [name, fallback] of [['AUTH_SERVICE_URL', 'http://127.0.0.1:8000'], ['USER_SERVICE_URL', 'http://127.0.0.1:8081']] as const) {
+  for (const [name, fallback] of [['POST_SERVICE_URL', 'http://127.0.0.1:8087'], ['AUTH_SERVICE_URL', 'http://127.0.0.1:8000'], ['USER_SERVICE_URL', 'http://127.0.0.1:8081']] as const) {
     let url: URL; try { url = new URL(text(name, fallback)); } catch { throw new Error(`Invalid chat environment: ${name}`); }
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error(`Invalid chat environment: ${name}`);
   }
@@ -41,6 +42,6 @@ export function chatDatabaseOptions(config: ConfigService): DataSourceOptions {
     type: 'postgres', host: config.getOrThrow('DB_HOST'), port: config.getOrThrow('DB_PORT'),
     username: config.getOrThrow('CHAT_DB_USER'), password: config.getOrThrow('CHAT_DB_PASSWORD'),
     database: config.getOrThrow('CHAT_DB_NAME'), synchronize: false, logging: false,
-    migrations: [CreateChat1794528000000], migrationsRun: config.get<boolean>('TYPEORM_MIGRATIONS_RUN', false),
+    migrations: [CreateChat1794528000000, AddPostAttachment1794787200000], migrationsRun: config.get<boolean>('TYPEORM_MIGRATIONS_RUN', false),
   };
 }

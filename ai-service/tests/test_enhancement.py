@@ -181,13 +181,35 @@ def test_corrupt_and_oversize_provider_images(output, code, status):
 
 
 @pytest.mark.parametrize(
-    "fmt,alpha,status", [("PNG", 0, 200), ("PNG", 254, 200), ("PNG", 255, 422), ("JPEG", 255, 422)]
+    "fmt,alpha,status", [("PNG", 0, 422), ("PNG", 254, 422), ("PNG", 255, 422), ("JPEG", 255, 422)]
 )
-def test_sticker_requires_actual_png_transparency(fmt, alpha, status):
+def test_sticker_rejects_outputs_without_key_background_and_subject(fmt, alpha, status):
     app, provider, _ = app_fixture()
     provider.enhance.return_value = image(fmt, alpha)
     with TestClient(app) as client:
         assert upload(client, filter_id="subject_sticker").status_code == status
+
+
+def test_sticker_endpoint_returns_transparent_png_from_provider_jpeg():
+    from PIL import ImageDraw
+
+    generated = Image.new("RGB", (64, 64), (0, 255, 0))
+    draw = ImageDraw.Draw(generated)
+    draw.rectangle((16, 16, 47, 47), fill="white")
+    draw.rectangle((24, 24, 39, 39), fill=(0, 255, 0))
+    encoded = io.BytesIO()
+    generated.save(encoded, "JPEG", quality=90, subsampling=0)
+    app, provider, _ = app_fixture()
+    provider.enhance.return_value = encoded.getvalue()
+    with TestClient(app) as client:
+        response = upload(client, filter_id="subject_sticker")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        with Image.open(io.BytesIO(response.content)) as sticker:
+            assert sticker.getpixel((0, 0))[3] == 0
+            assert sticker.getpixel((32, 32))[3] == 255
+    assert "RGB 0, 255, 0" in provider.enhance.await_args.args[2]
+    provider.enhance.assert_awaited_once()
 
 
 def test_pixel_limit_prevents_large_decoding():
@@ -289,7 +311,7 @@ async def test_adapter_preserves_fixed_prompt_disables_storage_and_automatic_con
     request = client.interactions.create.await_args.kwargs
     assert request["store"] is False and request["stream"] is False
     assert request["automatic_continuation"] is False
-    assert request["response_format"] == {"type": "image", "mime_type": "image/png"}
+    assert request["response_format"] == {"type": "image"}
     assert request["input"][0]["text"] == PROMPTS["subject_sticker"]
     assert "response_modalities" not in request
 

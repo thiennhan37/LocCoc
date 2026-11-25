@@ -28,11 +28,24 @@ class ChatPeer {
   );
 }
 
+class ChatPostAttachment {
+  final String postId, mediaKey;
+  const ChatPostAttachment({required this.postId, required this.mediaKey});
+  factory ChatPostAttachment.fromJson(Map<String, dynamic> json) =>
+      ChatPostAttachment(
+        postId: json['postId'] as String,
+        mediaKey: json['mediaKey'] as String,
+      );
+  Map<String, dynamic> toJson() => {'postId': postId, 'mediaKey': mediaKey};
+}
+
 class ChatMessage {
+  final ChatPostAttachment? postAttachment;
   final String id, conversationId, senderId, clientMessageId, text;
   final BigInt sequence;
   final DateTime createdAt;
   const ChatMessage({
+    this.postAttachment,
     required this.id,
     required this.conversationId,
     required this.senderId,
@@ -42,6 +55,11 @@ class ChatMessage {
     required this.createdAt,
   });
   factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
+    postAttachment: json['postAttachment'] is Map
+        ? ChatPostAttachment.fromJson(
+            Map<String, dynamic>.from(json['postAttachment'] as Map),
+          )
+        : null,
     id: json['id'] as String,
     conversationId: json['conversationId'] as String,
     senderId: json['senderId'] as String,
@@ -52,6 +70,7 @@ class ChatMessage {
   );
   Map<String, dynamic> toJson() => {
     'id': id,
+    'postAttachment': postAttachment?.toJson(),
     'conversationId': conversationId,
     'senderId': senderId,
     'clientMessageId': clientMessageId,

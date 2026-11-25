@@ -1,6 +1,6 @@
 # Spring MVC API Gateway
 
-Java 21, Spring Boot 4.1.1, Redis. Gateway không dùng JPA hoặc database nghiệp vụ.
+Java 21, Spring Boot 4.1.1, Redis. Gateway không dùng JPA hoặc database nghiệp vụ, đạt feature parity đầy đủ với `api-gateway` (NestJS).
 
 ## Chạy
 
@@ -16,54 +16,29 @@ Tự đọc `.env` tại thư mục hiện tại hoặc thư mục cha; biến m
 
 | Prefix | Biến URL | Mặc định |
 |---|---|---|
-| /auth | AUTH_SERVICE_URL | http://localhost:8000 |
-| /users | USER_SERVICE_URL | http://localhost:8081 |
-| /admin | ADMIN_SERVICE_URL | http://localhost:8086 |
-| /payments, /subscriptions | PAYMENT_SERVICE_URL | http://localhost:8085 |
+| `/auth` | `AUTH_SERVICE_URL` | `http://127.0.0.1:8000` |
+| `/users` | `USER_SERVICE_URL` | `http://127.0.0.1:8081` |
+| `/notifications` | `NOTIFICATION_SERVICE_URL` | `http://127.0.0.1:8084` |
+| `/posts`, `/moments` | `POST_SERVICE_URL` | `http://127.0.0.1:8089` |
+| `/chat` | `CHAT_SERVICE_URL` | `http://127.0.0.1:8083` |
+| `/ai` | `AI_SERVICE_URL` | `http://127.0.0.1:8087` |
+| `/admin` | `ADMIN_SERVICE_URL` | `http://127.0.0.1:8086` |
+| `/payments`, `/subscriptions` | `PAYMENT_SERVICE_URL` | `http://127.0.0.1:8085` |
 
-Giữ prefix, query, method, body nguyên gốc, Authorization, cookie và HTTP status từ upstream; giữ nguyên body thành công. Không retry hoặc follow redirect. Hỗ trợ HTTP request/response; không hỗ trợ WebSocket/SSE hoặc streaming file lớn.
+## Các lớp & Tính năng bảo mật
 
-## Các lớp
-
-- `controller`: nhận request, gọi service; health `/` và `/health` là liveness cục bộ.
-- `service`: proxy HTTP, quota và xử lý lỗi upstream.
-- `repository`: lưu quota Redis, Lua INCR/PEXPIRE nguyên tử; không cần entity/JPA.
-- `configuration`: cấu hình URL, HTTP client, CORS.
-- `dto`: ApiResponse<T>, RateLimitDecision.
-- `exception`: ErrorCode, AppException và GlobalExceptionHandler (RestControllerAdvice).
-- `filter`: request ID và security headers.
-
-`RATE_LIMIT_MAX` (100), `RATE_LIMIT_TTL_MS` (60000): quota chung cho các route theo socket IP, dùng chung giữa các instance. 429 có Retry-After. Redis lỗi trả 503; health và CORS preflight không tính quota. Client không thể đổi quota bằng X-Forwarded-For. Khi đặt sau ingress, cần thiết kế trusted proxy riêng để tránh toàn bộ client chung một quota; không bật tin cậy forwarding headers đại trà.
-
-`GATEWAY_CONNECT_TIMEOUT_MS` (3000), `GATEWAY_REQUEST_TIMEOUT_MS` (10000), `GATEWAY_MAX_BODY_BYTES` (1048576), `CORS_ORIGINS` (danh sách origin phân cách bằng dấu phẩy), `GATEWAY_PORT` (8080). Redis dùng REDIS_URL (mặc định redis://localhost:6379; có thể cấu hình credentials trong URL qua biến môi trường). URL service phải là HTTP(S) origin, không chứa path/query/credentials.
-
-Gateway error mẫu:
-
-```json
-{"code":1104,"message":"Upstream service unavailable","result":null}
-```
-
-Gateway lỗi: 413 body quá lớn, 429 hết quota, 502 lỗi kết nối/response quá lớn, 503 Redis lỗi, 504 timeout. Lỗi HTTP 4xx/5xx từ downstream được chuẩn hóa thành code/message/result; HTTP status được giữ nguyên. Header Retry-After, WWW-Authenticate, Allow và Set-Cookie được bảo toàn. Nội dung lỗi gốc, SQL và exception không trả cho client. x-request-id nằm trong header. Response thành công giữ nguyên (bao gồm HTTP 200 với verified=false). Gateway chuyển tiếp thông tin xác thực; kiểm tra JWT/RBAC vẫn thuộc các service hiện có. Các cổng service cần được giới hạn trong mạng nội bộ khi triển khai.
-
-Tests sử dụng HTTP server thật tại loopback và mock quota repository; không cần bật service nghiệp vụ hoặc Redis. Cần smoke test trên môi trường triển khai để xác nhận tích hợp Redis và các service thật.
-
-## ErrorCode theo mẫu WebAppBusTicket
-
-ErrorCode lưu mã ứng dụng, message và HTTP status. Service ném AppException(ErrorCode); GlobalExceptionHandler gọi ApiResponse.error(errorCode). Mã ứng dụng độc lập với HTTP status và không trùng nhau.
-
-| Lỗi | HTTP | code |
-|---|---|---|
-| Exception ngoài dự kiến | 500 | 9999 |
-| Chưa xác thực | 401 | 1001 |
-| Validation | 400 | 1003 |
-| Không có quyền | 403 | 1004 |
-| Sai tham số | 400 | 1006 |
-| Không tìm thấy | 404 | 1100 |
-| Method không hỗ trợ | 405 | 1101 |
-| Body quá lớn | 413 | 1102 |
-| Rate limit | 429 | 1103 |
-| Upstream không kết nối được | 502 | 1104 |
-| Redis rate limiter lỗi | 503 | 1105 |
-| Upstream timeout | 504 | 1106 |
-
-Đây là thay đổi contract lỗi của gateway Spring: client đọc code/message thay cho statusCode/error. Service được gọi trực tiếp và gateway NestJS tiếp tục dùng contract riêng. ErrorCode.java chứa catalog đầy đủ và mapping HTTP status của downstream.
+- `controller`:
+  - `GatewayController`: định tuyến toàn bộ 10 service prefix theo đúng thứ tự bảo vệ: Global IP Rate Limit -> Account Authority & Path Guard -> Route-specific Rate Limit -> Proxy.
+  - `HealthController`: `/` và `/health` (liveness, miễn rate limit), `POST /health/echo` (rate limit 2 req/60s, kiểm tra strict payload), `GET /health/error` (kiểm tra ẩn stack trace).
+- `service`:
+  - `AccountAuthorityService`: chặn đường dẫn mập mờ/path traversal (`%`, `\`, `//`, `.`, `..` -> `404`), xác thực trạng thái tài khoản trực tiếp qua `GET ${AUTH_SERVICE_URL}/internal/access` kèm `INTERNAL_SERVICE_TOKEN` đối với các route cần bảo vệ, gắn header đã xác thực `x-user-id` & `x-user-role`. Các route public (`/posts/**`, `/ai/**`, `/health/**`, các endpoint `POST /auth/*` đăng nhập/đăng ký/social/logout và `POST /payments/webhook/payos`) được cho phép đi thẳng.
+  - `ProxyService`:
+    - Loại bỏ toàn bộ hop-by-hop headers (bao gồm `proxy-connection`, `expect`) và các header mạo danh từ client (`x-service-token`, `x-ai-actor`, `x-ai-metadata`, `x-user-id`, `x-user-role`, `x-user-roles`).
+    - `/ai/**`: chặn tuyệt đối `/ai/internal/**` (`404`), đính kèm `x-service-token` tin cậy (`AI_SERVICE_TOKEN` >= 32 ký tự, fail-closed `503` nếu chưa cấu hình) cho `/ai/images/enhance`, giữ nguyên multipart boundary, stream trực tiếp ảnh nhị phân về client kèm `Cache-Control: no-store` và tự động đóng kết nối upstream khi client ngắt kết nối.
+  - `RateLimitService`:
+    - Global IP limit: `RATE_LIMIT_MAX` (`100`) / `RATE_LIMIT_TTL_MS` (`60000`).
+    - AI IP limit: `AI_RATE_LIMIT_MAX` (`5`) / `AI_RATE_LIMIT_WINDOW_MS` (`60000`) kèm block duration nguyên tử trong Redis.
+    - Moment search (`30/60s`), Media upload (`10/60s`), Health echo (`2/60s`).
+- `repository`: `RedisRateLimitRepository` chạy Lua script nguyên tử hỗ trợ cả cửa sổ đếm (`PEXPIRE`) và khóa tạm thời (`blockDurationMs`).
+- `configuration`: `GatewayProperties` kiểm tra chặt tất cả URL HTTP(S) origin, `CORS_ORIGINS` (cấm `*` hoặc đường dẫn con), `AI_SERVICE_TOKEN` và `INTERNAL_SERVICE_TOKEN`.
+- `filter`: `RequestContextFilter` chuẩn hóa `x-request-id`, gắn security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `X-Permitted-Cross-Domain-Policies`, `X-Download-Options`) và chặn sớm URI bất thường.

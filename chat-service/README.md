@@ -105,3 +105,24 @@ CHAT_TEST_DB_URL='postgres://postgres:test-only@127.0.0.1:55483/chat_test' \
 ```
 
 [Hướng dẫn hai máy ảo](../docs/guides/chat-two-emulators.md) dùng hai Android AVD, có tùy chọn iOS sau khi sửa dependency nền và checklist gửi, offline, retry, read, logout. Realtime được kết nối khi đang ở luồng Tin nhắn; mở lại luồng này sẽ tải lịch sử nếu trước đó ở Home/đóng app.
+
+## Phản hồi bài đăng kèm ảnh
+
+POST messages nhận `postId` UUID tùy chọn cùng `text` và `clientMessageId`. Server gọi `POST_SERVICE_URL` (mặc định `http://127.0.0.1:8087`) với JWT của người gửi để kiểm tra quyền xem và xác nhận chủ bài là người nhận. Client không gửi URL ảnh.
+
+Chạy `pnpm db:migrate:chat` trước khi khởi động bản mới: migration `AddPostAttachment1794787200000` chỉ thêm cột nullable `messages.post_attachment`, giữ nguyên tin cũ. Metadata `{postId, mediaKey}` đi cùng tin nhắn, inbox, lịch sử và event realtime. Ảnh gốc vẫn ở kho của post-service; không tạo bản sao. Ảnh không còn khả dụng thì mobile hiển thị thông báo thay thế và giữ nội dung chữ.
+
+Retry giữ nguyên clientMessageId, text và postId. Một tin đã commit có thể retry dù bài nguồn vừa bị xóa; gửi mới phải xác minh lại. Dùng lại mã tin với postId khác hoặc bỏ ảnh trả 409. Mobile chỉ đính kèm ảnh vào tin đầu tiên gửi từ màn hình bài đăng; mở chat không tự gửi.
+
+## Dữ liệu chat mẫu local
+
+Conversation thông thường được tạo khi mở chat qua `POST /chat/conversations/direct`, không tạo hàng loạt khi kết bạn. Endpoint kiểm tra bạn bè và tái sử dụng conversation nếu đã có.
+
+Nếu đã có các fixture từ `scripts/seed-feed-demo.cjs`, chạy tại root:
+
+```powershell
+npm --prefix chat-service run build
+node scripts/seed-chat-demo.mjs
+```
+
+Script chỉ dùng PostgreSQL local 127.0.0.1:5433, kiểm tra tài khoản active/quan hệ bạn bè/không block rồi tạo ba conversation của phatran17 với seed_minh_an, seed_thao_vy, seed_hoang_nam bằng repository hiện có. Có thể chạy lại, không trùng conversation hoặc member, không chèn tin nhắn hay sửa credentials. Các tài khoản mẫu không tự trả lời; cần một phiên đăng nhập của người nhận để kiểm thử hai chiều.

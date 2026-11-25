@@ -43,10 +43,12 @@ export class ChatService {
   private notify(accounts: string[], event: string, payload: unknown, conversationId: string): void {
     void this.events.publish(accounts, event, payload, conversationId).catch(() => this.logger.warn('Realtime delivery unavailable; clients can resync history'));
   }
-  async send(id: string, conversationId: string, clientMessageId: string, text: string, authorization: string) {
+  async send(id: string, conversationId: string, clientMessageId: string, text: string, authorization: string, postId?: string) {
     const member = await this.repo.member(id, conversationId);
     await this.policy.profile(authorization, member.peerId); this.quota(id);
-    const result = await this.repo.send(id, conversationId, clientMessageId, text);
+    const result = await this.repo.send(id, conversationId, clientMessageId, text, postId ? {
+      postId, resolve: () => this.policy.postAttachment(authorization, postId, member.peerId),
+    } : undefined);
     if (result.created) {
       this.notify([id, member.peerId], 'message:new', { message: result.message }, conversationId);
       this.notify([id, member.peerId], 'conversation:updated', { conversationId }, conversationId);

@@ -24,17 +24,26 @@ public class FeedService {
     this.audienceClient=audienceClient; this.feed=feed; this.posts=posts; this.views=views;
     transactions=new TransactionTemplate(manager);
   }
-  public Page page(String token,int limit,String value) {
+  public Page page(String token,int limit,String value,UUID ownerId) {
     if(limit<1 || limit>50) throw new AppException(ErrorCode.INVALID_PARAMETER);
     Instant now=Instant.now().truncatedTo(ChronoUnit.MILLIS);
-    FeedCursor cursor=value==null ? null : FeedCursor.decode(value,now);
+    String cursorValue=value;
+    if(ownerId!=null && value!=null) {
+      String prefix=ownerId+":";
+      if(!value.startsWith(prefix)) throw new AppException(ErrorCode.INVALID_PARAMETER);
+      cursorValue=value.substring(prefix.length());
+    }
+    FeedCursor cursor=cursorValue==null ? null : FeedCursor.decode(cursorValue,now);
     var audience=audienceClient.resolve(token);
+    if(ownerId!=null && !audience.authors().containsKey(ownerId)) throw new AppException(ErrorCode.ROUTE_NOT_FOUND);
     Instant snapshot=cursor==null ? now : cursor.snapshot();
-    var rows=feed.page(audience,snapshot,cursor,limit+1);
+    var rows=ownerId==null ? feed.page(audience,snapshot,cursor,limit+1)
+        : feed.authorPage(audience,ownerId,snapshot,cursor,limit+1);
     var data=List.copyOf(rows.subList(0,Math.min(limit,rows.size())));
     String next=null;
     if(rows.size()>limit) {
-      var last=data.getLast(); next=new FeedCursor(snapshot,last.capturedAt(),last.id()).encode();
+      var last=data.getLast(); next=new FeedCursor(snapshot,ownerId==null ? last.capturedAt() : last.createdAt(),last.id()).encode();
+      if(ownerId!=null) next=ownerId+":"+next;
     }
     return new Page(data,next);
   }
