@@ -27,6 +27,7 @@ public class AiPreviewService {
   public AiImageClient.Result enhance(AiPreviewRequest request,String authorization) {
     UUID owner=identity.resolve(authorization);
     var image=decoder.decode(request.imageBase64());
+    ai.ensureConfigured();
     claim(request.requestId(),owner);
     return ai.enhance(image.bytes(),request.filterId(),request.requestId());
   }

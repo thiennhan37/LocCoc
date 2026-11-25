@@ -1,11 +1,16 @@
+from pathlib import Path
 from typing import Literal
 
 from pydantic import AwareDatetime, Field, SecretStr, model_validator, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_SERVICE_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
+    model_config = SettingsConfigDict(
+        env_file=_SERVICE_ENV_FILE, extra="ignore", hide_input_in_errors=True
+    )
 
     IMAGE_ENHANCEMENT_ENABLED: bool = False
     GEMINI_API_KEY: SecretStr = SecretStr("")

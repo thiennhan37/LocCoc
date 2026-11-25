@@ -1,0 +1,2 @@
+org.springframework.boot.EnvironmentPostProcessor=\
+com.loccoc.api_gateway.configuration.LocalGatewayEnvironment

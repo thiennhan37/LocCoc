@@ -189,7 +189,9 @@ services:
       POST_DB_USER: ${POST_DB_USER:-postgres}
       POST_DB_PASSWORD: ${POST_DB_PASSWORD:-postgres}
       USER_SERVICE_URL: http://host.docker.internal:${USER_PORT:-8081}
+      AI_SERVICE_URL: http://ai-service:8087
       POST_AI_SERVICE_URL: http://ai-service:8087
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}
       POST_S3_ENDPOINT: http://media-store:8333
       POST_S3_BUCKET: ${POST_S3_BUCKET:-loccoc-posts}
       POST_S3_ACCESS_KEY: ${POST_S3_ACCESS_KEY:-${MEDIA_S3_ACCESS_KEY:-}}

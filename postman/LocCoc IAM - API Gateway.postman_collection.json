@@ -107,6 +107,21 @@
       "key": "feedCursor",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "aiServiceUrl",
+      "value": "http://127.0.0.1:8087",
+      "type": "string"
+    },
+    {
+      "key": "aiServiceToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "aiFilterId",
+      "value": "handwritten_diary",
+      "type": "string"
     }
   ],
   "item": [
@@ -2417,6 +2432,257 @@
             "url": "{{gatewayUrl}}/posts/{{postId}}/seen",
             "description": "Returns 204. Idempotent first view for authenticated viewer; checks current accepted-friend membership."
           }
+        },
+        {
+          "name": "Enhance Photo Preview (AI via Post Service - Paid)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{$guid}}\",\n  \"filterId\": \"{{aiFilterId}}\",\n  \"imageBase64\": \"PASTE_VALID_PNG_BASE64_HERE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/posts/photos/enhance",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "posts",
+                "photos",
+                "enhance"
+              ]
+            },
+            "description": "Gọi chỉnh sửa ảnh AI qua Post-Service (yêu cầu Bearer accessToken, ảnh đầu vào PNG <= 5 MiB / 2048px dạng base64, filterId là 'handwritten_diary' hoặc 'subject_sticker'). Lưu ý: requestId phải là UUID mới mỗi lần gọi (trùng sẽ trả 409) và sẽ gọi sang Gemini có tính phí. Đặt timeout Postman >= 75000ms."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "AI Service",
+      "description": "Các endpoint kiểm tra và chỉnh sửa ảnh của Python AI Service (:8087) và qua API Gateway (:8080). Điền biến collection 'aiServiceToken' bằng 64 ký tự AI_SERVICE_TOKEN trong ai-service/.env (không kèm dấu ngoặc kép) khi gọi trực tiếp cổng 8087.",
+      "item": [
+        {
+          "name": "Health Check (Direct - Free)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{aiServiceUrl}}/health",
+              "host": [
+                "{{aiServiceUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Kiểm tra tiến trình ai-service đang sống (miễn phí, không gọi Gemini)."
+          },
+          "response": []
+        },
+        {
+          "name": "Liveness Check (Direct - Free)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{aiServiceUrl}}/health/live",
+              "host": [
+                "{{aiServiceUrl}}"
+              ],
+              "path": [
+                "health",
+                "live"
+              ]
+            },
+            "description": "Kiểm tra liveness của ai-service (miễn phí, không cần token, không gọi Gemini)."
+          },
+          "response": []
+        },
+        {
+          "name": "Enhance Image - Dry Run Auth & Flag Check (Direct - Free)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Dry run passes auth & feature flag with 400 INVALID_REQUEST (0 cost)', function () {",
+                  "  pm.expect(pm.response.code).to.eql(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-service-token",
+                "value": "{{aiServiceToken}}",
+                "description": "Dán 64 ký tự AI_SERVICE_TOKEN từ ai-service/.env vào biến collection aiServiceToken (không có dấu ngoặc kép)."
+              },
+              {
+                "key": "x-request-id",
+                "value": "postman-dry-run-{{$timestamp}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "filterId",
+                  "value": "dry_run_check",
+                  "type": "text",
+                  "description": "Cố tình gửi filterId sai để test thông luồng Auth & cờ IMAGE_ENHANCEMENT_ENABLED mà KHÔNG tốn phí Gemini."
+                },
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": [],
+                  "description": "Chọn tạm 1 file ảnh bất kỳ để gửi form-data hợp lệ."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{aiServiceUrl}}/ai/images/enhance",
+              "host": [
+                "{{aiServiceUrl}}"
+              ],
+              "path": [
+                "ai",
+                "images",
+                "enhance"
+              ]
+            },
+            "description": "Test KHÔNG TỐN PHÍ: kiểm tra x-service-token và IMAGE_ENHANCEMENT_ENABLED=true trước khi gọi thật. Kết quả đúng là 400 INVALID_REQUEST (nếu 401 là sai token/chưa restart ai-service; nếu 503 là chưa bật IMAGE_ENHANCEMENT_ENABLED=true)."
+          },
+          "response": []
+        },
+        {
+          "name": "Enhance Image - Direct to AI Service (Paid)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-service-token",
+                "value": "{{aiServiceToken}}",
+                "description": "64 ký tự AI_SERVICE_TOKEN trong ai-service/.env (không kèm dấu ngoặc kép)."
+              },
+              {
+                "key": "x-request-id",
+                "value": "postman-direct-{{$timestamp}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": [],
+                  "description": "Chọn file JPEG, PNG hoặc WebP hợp lệ (<= 10 MiB)."
+                },
+                {
+                  "key": "filterId",
+                  "value": "{{aiFilterId}}",
+                  "type": "text",
+                  "description": "Chỉ chấp nhận 'handwritten_diary' hoặc 'subject_sticker'."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{aiServiceUrl}}/ai/images/enhance",
+              "host": [
+                "{{aiServiceUrl}}"
+              ],
+              "path": [
+                "ai",
+                "images",
+                "enhance"
+              ]
+            },
+            "description": "Gọi trực tiếp endpoint chỉnh sửa ảnh của Python AI Service (:8087). CÓ TỐN PHÍ Gemini và trừ 1 lượt quota Redis. Đặt Request timeout của Postman >= 70000ms. Không tự thêm header Content-Type."
+          },
+          "response": []
+        },
+        {
+          "name": "Enhance Image - Via API Gateway (Paid)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-request-id",
+                "value": "postman-gw-{{$timestamp}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": [],
+                  "description": "Chọn file JPEG, PNG hoặc WebP hợp lệ (<= 10 MiB)."
+                },
+                {
+                  "key": "filterId",
+                  "value": "{{aiFilterId}}",
+                  "type": "text",
+                  "description": "Chỉ chấp nhận 'handwritten_diary' hoặc 'subject_sticker'."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{gatewayUrl}}/ai/images/enhance",
+              "host": [
+                "{{gatewayUrl}}"
+              ],
+              "path": [
+                "ai",
+                "images",
+                "enhance"
+              ]
+            },
+            "description": "Gọi chỉnh sửa ảnh đi qua API Gateway (:8080). KHÔNG cần gửi x-service-token (Gateway tự động đính kèm AI_SERVICE_TOKEN). CÓ TỐN PHÍ Gemini và chịu AI rate limit (5 req/phút). Đặt Request timeout của Postman >= 70000ms."
+          },
+          "response": []
         }
       ]
     }
